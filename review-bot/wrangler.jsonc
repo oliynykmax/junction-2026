@@ -11,6 +11,11 @@
     { "type": "Text", "globs": ["**/*.svg"], "fallthrough": true },
     { "type": "Data", "globs": ["**/*.ico", "**/*.png"], "fallthrough": true },
   ],
+  "assets": {
+    "directory": "../landing",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
   "vars": {
     "REVIEW_BASE_URL": "https://review.oliinyk.dev",
     // Pinned to a commit so every review records exactly which rubric it ran.
@@ -32,9 +37,15 @@
     "SCANNER_URL": "https://j26-earned-trust--j26-review-scanner-web.us-east.modal.run",
   },
   "durable_objects": {
-    "bindings": [{ "name": "REVIEWS", "class_name": "Review" }],
+    "bindings": [
+      { "name": "REVIEWS", "class_name": "Review" },
+      { "name": "MANUAL_GATE", "class_name": "ManualGate" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Review"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Review"] },
+    { "tag": "v2", "new_sqlite_classes": ["ManualGate"] },
+  ],
   "routes": [
     {
       "pattern": "review.oliinyk.dev",

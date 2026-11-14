@@ -52,16 +52,19 @@ const MATCHERS: Record<ScanTool, RegExp> = {
     /\.(?:cs|csx|csproj|sln|props|targets)$|(^|\/)(?:global\.json|nuget\.config|packages\.lock\.json)$/i,
 };
 
+const REPOSITORY_CHECKS = new Set<ScanTool>(["dotnet-ci", "dotnet-format"]);
+
 export function planChecks(
   files: readonly { filename: string; status: string }[],
 ): Check[] {
   const present = files
     .filter((f) => f.status !== "removed")
     .map((f) => f.filename);
-  return SCAN_TOOLS.map((tool) => ({
-    tool,
-    paths: present.filter((p) => MATCHERS[tool].test(p)),
-  })).filter((c) => c.paths.length > 0);
+  const changed = files.map((f) => f.filename);
+  return SCAN_TOOLS.map((tool) => {
+    const candidates = REPOSITORY_CHECKS.has(tool) ? changed : present;
+    return { tool, paths: candidates.filter((p) => MATCHERS[tool].test(p)) };
+  }).filter((c) => c.paths.length > 0);
 }
 
 export function renderScan(scan: ScanState | null): string | undefined {

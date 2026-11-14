@@ -40,7 +40,7 @@ VERSIONS = {
 TIMEOUT_S = 120
 DOTNET_TIMEOUT_S = 300
 DOTNET_FUNCTION_TIMEOUT_S = DOTNET_TIMEOUT_S * 2 + 60
-WEB_TIMEOUT_S = DOTNET_FUNCTION_TIMEOUT_S + 60
+WEB_TIMEOUT_S = DOTNET_FUNCTION_TIMEOUT_S + 120
 
 scanner_image = (
     modal.Image.debian_slim(python_version="3.13")
@@ -324,9 +324,12 @@ def run(cmd: list[str], cwd: str, ok: set[int], timeout: int = TIMEOUT_S) -> str
 
 def scan_one(check: Check, cwd: str) -> ScanResult:
     started = time.monotonic()
-    paths = [p for p in check.paths if os.path.isfile(os.path.join(cwd, p))]
+    existing_paths = [
+        path for path in check.paths if os.path.isfile(os.path.join(cwd, path))
+    ]
     try:
-        diagnostics = RUNNERS[check.tool](paths, cwd) if paths else []
+        run_check = bool(existing_paths) or check.tool in DOTNET_TOOLS
+        diagnostics = RUNNERS[check.tool](existing_paths, cwd) if run_check else []
         status, error = "ok", None
     except Exception as e:  # noqa: BLE001 - one failing tool must not fail the scan
         diagnostics, status, error = [], "error", str(e)
@@ -335,7 +338,7 @@ def scan_one(check: Check, cwd: str) -> ScanResult:
         version=VERSIONS[check.tool],
         status=status,
         durationMs=int((time.monotonic() - started) * 1000),
-        paths=paths,
+        paths=check.paths if check.tool in DOTNET_TOOLS else existing_paths,
         diagnostics=diagnostics,
         error=error,
     )
@@ -356,6 +359,7 @@ def scan_archive(
     image=dotnet_image,
     timeout=DOTNET_FUNCTION_TIMEOUT_S,
     restrict_modal_access=True,
+    single_use_containers=True,
 )
 def run_dotnet_checks(
     archive: bytes, checks: list[dict[str, object]]
@@ -389,6 +393,9 @@ def web():
         static_checks = [
             check for check in req.checks if check.tool not in DOTNET_TOOLS
         ]
+        dotnet_call = (
+            run_dotnet_checks.spawn(archive, dotnet_checks) if dotnet_checks else None
+        )
         with tempfile.TemporaryDirectory() as cwd:
             extract_archive(archive, cwd)
             with ThreadPoolExecutor() as pool:
@@ -396,11 +403,8 @@ def web():
                     pool.map(lambda check: scan_one(check, cwd), static_checks)
                 )
                 dotnet = (
-                    [
-                        ScanResult.model_validate(result)
-                        for result in run_dotnet_checks.remote(archive, dotnet_checks)
-                    ]
-                    if dotnet_checks
+                    [ScanResult.model_validate(result) for result in dotnet_call.get()]
+                    if dotnet_call
                     else []
                 )
         static_results = iter(static)

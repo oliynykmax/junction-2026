@@ -4,10 +4,10 @@
 import { Fragment } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import {
-  ATTENTION,
   type ChangedFile,
   type Finding,
   type Focus,
+  isBlocking,
   type LineUrl,
   plural,
 } from "./shared";
@@ -148,7 +148,7 @@ function FileDiff({
                   );
                 const marks = l.new ? (byLine.get(l.new) ?? []) : [];
                 const isFocus = focus !== null && l.new === focus.line;
-                const severe = marks.some((f) => ATTENTION.has(f.severity));
+                const severe = marks.some(isBlocking);
                 return (
                   <Fragment key={i}>
                     <tr
@@ -171,7 +171,7 @@ function FileDiff({
                     {marks.map((f) => (
                       <tr
                         key={`${i}-${f.id}`}
-                        class={`d-note${ATTENTION.has(f.severity) ? " severe" : ""}${isFocus ? " focus" : ""}`}
+                        class={`d-note${isBlocking(f) ? " severe" : ""}${isFocus ? " focus" : ""}`}
                       >
                         <td colSpan={2} />
                         <td>

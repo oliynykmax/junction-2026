@@ -35,6 +35,7 @@ export function reviewPage(t: PageTarget): Response {
 <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot">
+<script>try{var s=localStorage.getItem("bumble-color-scheme");if(s==="light"||s==="dark")document.documentElement.setAttribute("data-color-scheme",s)}catch(_){}</script>
 <link rel="stylesheet" href="/review/app.css">
 <script type="module" src="/review/app.js"></script>
 </head>

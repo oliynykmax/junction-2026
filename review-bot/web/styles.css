@@ -22,8 +22,11 @@
   color-scheme: light;
 }
 
+/* Dark follows the OS unless the landing page's switch pinned light or dark
+   (data-color-scheme, set before paint by the inline script in src/page.ts).
+   The two blocks carry the same values. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-color-scheme="light"]) {
     --bg: #131313;
     --ink: #ececec;
     --ink-2: #a4a4a4;
@@ -39,6 +42,23 @@
     --red-bg: #3a1714;
     color-scheme: dark;
   }
+}
+
+:root[data-color-scheme="dark"] {
+  --bg: #131313;
+  --ink: #ececec;
+  --ink-2: #a4a4a4;
+  --rule: #2d2d2d;
+  --rule-strong: #ececec;
+  --tag: #262626;
+  --tag-ink: #dcdcdc;
+  --code-bg: #1c1c1c;
+  --add: #1d2a1b;
+  --del: #1f1f1f;
+  --mark: #777777;
+  --red: #ff7468;
+  --red-bg: #3a1714;
+  color-scheme: dark;
 }
 
 * {

@@ -29,13 +29,20 @@ h1{font-size:1.25rem;margin:0 0 4px}h2{font-size:.8rem;text-transform:uppercase;
 ul{margin:6px 0 0;padding-left:20px}
 .feed{font-size:.85rem}.feed .row{border-top:1px solid var(--line);padding:6px 0}.feed .tag{font-family:var(--mono);color:var(--muted);margin-right:6px}
 .feed pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-word;font:12px/1.4 var(--mono);color:var(--muted);max-height:12rem;overflow:auto}
-.err{color:var(--blocker)}.empty{color:var(--muted)}
+.err{color:var(--blocker)}.empty{color:var(--muted)}.scanning{color:var(--major)}
+.badge{font-family:var(--mono);font-size:.72rem;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--muted);font-size:.85rem}
+details pre{white-space:pre;overflow:auto;font:12px/1.4 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0}
+button{font:inherit;font-size:.85rem;padding:4px 12px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--muted)}
+.tool header{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.diag{font-size:.85rem;border-top:1px solid var(--line);padding:5px 0;display:flex;gap:8px;flex-wrap:wrap}
+.diag .sev{min-width:4.5rem}.error{--sev:var(--blocker)}.warning{--sev:var(--major)}.info{--sev:var(--muted)}
 </style>
 <main>
 <h1>Review of <a href="${esc(prUrl)}">${esc(label)}</a></h1>
 <div class="meta" id="meta">loading…</div>
 <div id="verdict"></div>
 <h2>Findings</h2><div id="findings" class="empty">none yet</div>
+<h2>Scanners</h2><div id="scanners" class="empty">waiting for the scan</div>
 <h2>Not checked</h2><div id="notchecked" class="empty">reported when the review finishes</div>
 <h2>Agent activity</h2><div id="feed" class="feed"></div>
 </main>
@@ -49,7 +56,7 @@ async function tick(){
   try{const r=await fetch(API,{cache:"no-store"});v=await r.json();if(!r.ok)throw new Error(v.error||r.status)}
   catch(e){$("meta").innerHTML='<span class="err">'+esc(e.message)+'</span>';timer=setTimeout(tick,5000);return}
   render(v);
-  if(v.status==="running"||v.status==="not_started")timer=setTimeout(tick,2000);
+  if(["running","scanning","not_started"].includes(v.status))timer=setTimeout(tick,2000);
 }
 function render(v){
   const r=v.review,t=r.target;
@@ -66,14 +73,33 @@ function render(v){
   if(fs.length)$("findings").innerHTML=fs.map((f)=>{
     const loc=f.path+(f.line?":"+f.line:"");
     const href=t?BLOB+"/blob/"+t.headSha+"/"+f.path+(f.line?"#L"+f.line:""):"#";
-    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+f.severity+'</span><strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a></header><p>'+esc(f.body)+'</p></div>';
+    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+f.severity+'</span><strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+esc(f.body)+'</p>'
+      +(f.suggestedPatch?'<details><summary>Suggested fix</summary><pre>'+esc(f.suggestedPatch)+'</pre><button disabled title="Not wired up yet">Open fix PR (coming soon)</button></details>':'')+'</div>';
   }).join("");
+  renderScan(r.scan,r.verdict,t);
   if(r.verdict){const n=r.verdict.notChecked;$("notchecked").className=n.length?"":"empty";$("notchecked").innerHTML=n.length?'<ul>'+n.map((x)=>'<li>'+esc(x)+'</li>').join("")+'</ul>':"nothing listed"}
   $("feed").innerHTML=v.activity.map((a)=>{
     if(a.kind==="say")return '<div class="row"><span class="tag">agent</span>'+esc(a.text)+'</div>';
     if(a.kind==="call")return '<div class="row"><span class="tag">call</span><code>'+esc(a.name)+'</code> <code>'+esc(JSON.stringify(a.args))+'</code></div>';
     return '<div class="row"><span class="tag">'+(a.isError?'<span class="err">error</span>':'result')+'</span><code>'+esc(a.name)+'</code><pre>'+esc(a.text)+'</pre></div>';
   }).join("")||'<span class="empty">no activity yet</span>';
+}
+function renderScan(scan,verdict,t){
+  const el=$("scanners");
+  if(!scan||scan.status==="pending"){el.className="empty";el.textContent=scan?"running zizmor, ty and oxlint on the changed files…":"no scan for this review";return}
+  if(scan.status==="skipped"){el.className="empty";el.textContent="no scanner applies to the changed files";return}
+  if(scan.status==="failed"){el.className="err";el.textContent="scanners did not run: "+scan.error;return}
+  el.className="";
+  const dismissed=(verdict&&verdict.dismissed)||[];
+  el.innerHTML=scan.results.map((x)=>{
+    const head='<header><strong>'+esc(x.tool)+'</strong><span class="badge">'+esc(x.version)+'</span><span class="loc">'+x.durationMs+' ms · '+x.paths.length+' file(s) · '+(x.status==="ok"?x.diagnostics.length+' diagnostic(s)':'<span class="err">failed</span>')+'</span></header>';
+    const rows=x.status==="ok"?x.diagnostics.map((d)=>{
+      const href=t?BLOB+"/blob/"+t.headSha+"/"+d.path+(d.line?"#L"+d.line:""):"#";
+      const dis=dismissed.find((m)=>m.tool===x.tool&&m.rule===d.rule&&m.path===d.path);
+      return '<div class="diag '+d.severity+'"><span class="sev">'+d.severity+'</span>'+(d.url?'<a href="'+esc(d.url)+'"><code>'+esc(d.rule)+'</code></a>':'<code>'+esc(d.rule)+'</code>')+'<a class="loc" href="'+esc(href)+'">'+esc(d.path+(d.line?":"+d.line:""))+'</a><span>'+esc(d.message)+'</span>'+(dis?'<span class="empty">dismissed by the agent: '+esc(dis.reason)+'</span>':'')+'</div>';
+    }).join(""):'<div class="diag err">'+esc(x.error)+'</div>';
+    return '<div class="card tool">'+head+rows+'</div>';
+  }).join("");
 }
 tick();
 </script></html>`;

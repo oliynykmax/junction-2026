@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { type AppSecrets, installationToken } from "./github";
+import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
   ReviewDoc,
@@ -32,6 +33,8 @@ export interface Env extends AppSecrets {
   MODEL_ID: string;
   THINKING_LEVEL: ModelThinkingLevel;
   ANTHROPIC_API_KEY: string;
+  SCANNER_URL: string;
+  SCANNER_TOKEN: string;
   REVIEWS: DurableObjectNamespace<Review>;
 }
 
@@ -41,7 +44,7 @@ export type Activity =
   | { kind: "result"; name: string; isError: boolean; text: string };
 
 export type ReviewView = {
-  status: "not_started" | "running" | "done" | "failed";
+  status: "not_started" | "scanning" | "running" | "done" | "failed";
   failure: string | null;
   review: Omit<ReviewState, "prompt"> & {
     prompt: { url: string; sha256: string } | null;
@@ -64,6 +67,7 @@ export function reviewKey(t: {
 
 export class Review extends DurableObject<Env> {
   #harness!: Harness;
+  #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
   #tokens = new Map<number, { token: string; expiresAt: number }>();
 
   constructor(state: DurableObjectState, env: Env) {
@@ -84,7 +88,12 @@ export class Review extends DurableObject<Env> {
       });
       models.setProvider(anthropicProvider());
       const registry = createRegistry();
-      registry.install(reviewerExtension((id) => this.#token(id)));
+      const reviewer = reviewerExtension({
+        token: (id) => this.#token(id),
+        scan: (target, token, checks) => this.#scan(target, token, checks),
+      });
+      this.#scanTask = reviewer.scanTask;
+      registry.install(reviewer.extension);
 
       this.#harness = await Harness.open(
         await openDurableObjectSqliteStorage(state.storage),
@@ -138,14 +147,14 @@ export class Review extends DurableObject<Env> {
       state.startedAt = Date.now();
     }, ctx);
     await this.#arm({ ...this.#harness.wake(), active: true });
-    await root.submit(
-      {
-        type: "input",
-        content: `Review pull request ${target.owner}/${target.repo}#${target.number} at head ${target.headSha}.`,
-        requestId: "review",
-      },
-      ctx,
-    );
+    await root.commit(async (tx) => {
+      const state = await tx.doc(ReviewDoc, root.id);
+      if (state.scan) return;
+      state.scan = { status: "pending", results: [], error: null };
+      await tx.createTask(this.#scanTask, null, {
+        ownership: { kind: "conversation" },
+      });
+    }, ctx);
   }
 
   async view(): Promise<ReviewView> {
@@ -155,7 +164,10 @@ export class Review extends DurableObject<Env> {
       this.#harness.snapshot(LiveDoc, root.id, ctx),
       root.entries({ order: "ascending" }, 1000, undefined, ctx),
     ]);
-    const usage = await this.#harness.usage(ctx);
+    const [usage, inspection] = await Promise.all([
+      this.#harness.usage(ctx),
+      this.#harness.inspect(ctx),
+    ]);
     const review = state ?? EMPTY_REVIEW;
     const failure = live?.runFailure
       ? `${live.runFailure.reason}${live.runFailure.detail ? `: ${live.runFailure.detail}` : ""}`
@@ -166,9 +178,11 @@ export class Review extends DurableObject<Env> {
         ? "done"
         : failure
           ? "failed"
-          : live?.run
-            ? "running"
-            : "failed";
+          : review.scan?.status === "pending"
+            ? "scanning"
+            : inspection.tasks.length > 0
+              ? "running"
+              : "failed";
 
     const activity: Activity[] = [];
     for (const entry of page.items) {
@@ -224,6 +238,30 @@ export class Review extends DurableObject<Env> {
         maxTurns: 80,
       },
     });
+  }
+
+  async #scan(
+    target: Target,
+    token: string,
+    checks: Check[],
+  ): Promise<ScanResult[]> {
+    const res = await fetch(`${this.env.SCANNER_URL}/scan`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.env.SCANNER_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        owner: target.owner,
+        repo: target.repo,
+        sha: target.headSha,
+        token,
+        checks,
+      }),
+    });
+    if (!res.ok)
+      throw new Error(`scanner -> ${res.status}: ${await res.text()}`);
+    return res.json();
   }
 
   async #token(installationId: number): Promise<string> {

@@ -40,7 +40,7 @@ const PR_ACTIONS = new Set([
 const NAME = "[\\w.-]+";
 const PAGE = new RegExp(`^/(r|m)/(${NAME})/(${NAME})/(\\d+)/?$`);
 const LIVE_PR = new RegExp(
-  `^/api/(?:r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})/pr$`,
+  `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})/pr$`,
 );
 const VIEW = new RegExp(
   `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})$`,
@@ -109,13 +109,22 @@ export default {
 
     m = url.pathname.match(LIVE_PR);
     if (m) {
-      const [, owner, repo, number, headSha] = m;
-      const live = await cachedPrLive(env, url.pathname, {
+      const [, path, owner, repo, number, headSha] = m;
+      const target = {
         owner,
         repo,
         number: Number(number),
         headSha,
-      });
+        mode: path === "m" ? ("manual" as const) : ("webhook" as const),
+      };
+      // Only commits with a stored review reach GitHub, so made-up targets
+      // cannot spend the installation's API quota.
+      if (!(await env.REVIEWS.getByName(reviewKey(target)).hasStarted()))
+        return Response.json(
+          { error: "Review not found." },
+          { status: 404, headers: { "cache-control": "no-store" } },
+        );
+      const live = await cachedPrLive(env, url.pathname, target);
       return Response.json(live, { headers: { "cache-control": "no-store" } });
     }
 

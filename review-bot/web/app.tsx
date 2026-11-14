@@ -116,36 +116,45 @@ function useReview(api: string, pollMs: number) {
   return { view, error };
 }
 
-const CI_PENDING_POLL_MS = 15_000;
+const PR_LIVE_POLL_MS = 15_000;
 
-// The PR's title, author, branches and CI, read from GitHub. Polls while any
-// check is still running; the page works without it.
-function usePrLive(api: string) {
+/** Whether to read the PR again: after a failed read, while the review runs, or while CI is pending. */
+export function keepPolling(
+  result: PrLive | null,
+  reviewActive: boolean,
+): boolean {
+  if (!result || reviewActive) return true;
+  return [...result.checks.items, ...result.statuses.items].some(
+    (i) => i.state === "pending",
+  );
+}
+
+// The PR's title, author, branches and CI, read from GitHub. The page works
+// without it, so failures only delay the next read.
+function usePrLive(api: string, reviewActive: boolean) {
   const [live, setLive] = useState<PrLive | null>(null);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
     const tick = async () => {
+      let result: PrLive | null = null;
       try {
         const res = await fetch(`${api}/pr`, { cache: "no-store" });
-        if (!res.ok) return;
-        const body = (await res.json()) as PrLive;
-        if (stopped) return;
-        setLive(body);
-        const pending = [...body.checks.items, ...body.statuses.items].some(
-          (i) => i.state === "pending",
-        );
-        if (pending) timer = setTimeout(tick, CI_PENDING_POLL_MS);
+        if (res.ok) result = (await res.json()) as PrLive;
       } catch {
-        // CI and PR details are extras; the review renders without them.
+        result = null;
       }
+      if (stopped) return;
+      if (result) setLive(result);
+      if (keepPolling(result, reviewActive))
+        timer = setTimeout(tick, PR_LIVE_POLL_MS);
     };
     tick();
     return () => {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [api]);
+  }, [api, reviewActive]);
   return live;
 }
 
@@ -174,7 +183,7 @@ function LivePage({
   // The page stops polling once the review is done, so a fresh sign-off is held here.
   const [justSigned, setJustSigned] = useState<SignOff | null>(null);
   const signed = justSigned ?? view?.signOff ?? null;
-  const live = usePrLive(api);
+  const live = usePrLive(api, !view || LIVE.has(view.status));
   const pr = live?.pr;
   const r = view?.review;
   const files = r?.files ?? [];

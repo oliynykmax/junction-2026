@@ -1,9 +1,23 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { dismissStaleApprovals, publishReview } from "../src/github";
 import type { Severity } from "../src/findings";
+import type { Evidence } from "../src/evidence";
 
 const pr = { owner: "team", repo: "demo", number: 1, headSha: "a".repeat(40) };
 const report = `https://review.example/r/team/demo/1?sha=${pr.headSha}`;
+const evidence: Evidence = {
+  headSha: pr.headSha,
+  base: { owner: pr.owner, repo: pr.repo, sha: "b".repeat(40) },
+  capturedAt: 1,
+  checks: {
+    kind: "available",
+    items: [
+      { id: 1, name: "tests", state: "success", detail: "success", url: null },
+    ],
+  },
+  statuses: { kind: "available", items: [] },
+  standard: { kind: "absent" },
+};
 const marker = "<!-- earned-trust-review-approval -->";
 type Review = { id: number; state: string; commit_id: string; body: string };
 
@@ -58,6 +72,7 @@ for (const { severities, summary, event } of [
       pr,
       severities.map((severity) => ({ severity })),
       report,
+      evidence,
     );
     expect(writes).toEqual([
       {
@@ -74,7 +89,7 @@ for (const { severities, summary, event } of [
 
 test("skips a stale head", async () => {
   const writes = github("b".repeat(40));
-  await publishReview("token", pr, [{ severity: "medium" }], report);
+  await publishReview("token", pr, [{ severity: "medium" }], report, evidence);
   expect(writes).toEqual([]);
 });
 
@@ -83,8 +98,8 @@ for (const findings of [[], [{ severity: "medium" }]] satisfies {
 }[][]) {
   test(`retry skips an existing ${findings.length ? "comment review" : "approval"}`, async () => {
     const writes = github();
-    await publishReview("token", pr, findings, report);
-    await publishReview("token", pr, findings, report);
+    await publishReview("token", pr, findings, report, evidence);
+    await publishReview("token", pr, findings, report, evidence);
     expect(writes).toHaveLength(1);
   });
 }
@@ -94,7 +109,7 @@ test("ignores unrelated reviews and reviews of older commits", async () => {
     { id: 1, state: "COMMENTED", commit_id: pr.headSha, body: "Human review" },
     { id: 2, state: "COMMENTED", commit_id: "old", body: marker },
   ]);
-  await publishReview("token", pr, [{ severity: "high" }], report);
+  await publishReview("token", pr, [{ severity: "high" }], report, evidence);
   expect(writes).toHaveLength(1);
 });
 
@@ -107,7 +122,7 @@ test("keeps legacy marked approval deduplication", async () => {
       body: `${marker}\nOld approval`,
     },
   ]);
-  await publishReview("token", pr, [], report);
+  await publishReview("token", pr, [], report, evidence);
   expect(writes).toEqual([]);
 });
 
@@ -123,3 +138,34 @@ test("dismisses only stale bot approvals", async () => {
     "/repos/team/demo/pulls/1/reviews/1/dismissals",
   ]);
 });
+
+for (const incomplete of [
+  null,
+  { ...evidence, checks: { kind: "available", items: [] } },
+  {
+    ...evidence,
+    checks: { kind: "unavailable", items: [], reason: "HTTP 403" },
+  },
+  {
+    ...evidence,
+    checks: {
+      kind: "available",
+      items: [{ ...evidence.checks.items[0], state: "pending" }],
+    },
+  },
+  {
+    ...evidence,
+    checks: {
+      kind: "available",
+      items: [{ ...evidence.checks.items[0], state: "failed" }],
+    },
+  },
+  { ...evidence, standard: { kind: "unavailable", reason: "HTTP 403" } },
+  { ...evidence, headSha: "d".repeat(40) },
+] satisfies (Evidence | null)[]) {
+  test("comments instead of approving without complete successful matching evidence", async () => {
+    const writes = github();
+    await publishReview("token", pr, [], report, incomplete);
+    expect(writes[0].body).toMatchObject({ event: "COMMENT" });
+  });
+}

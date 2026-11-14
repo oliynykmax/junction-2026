@@ -48,3 +48,9 @@ The bot identified repeated anonymous GitHub visibility checks during report pol
 Resolution attempts have a separate durable budget of ten per client per hour, thirty globally per hour, and one hundred per day. Missing, private, and oversized PRs spend only lookup attempts. Existing reports bypass the model budget. New review admissions record the pinned key in the same transaction as the budget so concurrent retries cannot double-charge it.
 
 The low-severity context-abstraction suggestion is deferred. The target union and completion tests enforce anonymous reads and no manual approvals; a broader refactor is not needed to fix either quota bug. Explicit approval guards remain intentional safety checks. The bot's two medium reliability and correctness findings are fixed, with regression coverage.
+
+## Conflict resolution and second bot pass
+
+Main now publishes compact GitHub reviews for findings as well as clean approvals. The conflict resolution keeps that publication for webhook reviews and suppresses all publication in manual mode. Completion tests now exercise the publication callback.
+
+The second bot pass suggested reducing anonymous reads further and canonicalizing manual report paths. Resolution now verifies base repository visibility from the PR response in one GitHub request, and a shared review-key function lowercases repository paths for both modes. The duplicated manual-key function was removed. The remaining schema/context refactor suggestions are deferred; they describe maintainability preferences rather than observed behavior defects.

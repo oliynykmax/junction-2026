@@ -69,16 +69,6 @@ export type ReviewView = {
 const HEARTBEAT_MS = 60_000;
 const PROVIDER = "anthropic";
 
-export function reviewKey(t: {
-  owner: string;
-  repo: string;
-  number: number;
-  headSha: string;
-  mode?: "manual" | "webhook";
-}) {
-  return `${t.mode === "manual" ? "manual:" : ""}${t.owner}/${t.repo}#${t.number}@${t.headSha}`;
-}
-
 export function reviewLink(env: Env, t: Target) {
   return `${env.REVIEW_BASE_URL}/${t.mode === "manual" ? "m" : "r"}/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
 }

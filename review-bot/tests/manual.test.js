@@ -1,12 +1,12 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { gh, prFiles } from "../src/github";
 import {
-  manualKey,
   manualView,
   parsePrUrl,
   resolveManual,
   startManual,
 } from "../src/manual";
+import { reviewKey } from "../src/review-key";
 import { EMPTY_REVIEW, reviewerExtension } from "../src/reviewer";
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
 const { consume, ManualGate } = await import("../src/manual-gate");
@@ -26,7 +26,7 @@ const target = {
 };
 const publicPr = {
   head: { sha },
-  base: { sha: baseSha },
+  base: { sha: baseSha, repo: { private: false, visibility: "public" } },
   changed_files: 2,
   additions: 10,
   deletions: 2,
@@ -58,7 +58,7 @@ function env() {
       getByName: (key) => {
         keys.push(key);
         return {
-          hasStarted: async () => started.some((t) => manualKey(t) === key),
+          hasStarted: async () => started.some((t) => reviewKey(t) === key),
           start: async (t) => {
             started.push(JSON.parse(JSON.stringify(t)));
           },
@@ -102,16 +102,22 @@ test("resolves public PR head and base without app tokens or authorization", asy
   expect(await resolveManual("https://github.com/team/demo/pull/12")).toEqual(
     target,
   );
-  expect(calls).toHaveLength(2);
+  expect(calls).toHaveLength(1);
   for (const call of calls) {
     expect(call.method).toBe("GET");
     expect(call.headers.authorization).toBeUndefined();
   }
 });
 
-test("rejects private repositories before reading the PR", async () => {
+test("rejects PRs whose base repository is private", async () => {
   globalThis.fetch = mock(async () =>
-    Response.json({ private: true, visibility: "private" }),
+    Response.json({
+      ...publicPr,
+      base: {
+        ...publicPr.base,
+        repo: { private: true, visibility: "private" },
+      },
+    }),
   );
   await expect(
     resolveManual("https://github.com/team/demo/pull/12"),
@@ -135,7 +141,7 @@ test("starts in isolated namespace and persists manual mode with pinned commits"
   );
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ url: `/m/team/demo/12?sha=${sha}` });
-  expect(bindings.keys).toEqual([manualKey(target)]);
+  expect(bindings.keys).toEqual([reviewKey(target)]);
   expect(bindings.keys[0]).toBe(`manual:team/demo#12@${sha}`);
   expect(bindings.started).toEqual([target]);
   expect(bindings.started[0].installationId).toBeUndefined();
@@ -273,7 +279,7 @@ test("manual report polling reads stored public review without GitHub", async ()
   const bindings = {
     REVIEWS: {
       getByName: (key) => {
-        expect(key).toBe(manualKey(target));
+        expect(key).toBe(reviewKey(target));
         return { view: async () => view };
       },
     },
@@ -357,5 +363,11 @@ test("lookup throttling has its own durable budget", async () => {
   expect(data.get("budget")).toBeUndefined();
   expect(await ManualGate.prototype.admit.call(gate, "ip", "commit")).toBe(
     true,
+  );
+});
+
+test("manual report lookup canonicalizes mixed-case owner and repository", async () => {
+  expect(reviewKey({ ...target, owner: "TEAM", repo: "Demo" })).toBe(
+    reviewKey(target),
   );
 });

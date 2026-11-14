@@ -579,7 +579,7 @@ footer > a:last-child {
     font-size: clamp(43px, 9vw, 64px);
   }
   .lede {
-  margin-inline: auto;
+    margin-inline: auto;
     font-size: 15px;
   }
   .input-row {

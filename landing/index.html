@@ -51,32 +51,31 @@
             can trace, assumptions you can question, and a clear view of what
             wasn't checked.
           </p>
-
         </div>
-          <form id="review" class="review-form" aria-describedby="form-note">
-            <label for="pr-url">Public GitHub pull request</label>
-            <div class="input-row">
-              <input
-                id="pr-url"
-                name="url"
-                type="url"
-                required
-                maxlength="512"
-                placeholder="https://github.com/owner/repo/pull/123"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="form-note form-status"
-              /><button type="submit">
-                <span id="button-label">Run review</span
-                ><span aria-hidden="true">↗</span>
-              </button>
-            </div>
-            <p id="form-note">
-              Read-only. No GitHub comments or approvals. Public PRs only.
-            </p>
-            <p id="form-status" role="status" aria-live="polite"></p>
-            <noscript><p>Enable JavaScript to start a review.</p></noscript>
-          </form>
+        <form id="review" class="review-form" aria-describedby="form-note">
+          <label for="pr-url">Public GitHub pull request</label>
+          <div class="input-row">
+            <input
+              id="pr-url"
+              name="url"
+              type="url"
+              required
+              maxlength="512"
+              placeholder="https://github.com/owner/repo/pull/123"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="form-note form-status"
+            /><button type="submit">
+              <span id="button-label">Run review</span
+              ><span aria-hidden="true">↗</span>
+            </button>
+          </div>
+          <p id="form-note">
+            Read-only. No GitHub comments or approvals. Public PRs only.
+          </p>
+          <p id="form-status" role="status" aria-live="polite"></p>
+          <noscript><p>Enable JavaScript to start a review.</p></noscript>
+        </form>
         <figure class="report-figure" aria-labelledby="report-caption">
           <div class="orange-sheet" aria-hidden="true">
             <span>LOOK CLOSER.</span><span class="cross">+</span>

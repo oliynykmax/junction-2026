@@ -152,24 +152,6 @@ input:focus-visible,
   color: var(--ink);
   border-color: currentColor;
 }
-nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xl);
-  font-size: 14px;
-}
-nav a {
-  text-decoration: none;
-}
-nav a:hover {
-  text-decoration: underline;
-}
-.nav-cta {
-  padding: 10px 16px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-}
-
 /* Theme switch, built on <ui-switch> */
 .theme {
   display: inline-flex;
@@ -217,14 +199,19 @@ nav a:hover {
   height: 12px;
 }
 
-/* Hero: copy and form left, the report anatomy right */
+/* Hero: one centred column, the review form at its heart */
 .hero {
+  min-height: calc(100svh - 104px);
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: clamp(40px, 6vw, 112px);
-  padding-top: var(--space-xl);
-  padding-bottom: var(--space-3xl);
+  place-items: center;
+  padding-block: var(--space-xl) var(--space-3xl);
+}
+.hero-inner {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  text-align: center;
 }
 .intro {
   display: flex;
@@ -241,11 +228,11 @@ nav a:hover {
   border-radius: 50%;
 }
 h1 {
-  font-size: clamp(40px, 5.2vw, 76px);
-  line-height: 1.05;
+  font-size: clamp(36px, 4.6vw, 60px);
+  line-height: 1.08;
   letter-spacing: -0.035em;
   font-weight: 700;
-  max-width: 14ch;
+  max-width: 18ch;
 }
 .accent {
   color: var(--accent);
@@ -255,13 +242,14 @@ h1 {
   font-size: 18px;
   line-height: 1.7;
   color: var(--muted);
-  margin-top: var(--space-lg);
+  margin-top: var(--space-md);
 }
 
 /* Review form, built on <ui-field>, <ui-input> and <ui-button> */
 .review-form {
   margin-top: var(--space-2xl);
-  max-width: 640px;
+  width: 100%;
+  text-align: left;
   scroll-margin-top: 30px;
 }
 [data-slot="field"] {
@@ -354,145 +342,54 @@ noscript p {
   margin-top: var(--space-sm);
 }
 
-/* Report anatomy */
-.report-figure {
-  position: relative;
-  margin: 0;
-  padding: 60px 0 0 28px;
-  isolation: isolate;
-  width: min(520px, 100%);
-  justify-self: center;
+/* Example reviews: secondary to the form, so quiet chips rather than cards */
+.examples {
+  width: 100%;
+  margin-top: var(--space-xl);
 }
-.orange-sheet {
-  position: absolute;
-  inset: 0 18px 55px 0;
-  background: var(--orange);
-  color: var(--on-orange);
-  border-radius: 9px;
-  transform: rotate(-5deg);
-  z-index: -1;
-  display: flex;
-  justify-content: space-between;
-  padding: 18px 25px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-}
-.cross {
-  font-size: 25px;
-  line-height: 1;
-}
-.report-sheet {
-  background: var(--paper);
-  border: 1px solid var(--ink);
-  border-radius: 9px;
-  transform: rotate(2deg);
-  padding: 24px 28px;
-  box-shadow: 5px 6px 0 var(--shadow-ink);
-  animation: arrive 0.7s var(--ease);
-}
-.report-top {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+.examples h2 {
   font-size: 13px;
-}
-.report-symbol {
-  font-size: 24px;
-  color: var(--accent);
-}
-.sample-tag {
-  margin-left: auto;
-  border: 1px solid var(--line-strong);
-  padding: 1px 7px;
-  border-radius: 3px;
-  font-size: 11px;
+  font-weight: 400;
   color: var(--muted);
 }
-.report-title {
-  font-weight: 700;
-  font-size: clamp(28px, 3vw, 40px);
-  line-height: 1.2;
-  letter-spacing: -0.025em;
-  margin: 29px 0 20px;
-}
-.report-title > span {
-  color: var(--accent);
-}
-.commit {
+.examples ul {
+  list-style: none;
+  margin: var(--space-sm) 0 0;
+  padding: 0;
   display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: var(--muted);
-  padding-bottom: 19px;
-  border-bottom: 1px solid var(--line);
-}
-.branch-icon {
-  font-size: 22px;
-  color: var(--ink);
-}
-.evidence-row {
-  display: flex;
-  gap: 14px;
-  margin-top: 19px;
-  align-items: flex-start;
-}
-.evidence-mark {
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  align-items: center;
-  background: var(--soft);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  font-size: 13px;
-  color: var(--accent);
+  gap: var(--space-sm);
 }
-.evidence-row strong {
-  display: block;
-  font-size: 14px;
+.examples a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
   line-height: 1.5;
-}
-.evidence-row p {
-  font-size: 13px;
   color: var(--muted);
-  max-width: 32ch;
-  margin-top: 3px;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
-.owner-line {
-  margin-top: 25px;
-  background: var(--ink);
-  color: var(--bg);
-  display: flex;
-  align-items: center;
-  padding: 16px;
-  gap: 12px;
-  border-radius: 5px;
+.examples a:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
 }
-.human-icon {
-  font-size: 27px;
-  color: var(--accent);
+.examples strong {
+  font-weight: 400;
 }
-.owner-line strong {
-  font-size: 13px;
-  display: block;
+.examples span::before {
+  content: "· ";
 }
-.owner-line div > span {
-  font-size: 13px;
-}
-.owner-arrow {
-  margin-left: auto;
-  color: var(--accent);
-  font-size: 20px;
-}
-figcaption {
-  font-size: 13px;
+.examples p {
+  margin-top: var(--space-sm);
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 28px;
-  text-align: center;
 }
 
 /* Principle band */
@@ -609,31 +506,14 @@ footer {
 footer .brand {
   font-size: 14px;
 }
-footer p,
-footer > a:last-child {
+footer p {
   font-size: 13px;
   color: var(--muted);
-}
-
-@keyframes arrive {
-  from {
-    transform: translateY(14px) rotate(0);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0) rotate(2deg);
-    opacity: 1;
-  }
 }
 
 @media (max-width: 1000px) {
   .wrap {
     width: calc(100% - 48px);
-  }
-  .hero {
-    grid-template-columns: 1fr;
-    gap: 64px;
-    padding-top: var(--space-md);
   }
   .demo {
     display: none;
@@ -665,16 +545,6 @@ footer > a:last-child {
     width: 32px;
     height: 32px;
   }
-  nav {
-    gap: var(--space-md);
-    font-size: 13px;
-  }
-  .nav-how {
-    display: none;
-  }
-  .nav-cta {
-    padding: 8px 12px;
-  }
   .theme-label {
     position: absolute;
     width: 1px;
@@ -684,19 +554,14 @@ footer > a:last-child {
     white-space: nowrap;
   }
   .hero {
-    padding-bottom: 56px;
+    min-height: 0;
+    padding-block: var(--space-md) 56px;
   }
   .lede {
     font-size: 16px;
   }
   .input-row button .arrow {
     display: none;
-  }
-  .report-figure {
-    padding-left: 18px;
-  }
-  .report-sheet {
-    padding: 22px;
   }
   .ownership-inner {
     display: block;
@@ -717,11 +582,7 @@ footer > a:last-child {
     padding-block: 32px;
   }
   footer p {
-    order: 3;
     width: 100%;
-  }
-  footer > a:last-child {
-    margin-left: auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {

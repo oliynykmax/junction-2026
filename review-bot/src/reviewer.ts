@@ -4,13 +4,23 @@
 import {
   defineDoc,
   defineExtension,
+  defineTask,
   defineTool,
   section,
   type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
 import { arr, int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Context } from "@earendil-works/chord/context";
-import { gh, ghJson } from "./github";
+import { gh, ghJson, prFiles } from "./github";
+import {
+  type Check,
+  planChecks,
+  renderScan,
+  SCAN_TOOLS,
+  type ScanResult,
+  type ScanState,
+  type ScanTool,
+} from "./scanners";
 
 export type Target = {
   owner: string;
@@ -29,12 +39,22 @@ export type Finding = {
   severity: Severity;
   title: string;
   body: string;
+  source: "agent" | ScanTool;
+  suggestedPatch: string | null;
+};
+
+export type Dismissal = {
+  tool: ScanTool;
+  rule: string;
+  path: string;
+  reason: string;
 };
 
 export type Verdict = {
   decision: "no_blockers_found" | "changes_requested";
   summary: string;
   notChecked: string[];
+  dismissed: Dismissal[];
 };
 
 export type ReviewState = {
@@ -42,6 +62,7 @@ export type ReviewState = {
   prompt: { url: string; sha256: string; text: string } | null;
   model: string | null;
   startedAt: number | null;
+  scan: ScanState | null;
   findings: Finding[];
   verdict: Verdict | null;
 };
@@ -51,6 +72,7 @@ export const EMPTY_REVIEW: ReviewState = {
   prompt: null,
   model: null,
   startedAt: null,
+  scan: null,
   findings: [],
   verdict: null,
 };
@@ -65,36 +87,22 @@ export const ReviewDoc = defineDoc<ReviewState>({
   checkpointWhen: () => false,
 });
 
-type Token = (installationId: number) => Promise<string>;
-
-type PrFile = {
-  filename: string;
-  status: string;
-  additions: number;
-  deletions: number;
-  patch?: string;
+export type ReviewerDeps = {
+  token: (installationId: number) => Promise<string>;
+  scan: (
+    target: Target,
+    token: string,
+    checks: Check[],
+  ) => Promise<ScanResult[]>;
 };
 
 const MAX_FILE_LINES = 400;
 
-export function reviewerExtension(token: Token) {
+export function reviewerExtension({ token, scan }: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
     if (!state?.target) throw new Error("review has no target");
     return { t: state.target, tok: await token(state.target.installationId) };
-  }
-
-  async function prFiles(t: Target, tok: string): Promise<PrFile[]> {
-    const files: PrFile[] = [];
-    for (let page = 1; page <= 30; page++) {
-      const batch = await ghJson<PrFile[]>(
-        tok,
-        `/repos/${t.owner}/${t.repo}/pulls/${t.number}/files?per_page=100&page=${page}`,
-      );
-      files.push(...batch);
-      if (batch.length < 100) break;
-    }
-    return files;
   }
 
   const text = (s: string) => ({
@@ -117,7 +125,7 @@ export function reviewerExtension(token: Token) {
           base: { ref: string; sha: string };
           head: { ref: string; sha: string };
         }>(tok, `/repos/${t.owner}/${t.repo}/pulls/${t.number}`),
-        prFiles(t, tok),
+        prFiles(tok, t),
       ]);
       const list = files
         .map(
@@ -140,7 +148,7 @@ export function reviewerExtension(token: Token) {
     replay: "safe",
     execute: async ({ path }, api, context) => {
       const { t, tok } = await target(api, context);
-      const file = (await prFiles(t, tok)).find((f) => f.filename === path);
+      const file = (await prFiles(tok, t)).find((f) => f.filename === path);
       if (!file) throw new Error(`${path} is not changed in this pull request`);
       return text(file.patch ?? "(no textual diff: binary or too large)");
     },
@@ -216,6 +224,8 @@ export function reviewerExtension(token: Token) {
       severity: oneOf(["blocker", "major", "minor"]),
       title: str(),
       body: str(),
+      source: opt(oneOf(["agent", ...SCAN_TOOLS])),
+      suggested_patch: opt(str()),
     }),
     execute: async (args, api, context) => {
       await api.commit(async (tx) => {
@@ -228,6 +238,8 @@ export function reviewerExtension(token: Token) {
           severity: args.severity,
           title: args.title,
           body: args.body,
+          source: args.source ?? "agent",
+          suggestedPatch: args.suggested_patch ?? null,
         });
       }, context);
       return text("recorded");
@@ -242,18 +254,84 @@ export function reviewerExtension(token: Token) {
       decision: oneOf(["no_blockers_found", "changes_requested"]),
       summary: str(),
       not_checked: arr(str()),
+      dismissed: opt(
+        arr(
+          obj({
+            tool: oneOf(SCAN_TOOLS),
+            rule: str(),
+            path: str(),
+            reason: str(),
+          }),
+        ),
+      ),
     }),
-    execute: async ({ decision, summary, not_checked }, api, context) => {
+    execute: async (
+      { decision, summary, not_checked, dismissed },
+      api,
+      context,
+    ) => {
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
-        state.verdict = { decision, summary, notChecked: not_checked };
+        state.verdict = {
+          decision,
+          summary,
+          notChecked: not_checked,
+          dismissed: dismissed ?? [],
+        };
       }, context);
       return { ...text("review finished"), control: { terminate: true } };
     },
   });
 
-  return defineExtension({
+  // Runs the scanners, then hands the pull request to the agent in the same commit.
+  const scanTask = defineTask<null, { phase: "scan" }, null>({
+    name: "review.scan",
+    version: 1,
+    initial: () => ({ phase: "scan" }),
+    phases: {
+      scan: async (_task, runtime, context) => {
+        const id = runtime.conversationId;
+        const t = (await runtime.snapshot(ReviewDoc, id, context))?.target;
+        if (!t) throw new Error("review has no target");
+        const tok = await token(t.installationId);
+        const checks = planChecks(await prFiles(tok, t));
+        let result: ScanState;
+        try {
+          result = checks.length
+            ? {
+                status: "done",
+                results: await scan(t, tok, checks),
+                error: null,
+              }
+            : { status: "skipped", results: [], error: null };
+        } catch (e) {
+          result = { status: "failed", results: [], error: String(e) };
+        }
+        const conversation = await runtime.conversation(id, context);
+        await runtime.commit(async (tx) => {
+          await conversation!.submit(tx, {
+            type: "input",
+            content: `Review pull request ${t.owner}/${t.repo}#${t.number} at head ${t.headSha}.`,
+            requestId: "review",
+          });
+          (await tx.doc(ReviewDoc, id)).scan = result;
+          return {
+            status: "terminal",
+            outcome: { status: "completed", result: null },
+          };
+        }, context);
+      },
+    },
+    abort: (_task, runtime, context) =>
+      runtime.commit(
+        () => ({ status: "terminal", outcome: { status: "aborted" } }),
+        context,
+      ),
+  });
+
+  const extension = defineExtension({
     name: "reviewer",
+    tasks: [scanTask],
     tools: [
       prOverview,
       readPatch,
@@ -270,8 +348,15 @@ export function reviewerExtension(token: Token) {
             ?.prompt?.text,
       ),
       section("review_protocol", () => PROTOCOL),
+      section("scanner_results", async (input, context) =>
+        renderScan(
+          (await input.read.snapshot(ReviewDoc, input.conversationId, context))
+            ?.scan ?? null,
+        ),
+      ),
     ],
   });
+  return { extension, scanTask };
 }
 
 const PROTOCOL = `You are running as an automated reviewer on a GitHub pull request, with read-only access through tools. There is no shell and no checkout.
@@ -279,6 +364,8 @@ const PROTOCOL = `You are running as an automated reviewer on a GitHub pull requ
 1. Start with pr_overview. Read each changed file's patch with read_patch, and read surrounding code with read_file or list_dir where the diff alone is not enough to judge.
 2. Apply the review rubric above to the pull request's changes.
 3. Record every finding with report_finding as soon as you are sure of it: the file, the line at the PR head when one applies, a severity (blocker, major or minor), a one-line title and a body that says what is wrong, why it matters and the better structure.
-4. Finish with finish_review exactly once. Give your decision, a short summary for the human owner, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, missing context), with the reason.
+4. Deterministic scanners (zizmor for GitHub Actions workflows, ty for Python, oxlint for JavaScript and TypeScript) already ran on the changed files; their output is in scanner_results below. Triage every diagnostic: read the code it points at, then either confirm it with report_finding (source set to the tool, severity by real impact, not the tool's label) or dismiss it in finish_review's dismissed list with a concrete reason. Several diagnostics with one root cause become one finding.
+5. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. It is offered to the owner, never applied by you.
+6. Finish with finish_review exactly once. Give your decision, a short summary for the human owner, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, missing context), with the reason.
 
-Your output is advice to a named human who owns the merge. Never claim the change is approved. Prefer a few high-conviction findings over many nits. Do not invent code you have not read through a tool.`;
+Your output is advice to a named human who owns the merge. Never claim the change is approved. Read every changed file's patch before finishing. Prefer a few high-conviction findings over many nits. Do not invent code you have not read through a tool.`;

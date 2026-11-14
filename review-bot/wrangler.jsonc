@@ -17,6 +17,7 @@
     "REVIEW_PROMPT_URL": "https://raw.githubusercontent.com/cursor/plugins/6e3d2ea56d7d446b955eaae6ac4c8eef8bf504cf/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
     "MODEL_ID": "claude-sonnet-5-5",
     "THINKING_LEVEL": "medium",
+    "SCANNER_URL": "https://j26-earned-trust--j26-review-scanner-web.us-east.modal.run",
   },
   "durable_objects": {
     "bindings": [{ "name": "REVIEWS", "class_name": "Review" }],

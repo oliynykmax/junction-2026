@@ -2,7 +2,7 @@
 
 Cloudflare Worker `j26-review-bot`, live at https://review.oliinyk.dev. GitHub App: https://github.com/apps/bumble-bot-review, installed only on our copy of the sample repo, `oliynykmax/junction26-messagepack-csharp`.
 
-When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It also posts one comment linking to `https://review.oliinyk.dev/r/<owner>/<repo>/<pr>?sha=<head>`, and later pushes edit that comment, which says so. When a review ends with `no_blockers_found` and no findings, the bot approves the PR at that commit, provided the commit is still the head. Each push dismisses the bot's approvals of older commits, so an approval always belongs to a clean review of the current head. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
+When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
 
 ## Review runtime
 
@@ -29,10 +29,11 @@ bun install
 bun fmt        # format
 bun lint
 bun check      # type check
+bun test       # GitHub publication behavior
 bunx wrangler dev   # local run; secrets go in .dev.vars (gitignored)
 ```
 
-CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint` and `bun check` on Bun canary for every PR and push that touches `review-bot/`. A push to `main` then deploys with `wrangler deploy`, using the repo secret `CLOUDFLARE_API_TOKEN`.
+CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint`, `bun check` and `bun test` on Bun canary for every PR and push that touches `review-bot/`. A push to `main` then deploys with `wrangler deploy`, using the repo secret `CLOUDFLARE_API_TOKEN`.
 
 ## Secrets
 

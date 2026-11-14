@@ -108,7 +108,9 @@ test("the rendered brief carries the PR, its commits, comments, diff and rubric"
     "but the base is not pinned, so git cannot tell which commits belong to the pull request",
   );
   expect(text).toContain(`HEAD is still ${target.headSha}`);
-  expect(text).toContain("a container whose writes pass 8 GiB");
+  expect(text).toContain(
+    "a container whose writes pass the disk limit (the error names it)",
+  );
   expect(text).not.toContain("no shell");
   expect(text).not.toContain("Merge main");
   expect(text).not.toMatch(/\{[a-z_]+\}/);

@@ -12,7 +12,7 @@ export type InterruptedTask = {
   restarts: number;
 };
 
-type Ids = { objectId: string; bootId: string };
+export type Ids = { objectId: string; bootId: string };
 
 export type LifecycleEvent = Ids &
   (
@@ -92,21 +92,25 @@ export async function interruptedTasks(
 export class Lifecycle {
   readonly #ids: Ids;
   readonly #interrupted: Set<number>;
+  readonly #sink: (event: LifecycleEvent) => void;
 
+  /** `sink` also receives every event; it must not throw. */
   constructor(
-    objectId: string,
+    ids: Ids,
     scan: { tasks: InterruptedTask[]; scanComplete: boolean },
+    sink: (event: LifecycleEvent) => void = () => {},
   ) {
-    this.#ids = { objectId, bootId: crypto.randomUUID() };
+    this.#ids = ids;
+    this.#sink = sink;
     this.#interrupted = new Set(scan.tasks.map((t) => t.taskId));
-    logLifecycle({
+    this.#log({
       ...this.#ids,
       event: "review.boot",
       interruptedTasks: scan.tasks.length,
       scanComplete: scan.scanComplete,
     });
     if (scan.tasks.length)
-      logLifecycle({
+      this.#log({
         ...this.#ids,
         event: "review.recovery_detected",
         tasks: scan.tasks,
@@ -114,8 +118,13 @@ export class Lifecycle {
       });
   }
 
+  #log(event: LifecycleEvent) {
+    logLifecycle(event);
+    this.#sink(event);
+  }
+
   finished(decision: string, findings: number) {
-    logLifecycle({
+    this.#log({
       ...this.#ids,
       event: "review.finished",
       decision,
@@ -124,7 +133,7 @@ export class Lifecycle {
   }
 
   alarm(wake: Wake) {
-    logLifecycle({
+    this.#log({
       ...this.#ids,
       event: "review.alarm",
       workActive: wake.active,
@@ -141,7 +150,7 @@ export class Lifecycle {
     const taskName = String(attributes["task.name"]);
     if (!this.#interrupted.has(taskId)) return;
     if (attributes.resumed === true)
-      logLifecycle({
+      this.#log({
         ...this.#ids,
         event: "review.recovery_phase",
         taskId,
@@ -152,7 +161,7 @@ export class Lifecycle {
       });
     if (outcome !== null && TERMINAL.has(outcome)) {
       this.#interrupted.delete(taskId);
-      logLifecycle({
+      this.#log({
         ...this.#ids,
         event: "review.recovery_task_ended",
         taskId,

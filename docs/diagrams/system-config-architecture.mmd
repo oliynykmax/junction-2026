@@ -1,0 +1,64 @@
+flowchart TD
+  subgraph GITHUB["GitHub Infrastructure"]
+    REPO["Target Repository<br/>oliynykmax/junction26-messagepack-csharp"]
+    APP["GitHub App: bumble-bot-review<br/>Events: PR opened, synchronized, ready"]
+    PR_COMMENT["PR Sticky Comment &<br/>Commit Head Approval"]
+  end
+
+  subgraph CF_WORKER["Cloudflare Worker: j26-review-bot (review.oliinyk.dev)"]
+    direction TB
+    WEBHOOK_HANDLER["Webhook Handler<br/>src/index.ts"]
+    
+    subgraph DO_BOX["Durable Object: Review (pi-durable)"]
+      DO_STORAGE[("DO SQLite Storage<br/>Turns, Tool Calls, Findings")]
+      DO_ALARM["Alarm Heartbeat<br/>Resumes evicted review runs"]
+      DO_ENGINE["Agent Engine: Claude Sonnet 3.5/5.5<br/>Thinking: Medium | Prompts & Rubric"]
+      QUICKJS["QuickJS Codemode Sandbox<br/>pi-codemode/cloudflare"]
+      DOCS_GATE["Docs Gate Enforcement<br/>Refuses finish without docs"]
+    end
+
+    subgraph CONFIG["Worker Config (wrangler.jsonc)"]
+      VARS["Vars: REVIEW_BASE_URL, MODEL_ID,<br/>THINKING_LEVEL, REVIEW_PROMPT_URL"]
+      SECRETS["Secrets: APP_ID, PRIVATE_KEY,<br/>WEBHOOK_SECRET, ANTHROPIC_API_KEY,<br/>SCANNER_TOKEN, CONTEXT_DEV_API_KEY"]
+    end
+
+    WEB_DASHBOARD["Web UI Dashboard<br/>/r/:owner/:repo/:pr?sha=:head"]
+  end
+
+  subgraph MODAL["Modal Cloud: j26-review-scanner"]
+    MODAL_EP["FastAPI Web Endpoint<br/>POST /scan (us-east.modal.run)"]
+    SCAN_ZIZMOR["zizmor 1.32.0<br/>GitHub Workflows"]
+    SCAN_TY["ty 0.0.104<br/>Python Analysis"]
+    SCAN_OXLINT["oxlint 1.93.0<br/>JS and TS Analysis"]
+  end
+
+  subgraph MCP_EXT["External MCP Servers (Streamable HTTP)"]
+    MCP_CONTEXT["Context.dev MCP<br/>web-search and web-scrape"]
+    MCP_MSLEARN["Microsoft Learn MCP<br/>.NET and C# Official Docs"]
+  end
+
+  subgraph RUBRIC_SRC["External Rubric Source"]
+    CURSOR_RUBRIC["Cursor Skills Repo<br/>thermo-nuclear-code-quality-review<br/>(Pinned Commit SHA)"]
+  end
+
+  %% Flow Relationships
+  REPO -->|"Webhook Event"| APP
+  APP -->|"POST /webhook"| WEBHOOK_HANDLER
+  WEBHOOK_HANDLER -->|"Route by PR and SHA"| DO_STORAGE
+  CONFIG -.->|"Configures"| DO_ENGINE
+
+  DO_ENGINE -->|"Trigger scan"| MODAL_EP
+  MODAL_EP --> SCAN_ZIZMOR
+  MODAL_EP --> SCAN_TY
+  MODAL_EP --> SCAN_OXLINT
+  MODAL_EP -.->|"Diagnostics JSON"| DO_STORAGE
+
+  DO_ENGINE -->|"Fetch Rubric Text and SHA256"| CURSOR_RUBRIC
+  DO_ENGINE <--> QUICKJS
+  QUICKJS -->|"Query MCP"| MCP_CONTEXT
+  QUICKJS -->|"Query MCP"| MCP_MSLEARN
+  DOCS_GATE -->|"Verify docs consulted"| DO_ENGINE
+
+  DO_ENGINE -->|"Post comment or approve"| PR_COMMENT
+  PR_COMMENT --> REPO
+  DO_STORAGE -.->|"Poll state every 2s"| WEB_DASHBOARD

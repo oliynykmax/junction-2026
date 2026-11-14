@@ -337,19 +337,17 @@ button[aria-disabled="true"] {
   font-size: 13px;
   color: var(--muted);
 }
-[data-slot="field-error"],
-#form-status {
+[data-slot="field-error"] {
   font-size: 14px;
   color: var(--error);
 }
-#form-status:not(.error) {
+#form-status {
+  font-size: 14px;
   color: var(--muted);
+  margin-top: var(--space-sm);
 }
 #form-status:empty {
   display: none;
-}
-#form-status {
-  margin-top: var(--space-sm);
 }
 noscript p {
   font-size: 14px;

@@ -16,6 +16,8 @@ function need<T>(value: T | null): T {
   return value;
 }
 
+const REQUEST_TIMEOUT_MS = 60_000;
+
 const REPORT_URL =
   /^\/m\/[a-z0-9-]+\/[a-z0-9_.-]+\/[1-9][0-9]*\?sha=[0-9a-f]{40}$/;
 
@@ -28,24 +30,21 @@ const scheme = createColorScheme({
   global: true,
   storage: createLocalStorage(THEME_KEY),
 });
-const preferences = document.querySelector("ui-preferences");
-if (preferences) preferences.preferences = [scheme];
+need(document.querySelector("ui-preferences")).preferences = [scheme];
 
-const themeSwitch = document.querySelector("ui-switch");
-const thumb = document.querySelector("ui-switch-thumb");
-if (themeSwitch && thumb) {
-  const dark = () => scheme.get().resolved === "dark";
-  const show = () => {
-    themeSwitch.checked = dark();
-    thumb.innerHTML = dark() ? MOON : SUN;
-  };
-  show();
-  scheme.subscribe(show);
-  themeSwitch.addEventListener("checkedchange", (event) => {
-    if (event.detail.value !== dark())
-      scheme.set(event.detail.value ? "dark" : "light");
-  });
-}
+const themeSwitch = need(document.querySelector("ui-switch"));
+const thumb = need(document.querySelector("ui-switch-thumb"));
+const dark = () => scheme.get().resolved === "dark";
+const show = () => {
+  themeSwitch.checked = dark();
+  thumb.innerHTML = dark() ? MOON : SUN;
+};
+show();
+scheme.subscribe(show);
+themeSwitch.addEventListener("checkedchange", (event) => {
+  if (event.detail.value !== dark())
+    scheme.set(event.detail.value ? "dark" : "light");
+});
 
 const form = need(document.querySelector<HTMLFormElement>("#review"));
 const input = need(document.querySelector<HTMLInputElement>("#pr-url"));
@@ -57,12 +56,18 @@ const status = need(document.getElementById("form-status"));
 const serverError = document.createElement("ui-field-error");
 serverError.setAttribute("match", "true");
 
+function errorMessage(error: unknown) {
+  if (!(error instanceof Error)) return "Could not connect. Please try again.";
+  if (error.name === "TimeoutError")
+    return "Starting the review took too long. Try again; the same commit reuses its report.";
+  return error.message;
+}
+
 function fail(message: string) {
   serverError.textContent = message;
   field.appendChild(serverError);
   field.invalid = true;
   status.textContent = "";
-  status.classList.remove("error");
   submit.disabled = false;
   form.removeAttribute("aria-busy");
   label.textContent = "Try again";
@@ -90,7 +95,7 @@ form.addEventListener("submit", async (event) => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: input.value.trim() }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     const data = (await response.json().catch(() => ({}))) as {
       error?: unknown;
@@ -107,13 +112,7 @@ form.addEventListener("submit", async (event) => {
     status.textContent = "Review started. Opening the report…";
     window.location.assign(data.url);
   } catch (error) {
-    fail(
-      error instanceof Error && error.name === "TimeoutError"
-        ? "Starting the review took too long. Try again; the same commit reuses its report."
-        : error instanceof Error
-          ? error.message
-          : "Could not connect. Please try again.",
-    );
+    fail(errorMessage(error));
     submitting = false;
   }
 });

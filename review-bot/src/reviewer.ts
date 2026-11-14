@@ -92,6 +92,8 @@ export type Change = {
   tags: string[];
   /** What the change does in its files. Absent on older reviews. */
   summary?: string;
+  /** The per-change STAR that older reviews stored; only action is shown. */
+  action?: string;
   files: string[];
 };
 
@@ -171,7 +173,8 @@ const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
 const MAX_STAR_CHARS = 400;
 // The reviewer speaking about itself: "I", "I've", "my", "me" and the like.
-const FIRST_PERSON = /\b(?:I|I'm|I've|I'd|I'll|[Mm]e|[Mm]y|[Mm]yself)\b/;
+const FIRST_PERSON =
+  /\b(?:I|I'm|I've|I'd|I'll|[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Ww]e|[Ww]e're|[Ww]e've|[Ww]e'd|[Ww]e'll|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves)\b/;
 const MAX_CHANGE_SUMMARY_CHARS = 280;
 const MAX_TAGS = 3;
 const MAX_TAG_CHARS = 24;

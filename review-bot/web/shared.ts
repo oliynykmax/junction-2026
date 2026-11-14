@@ -74,5 +74,9 @@ export function severityCounts(findings: readonly Finding[]) {
   }).filter((c) => c.count > 0);
 }
 
+/** The change's sentence, falling back to the Action of older per-change STARs. */
+export const changeSentence = (c: Change): string | null =>
+  c.summary?.trim() || c.action?.trim() || null;
+
 export const location = (f: { path: string; line: number | null }) =>
   f.path + (f.line ? `:${f.line}` : "");

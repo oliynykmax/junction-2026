@@ -7,9 +7,9 @@ import {
   reviewerExtension,
   starProblems,
   summaryProblems,
-  unabridgedFiles,
   uncoveredFiles,
 } from "../src/reviewer";
+import { unabridgedFiles } from "../src/reading-gate";
 import { changeSentence } from "../web/shared";
 
 const file = (filename: string, patch?: string) => ({
@@ -330,4 +330,11 @@ test("the reading gate skips files without a diff and files out of attempts", ()
   state.readingRefusals = { "c.cs": 2 };
   // b.cs has no diff, c.cs used its two attempts, d.cs has a plan.
   expect(unabridgedFiles(state)).toEqual(["a.cs"]);
+});
+
+test("a file named like an Object.prototype member still needs its own plan", () => {
+  const state = reviewWith(["constructor", "toString"]);
+  state.readings = {};
+  state.readingRefusals = {};
+  expect(unabridgedFiles(state)).toEqual(["constructor", "toString"]);
 });

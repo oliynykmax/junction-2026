@@ -79,6 +79,17 @@ export type ReadingOptions = {
 const EMPTY_PLAN: ReadingPlan = { remove: [], fold: [], replace: [] };
 const MAX_REPLACEMENT_CHARS = 4_000;
 
+/**
+ * Own-property lookup in a plain record keyed by file path, so a path such as
+ * `constructor` or `toString` never finds Object.prototype's member.
+ */
+export function own<T>(
+  record: Readonly<Record<string, T>> | undefined,
+  key: string,
+): T | undefined {
+  return record && Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 /** Splits a GitHub file patch (hunks only, no file headers) into typed lines. */
 export function patchLines(patch: string): PatchLine[] {
   const raw = patch.split("\n");

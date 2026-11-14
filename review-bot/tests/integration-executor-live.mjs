@@ -20,9 +20,12 @@ const podman = (...args) =>
 let broker;
 const host = createServer((_, response) => response.end("HOST CONTROL PLANE"));
 await new Promise((r) => host.listen(18081, "127.0.0.1", r));
-function start() {
+function start(extra = {}) {
   const env = {
     ...process.env,
+    EXECUTOR_WORKER_DISK_BYTES: String(600 * 2 ** 20),
+    EXECUTOR_DISK_POLL_MS: "500",
+    ...extra,
     EXECUTOR_TOKEN: "live-test-broker-secret",
     EXECUTOR_PORT: String(port),
     EXECUTOR_SCOPE: scope,
@@ -49,6 +52,9 @@ function start() {
             "EXECUTOR_SCOPE",
             "EXECUTOR_IDLE_MS",
             "EXECUTOR_WORK_ROOT",
+            "EXECUTOR_WORKER_DISK_BYTES",
+            "EXECUTOR_DISK_POLL_MS",
+            ...Object.keys(extra),
           ].flatMap((k) => ["--env", k]),
           "localhost/bumble-manager:test",
         ],
@@ -336,6 +342,43 @@ try {
     await ready();
   }
   console.log("PASS SIGTERM during checkout leaves no worker or network");
+  await checkout("fill");
+  const fill = await call(
+    "shell",
+    {
+      session: "fill",
+      command:
+        "for i in $(seq 200); do head -c 10M /dev/zero >> /fill; sleep 0.05; done",
+    },
+    undefined,
+    400,
+  );
+  assert.match(fill.error, /over the \d+-byte limit/);
+  assert.equal(podman("ps", "-aq", "--filter", label), "");
+  await checkout("fill");
+  assert.equal(
+    (await shell("fill", "test ! -e /fill")).exitCode,
+    0,
+    "re-checkout after a disk-limit removal starts from a fresh worker",
+  );
+  await call("release", { session: "fill" });
+  stop("SIGTERM");
+  await new Promise((r) => broker.once("exit", r));
+  start({ EXECUTOR_MIN_FREE_BYTES: String(2 ** 60) });
+  await ready();
+  assert.equal(
+    (await call("checkout", { ...input, session: "floor" }, undefined, 400))
+      .error,
+    "executor disk space low; retry later",
+  );
+  assert.equal(podman("ps", "-aq", "--filter", label), "");
+  stop("SIGTERM");
+  await new Promise((r) => broker.once("exit", r));
+  start();
+  await ready();
+  console.log(
+    "PASS worker over its disk limit is removed, and checkout refuses below the host free-space floor",
+  );
   console.log(
     "PASS disconnect, reset, terminal release, idle expiry, restart and shutdown cleanup with unrelated container preserved",
   );

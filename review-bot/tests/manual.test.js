@@ -97,15 +97,18 @@ test("strictly parses only canonical HTTPS GitHub PR URLs", () => {
     expect(() => parsePrUrl(url)).toThrow();
 });
 
-test("resolves public PR head and base without app tokens or authorization", async () => {
+test("resolves public PR head and base using the supplied read-only app token", async () => {
   const calls = github();
-  expect(await resolveManual("https://github.com/team/demo/pull/12")).toEqual(
-    target,
-  );
+  expect(
+    await resolveManual(
+      "https://github.com/team/demo/pull/12",
+      "public-read-token",
+    ),
+  ).toEqual(target);
   expect(calls).toHaveLength(1);
   for (const call of calls) {
     expect(call.method).toBe("GET");
-    expect(call.headers.authorization).toBeUndefined();
+    expect(call.headers.authorization).toBe("Bearer public-read-token");
   }
 });
 

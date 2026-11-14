@@ -12,6 +12,8 @@ install -d /etc/systemd/system/caddy.service.d
 cat > /etc/systemd/system/caddy.service.d/bumble.conf <<'EOF'
 [Service]
 EnvironmentFile=/etc/bumble/caddy.env
+ExecStart=
+ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile
 EOF
 podman pull ghcr.io/denoland/celld@sha256:6ae0e0b453f8d85dae969fbef44c3ba12806989f43f69bdc6094205662018334
 podman run --rm --entrypoint cat ghcr.io/denoland/celld@sha256:6ae0e0b453f8d85dae969fbef44c3ba12806989f43f69bdc6094205662018334 /usr/local/bin/celld > /usr/local/bin/celld

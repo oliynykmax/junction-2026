@@ -2,7 +2,7 @@
 
 Cloudflare Worker `j26-review-bot`, live at https://review.oliinyk.dev. GitHub App: https://github.com/apps/bumble-bot-review, installed only on our copy of the sample repo, `oliynykmax/junction26-messagepack-csharp`.
 
-When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
+When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR only when its CI snapshot shows explicit success and its team standard is available or genuinely absent. Missing, pending, failed, or unreadable evidence produces a comment review instead. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
 
 ## Review runtime
 
@@ -66,6 +66,18 @@ bunx wrangler d1 migrations apply bumble-review-ledger --remote
 
 `node scripts/profile-writes.mjs --repeats 5 --out profile.json` runs the `Review` object on local workerd with every outbound request answered by fixtures (`scripts/profile-writes/worker.ts`): no model, GitHub, scanner or MCP traffic. It runs a scripted five-turn review, repeat starts, warm and cold report reads and alarms after completion, and an eviction while a model request hangs. For each phase it reports SQLite cursor `rowsWritten` by table and statement, split into pi-durable records and the `review.state` document. It also reports `setAlarm` and `deleteAlarm` calls, which Cloudflare bills as row writes. It asserts the review's work and the recovery logs, and exits nonzero when a check fails. It runs on Node, because wrangler cannot forward requests to a local Worker under Bun. Results from 2026-11-14 are in `scripts/profile-writes/results/`.
 
+## CI and team standards
+
+Before the agent starts, the review stores one evidence snapshot alongside the scanner workflow. Both the prompt and report use that same snapshot. Replays keep the committed snapshot.
+
+CI evidence includes check runs and legacy commit statuses for the exact reviewed head SHA. The collector follows pagination and keeps the newest legacy status per context. Permission errors, timeouts, malformed responses, and incomplete pagination remain visible alongside any usable results. Empty, pending, failed, unavailable, and successful evidence stay distinct. Skipped and neutral checks do not count as explicit success. The report shows the capture time and links to the original results. A snapshot does not track later CI changes or establish that branch-protection requirements are satisfied.
+
+The GitHub App needs **Checks: read** and **Commit statuses: read**, in addition to its existing contents permission. Installations must accept those permissions. Actions access is not required. Until access is granted, reviews still run and disclose the evidence gap, but they cannot approve.
+
+The collector reads root `CODING_STANDARDS.md` from the base repository at the base SHA captured in the signed PR webhook. A PR that edits, removes, or introduces the file cannot change its own review criteria. The report records the base repository, commit, Git blob SHA, SHA-256 digest, and exact text. Standards must be UTF-8 and no larger than 32 KiB. An inaccessible, invalid, or oversized standard is disclosed and prevents approval. A confirmed absent file falls back to the existing rubric. Standard text supplies review criteria and cannot override the review protocol or grant tool permissions.
+
+Older reviews retain their original findings. Their report shows that no evidence snapshot was captured. New publication attempts without complete evidence produce comments.
+
 ## Develop
 
 ```sh
@@ -73,7 +85,7 @@ bun install
 bun fmt        # format
 bun lint
 bun check      # type check
-bun test       # GitHub publication behavior
+bun test       # evidence, review flow, report rendering, and publication
 bunx wrangler dev   # local run; secrets go in .dev.vars (gitignored)
 ```
 

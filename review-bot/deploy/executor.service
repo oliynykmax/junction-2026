@@ -1,0 +1,17 @@
+[Unit]
+Description=Bumble unrestricted review shell
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/bumble/executor.env
+ExecStartPre=-/usr/bin/podman rm -f bumble-executor
+ExecStart=/usr/bin/podman run --rm --name bumble-executor --network host --tmpfs /tmp --env-file /etc/bumble/executor.env bumble-executor:latest
+ExecStop=/usr/bin/podman stop --time 45 bumble-executor
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

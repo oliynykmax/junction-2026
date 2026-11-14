@@ -33,6 +33,8 @@ function review() {
   };
   const publications = [];
   const submissions = [];
+  const checkouts = [];
+  const shells = [];
   const runtime = {
     conversationId: "test",
     snapshot: async () => structuredClone(state),
@@ -62,8 +64,25 @@ function review() {
     scan: async () => [],
     publish: async (...args) => publications.push(args),
     finished: () => {},
+    checkout: async (args) => {
+      checkouts.push(args);
+      return { workspace: "/tmp/review/repo", commit: args.sha };
+    },
+    shell: async (args) => {
+      shells.push(args);
+      return { exitCode: 17, stdout: "out", stderr: "err", timedOut: false };
+    },
   });
-  return { state, runtime, api, reviewer, publications, submissions };
+  return {
+    state,
+    runtime,
+    api,
+    reviewer,
+    publications,
+    submissions,
+    checkouts,
+    shells,
+  };
 }
 
 const STAR = {
@@ -144,6 +163,38 @@ test("read_file base uses pinned repository and commit without looking up curren
   expect(urls).toEqual([
     `https://api.github.com/repos/team/demo/contents/CODING_STANDARDS.md?ref=${target.base.sha}`,
   ]);
+});
+
+test("checkout_pr and shell expose the pinned writable workspace without returning its token", async () => {
+  const { reviewer, api, checkouts, shells } = review();
+  const checkout = reviewer.extension.tools.find((t) => t.name === "checkout_pr");
+  const shell = reviewer.extension.tools.find((t) => t.name === "shell");
+  const checkedOut = await checkout.execute({}, api, {});
+  expect(checkouts).toEqual([
+    {
+      session: "test",
+      owner: target.owner,
+      repo: target.repo,
+      sha: target.headSha,
+      githubToken: "token",
+    },
+  ]);
+  expect(checkedOut.output[0].text).toContain("/tmp/review/repo");
+  expect(checkedOut.output[0].text).not.toContain("token");
+  const ran = await shell.execute(
+    { command: "go test ./...", cwd: "pkg", timeout_ms: 1234 },
+    api,
+    {},
+  );
+  expect(shells).toEqual([
+    {
+      session: "test",
+      command: "go test ./...",
+      cwd: "pkg",
+      timeoutMs: 1234,
+    },
+  ]);
+  expect(ran.output[0].text).toBe("exit 17\nstdout:\nout\nstderr:\nerr");
 });
 
 test("older review without evidence or risk gains explicit coverage gap and publishes no tier", async () => {

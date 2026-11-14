@@ -1,5 +1,7 @@
 // GitHub App auth and the REST calls the bot and the reviewer make.
 
+import { fromStored, SEVERITIES, type Severity } from "./findings";
+
 export interface AppSecrets {
   APP_ID: string;
   PRIVATE_KEY: string; // PKCS#8 PEM
@@ -67,7 +69,7 @@ export async function upsertComment(
   }
 }
 
-const APPROVAL_MARKER = "<!-- earned-trust-review-approval -->";
+const REVIEW_MARKER = "<!-- earned-trust-review-approval -->";
 
 type PrReview = {
   id: number;
@@ -78,34 +80,46 @@ type PrReview = {
 
 type Pr = { owner: string; repo: string; number: number };
 
-function botApprovals(token: string, pr: Pr) {
+function botReviews(token: string, pr: Pr) {
   return ghJson<PrReview[]>(
     token,
     `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=100`,
-  ).then((all) =>
-    all.filter(
-      (r) => r.state === "APPROVED" && r.body?.startsWith(APPROVAL_MARKER),
-    ),
-  );
+  ).then((all) => all.filter((r) => r.body?.startsWith(REVIEW_MARKER)));
 }
 
-/** Approves the PR at `headSha`, unless a newer commit is already the head or the bot approved it before. */
-export async function approve(
+/** Publishes a compact result only while the reviewed commit is still the head. */
+export async function publishReview(
   token: string,
   pr: Pr & { headSha: string },
-  body: string,
+  findings: readonly { severity: Severity }[],
+  reportUrl: string,
 ) {
   const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
   const current = await ghJson<{ head: { sha: string } }>(token, base);
   if (current.head.sha !== pr.headSha) return;
-  const approvals = await botApprovals(token, pr);
-  if (approvals.some((r) => r.commit_id === pr.headSha)) return;
+  const reviews = await botReviews(token, pr);
+  if (
+    reviews.some(
+      (r) =>
+        r.commit_id === pr.headSha &&
+        (r.state === "APPROVED" || r.state === "COMMENTED"),
+    )
+  )
+    return;
+  const severities = findings.map((f) => fromStored(f).severity);
+  const summary = [
+    `${findings.length} ${findings.length === 1 ? "finding" : "findings"}`,
+    ...SEVERITIES.flatMap((severity) => {
+      const count = severities.filter((s) => s === severity).length;
+      return count ? [`${count} ${severity}`] : [];
+    }),
+  ].join(" · ");
   await gh(token, `${base}/reviews`, {
     method: "POST",
     body: {
       commit_id: pr.headSha,
-      event: "APPROVE",
-      body: `${APPROVAL_MARKER}\n${body}`,
+      event: findings.length === 0 ? "APPROVE" : "COMMENT",
+      body: `${REVIEW_MARKER}\n${summary}\n\n[Full report](${reportUrl})`,
     },
   });
 }
@@ -116,8 +130,8 @@ export async function dismissStaleApprovals(
   pr: Pr & { headSha: string },
 ) {
   const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
-  for (const r of await botApprovals(token, pr)) {
-    if (r.commit_id === pr.headSha) continue;
+  for (const r of await botReviews(token, pr)) {
+    if (r.state !== "APPROVED" || r.commit_id === pr.headSha) continue;
     await gh(token, `${base}/reviews/${r.id}/dismissals`, {
       method: "PUT",
       body: {

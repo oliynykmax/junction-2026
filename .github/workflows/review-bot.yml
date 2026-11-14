@@ -36,6 +36,7 @@ jobs:
       - run: bun fmt --check
       - run: bun lint
       - run: bun check
+      - run: bun test
 
   deploy:
     needs: check

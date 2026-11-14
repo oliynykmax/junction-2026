@@ -7,6 +7,8 @@ export type CiItem = {
   state: Exclude<CiState, "none">;
   detail: string;
   url: string | null;
+  /** The app or kind that reported it, such as "GitHub Actions". */
+  source?: string;
 };
 export type CiSource =
   | { kind: "available"; items: CiItem[] }
@@ -118,6 +120,8 @@ function parseCheckRun(row: unknown, headSha: string): ReturnType<CiParser> {
       state,
       detail,
       url: safeUrl(row.details_url),
+      ...(record(row.app) &&
+        typeof row.app.name === "string" && { source: row.app.name }),
     },
   };
 }
@@ -140,6 +144,7 @@ function parseStatus(row: unknown): ReturnType<CiParser> {
       state: states[detail] ?? "unavailable",
       detail,
       url: safeUrl(row.target_url),
+      source: "Commit status",
     },
   };
 }
@@ -241,13 +246,16 @@ async function standard(
   }
 }
 
-export async function collectEvidence(
+/** The latest check runs and commit statuses on one commit. */
+export async function collectCi(
   token: string,
-  target: { owner: string; repo: string; headSha: string; base?: Base },
-): Promise<Evidence> {
-  const head = sha(target.headSha);
-  const root = `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/commits/${head}`;
-  const [checks, statuses, policy] = await Promise.all([
+  owner: string,
+  repo: string,
+  headSha: string,
+): Promise<{ checks: CiSource; statuses: CiSource }> {
+  const head = sha(headSha);
+  const root = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${head}`;
+  const [checks, statuses] = await Promise.all([
     ciSource(
       token,
       `${root}/check-runs?filter=latest`,
@@ -255,6 +263,17 @@ export async function collectEvidence(
       (row) => parseCheckRun(row, head),
     ),
     ciSource(token, `${root}/statuses?`, (payload) => payload, parseStatus),
+  ]);
+  return { checks, statuses };
+}
+
+export async function collectEvidence(
+  token: string,
+  target: { owner: string; repo: string; headSha: string; base?: Base },
+): Promise<Evidence> {
+  const head = sha(target.headSha);
+  const [{ checks, statuses }, policy] = await Promise.all([
+    collectCi(token, target.owner, target.repo, head),
     standard(token, target.base),
   ]);
   return {

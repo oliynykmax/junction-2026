@@ -5,6 +5,8 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { blocks } from "../src/findings";
+import type { CiItem, CiSource } from "../src/evidence";
+import type { PrLive } from "../src/pr-live";
 import type { ReviewView } from "../src/review";
 import type { ScanResult } from "../src/scanners";
 import { Findings } from "./findings";
@@ -109,8 +111,55 @@ function useReview(api: string, pollMs: number) {
   return { view, error };
 }
 
+const CI_PENDING_POLL_MS = 15_000;
+
+// The PR's title, author, branches and CI, read from GitHub. Polls while any
+// check is still running; the page works without it.
+function usePrLive(api: string) {
+  const [live, setLive] = useState<PrLive | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`${api}/pr`, { cache: "no-store" });
+        if (!res.ok) return;
+        const body = (await res.json()) as PrLive;
+        if (stopped) return;
+        setLive(body);
+        const pending = [...body.checks.items, ...body.statuses.items].some(
+          (i) => i.state === "pending",
+        );
+        if (pending) timer = setTimeout(tick, CI_PENDING_POLL_MS);
+      } catch {
+        // CI and PR details are extras; the review renders without them.
+      }
+    };
+    tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [api]);
+  return live;
+}
+
+function ago(iso: string): string {
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - Date.parse(iso)) / 60_000),
+  );
+  if (minutes < 1) return "updated just now";
+  if (minutes < 60) return `updated ${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `updated ${hours}h ago`;
+  return `updated ${Math.round(hours / 24)}d ago`;
+}
+
 function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
   const { view, error } = useReview(api, pollMs);
+  const live = usePrLive(api);
+  const pr = live?.pr;
   const r = view?.review;
   const files = r?.files ?? [];
   const sha = r?.target?.headSha ?? null;
@@ -126,9 +175,16 @@ function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
         ? `${prUrl}/files`
         : `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}`;
   const identity: PrIdentity = {
-    title: `${owner}/${repo}`,
+    title: pr?.title ?? `${owner}/${repo}`,
     number,
     commit: sha?.slice(0, 7),
+    ...(pr && {
+      author: pr.author,
+      avatarUrl: pr.avatarUrl ?? undefined,
+      updated: ago(pr.updatedAt),
+      base: pr.base,
+      head: pr.head,
+    }),
     ...(r?.files && {
       files: files.length,
       additions: sum(files, "additions"),
@@ -150,7 +206,7 @@ function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
         ) : (
           <>
             <Advice view={view} />
-            <CiChecks checks={liveChecks(view)} />
+            <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />
             {view.failure && (
               <p class="pr-alert" role="alert">
                 {view.failure}
@@ -298,6 +354,7 @@ type PrIdentity = {
   title: string;
   number: string;
   author?: string;
+  avatarUrl?: string;
   updated?: string;
   base?: string;
   head?: string;
@@ -344,9 +401,19 @@ function PrHeader({ identity, href }: { identity: PrIdentity; href: string }) {
         <div class="pr-row">
           {author && (
             <p class="pr-author">
-              <span class="pr-avatar" aria-hidden="true">
-                {author.slice(0, 1).toUpperCase()}
-              </span>
+              {identity.avatarUrl ? (
+                <img
+                  class="pr-avatar"
+                  src={identity.avatarUrl}
+                  alt=""
+                  width="24"
+                  height="24"
+                />
+              ) : (
+                <span class="pr-avatar" aria-hidden="true">
+                  {author.slice(0, 1).toUpperCase()}
+                </span>
+              )}
               <span class="pr-author-name">{author}</span>
               {updated && <span class="pr-muted">· {updated}</span>}
             </p>
@@ -555,6 +622,52 @@ function reviewCheck(view: ReviewView): CheckRow {
     state,
     status,
   };
+}
+
+const capitalize = (s: string) =>
+  s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
+
+function ciRow(item: CiItem): CheckRow {
+  const [state, status]: [CiState, string] =
+    item.state === "success"
+      ? ["passed", "Passed"]
+      : item.state === "failed"
+        ? ["failed", capitalize(item.detail)]
+        : item.state === "pending"
+          ? item.detail === "queued"
+            ? ["queued", "Queued"]
+            : ["running", "Running"]
+          : ["skipped", capitalize(item.detail)];
+  return {
+    key: `ci-${item.source ?? ""}-${item.id}`,
+    name: item.name,
+    origin: item.source ?? "CI",
+    state,
+    status,
+    ...(item.url && { href: item.url, external: true }),
+  };
+}
+
+function ciChecks(live: PrLive | null): CheckRow[] {
+  if (!live) return [];
+  const rows = (source: CiSource, name: string) => [
+    ...source.items.map(ciRow),
+    ...(source.kind === "unavailable"
+      ? [
+          {
+            key: `ci-unavailable-${name}`,
+            name,
+            origin: "GitHub",
+            state: "skipped" as const,
+            status: "Unavailable",
+          },
+        ]
+      : []),
+  ];
+  return [
+    ...rows(live.checks, "Check runs"),
+    ...rows(live.statuses, "Commit statuses"),
+  ];
 }
 
 const liveChecks = (view: ReviewView) => [

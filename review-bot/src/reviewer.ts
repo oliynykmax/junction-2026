@@ -880,20 +880,15 @@ export function reviewerExtension({
           t.mode === "manual" ? "public" : t.installationId,
         );
 
-        if (!existing?.brief) {
-          const brief = await collectBrief(tok, t);
+        if (!existing?.brief || !existing.evidence) {
+          const [brief, evidence] = await Promise.all([
+            existing?.brief ?? collectBrief(tok, t),
+            existing?.evidence ??
+              collectEvidence(tok, { ...t, base: pinnedBase(t) }),
+          ]);
           await runtime.commit(async (tx) => {
             const state = await tx.doc(ReviewDoc, id);
             state.brief ??= brief;
-          }, context);
-        }
-        if (!existing?.evidence) {
-          const evidence = await collectEvidence(tok, {
-            ...t,
-            base: pinnedBase(t),
-          });
-          await runtime.commit(async (tx) => {
-            const state = await tx.doc(ReviewDoc, id);
             state.evidence ??= evidence;
           }, context);
         }

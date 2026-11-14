@@ -2,13 +2,16 @@
 // note used inside a change, and the finding body and suggested-fix renderers.
 
 import { useMemo, useState } from "preact/hooks";
-import { blocks, heldBack } from "../src/findings";
+import { heldBack } from "../src/findings";
 import {
-  ATTENTION,
+  BLOCKING_RULE,
+  CONFIDENCE_MEANING,
   type Finding,
+  isBlocking,
   type LineUrl,
   location,
   QUIET,
+  SEVERITY_MEANING,
   severityCounts,
   sortFindings,
 } from "./shared";
@@ -86,9 +89,10 @@ export function SeverityCounts({ findings }: { findings: readonly Finding[] }) {
   if (counts.length === 0) return null;
   return (
     <p class="counts">
-      {counts.map(([s, n]) => (
-        <span key={s} class={ATTENTION.has(s) ? "alert" : ""}>
-          {n} {s}
+      {counts.map(({ severity, count, blocking }) => (
+        <span key={severity} class={blocking ? "alert" : ""}>
+          {count} {severity}
+          {blocking > 0 && blocking < count && ` (${blocking} blocking)`}
         </span>
       ))}
     </p>
@@ -96,10 +100,24 @@ export function SeverityCounts({ findings }: { findings: readonly Finding[] }) {
 }
 
 function Severity({ f }: { f: Finding }) {
+  const blocking = isBlocking(f);
   return (
-    <p class={`sev${ATTENTION.has(f.severity) ? " alert" : ""}`}>
-      {f.severity}
-      {heldBack(f) && <span class="held"> · possible, not counted</span>}
+    <p
+      class={`sev${blocking ? " alert" : QUIET.has(f.severity) ? "" : " notable"}`}
+    >
+      <span class="explained" title={SEVERITY_MEANING[f.severity]}>
+        {f.severity} severity
+      </span>
+      {!QUIET.has(f.severity) && (
+        <span class="explained held" title={BLOCKING_RULE}>
+          {" · "}
+          {blocking
+            ? "blocks"
+            : heldBack(f)
+              ? "not confirmed, doesn't block"
+              : "doesn't block"}
+        </span>
+      )}
     </p>
   );
 }
@@ -107,10 +125,20 @@ function Severity({ f }: { f: Finding }) {
 function Tags({ f }: { f: Finding }) {
   return (
     <p class="tags">
-      {f.class && <span class="tag">{f.class.replace("-", " ")}</span>}
-      {f.confidence && <span class="tag">{f.confidence}</span>}
+      {f.confidence && (
+        <span class="tag" title={CONFIDENCE_MEANING[f.confidence]}>
+          <span class="tag-key">confidence</span> {f.confidence}
+        </span>
+      )}
+      {f.class && (
+        <span class="tag" title="The kind of problem.">
+          <span class="tag-key">class</span> {f.class.replace("-", " ")}
+        </span>
+      )}
       {f.source && f.source !== "agent" && (
-        <span class="tag source">from {f.source}</span>
+        <span class="tag" title="A scanner flagged this; the AI confirmed it.">
+          <span class="tag-key">from</span> {f.source}
+        </span>
       )}
     </p>
   );
@@ -160,7 +188,7 @@ export function FindingNote({
   onLocate: (() => void) | null;
 }) {
   const [open, setOpen] = useState(false);
-  const attention = ATTENTION.has(f.severity) || blocks(f);
+  const attention = isBlocking(f);
   return (
     <li
       class={`note-finding${attention ? " attention" : ""}${focused ? " focused" : ""}`}

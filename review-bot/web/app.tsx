@@ -9,8 +9,10 @@ import type { Activity, ReviewView } from "../src/review";
 import type { Diagnostic, ScanResult, ScanState } from "../src/scanners";
 import { Changes, findingsByChange } from "./changes";
 import { FileDiffs } from "./diff";
+import { EvidencePanel } from "./evidence";
 import { Findings } from "./findings";
-import { type Focus, plural } from "./shared";
+import { BLOCKING_RULE, type Focus, plural } from "./shared";
+import { blocks } from "../src/findings";
 
 export type PageConfig = {
   api: string;
@@ -141,6 +143,7 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
           </div>
           <Facts view={view} owner={owner} error={error} />
         </section>
+        {view && <EvidencePanel html={view.evidenceHtml} />}
         {view && tab === "diff" && (
           <section class="section" aria-labelledby="diff-h">
             <div class="section-head">
@@ -216,34 +219,60 @@ function Status({ status }: { status: ReviewView["status"] }) {
   );
 }
 
+// A count of the findings, not a verdict: it can never disagree with them, and
+// it leaves the decision to the named human.
 function Advice({ view }: { view: ReviewView }) {
   const v = view.review.verdict;
-  if (!v)
-    return (
-      <p class="muted advice-wait">
-        {view.status === "failed"
-          ? "The review stopped before it gave advice."
-          : "The AI's advice appears here when the review finishes."}
-      </p>
+  const findings = view.review.findings;
+  const blocking = findings.filter(blocks).length;
+  const rest = findings.length - blocking;
+  const finished = v !== null;
+
+  let headline: ComponentChildren;
+  if (findings.length === 0)
+    headline = finished
+      ? "No findings"
+      : view.status === "failed"
+        ? "The review stopped before it recorded any findings"
+        : "No findings yet";
+  else if (blocking > 0)
+    headline = (
+      <>
+        <span class="alert">{plural(blocking, "blocking finding")}</span>
+        {rest > 0 && `, ${rest} more not blocking`}
+        {!finished && " so far"}
+      </>
     );
-  const changes = v.decision === "changes_requested";
+  else
+    headline = `${plural(findings.length, "finding")}, none blocking${finished ? "" : " so far"}`;
+
   return (
     <div class="advice">
-      <p class={`decision${changes ? " alert" : ""}`}>
-        AI advice: {changes ? "changes requested" : "no blockers found"}
+      <p class="decision" title={BLOCKING_RULE}>
+        {headline}
       </p>
-      <p class="summary">{v.summary}</p>
       {view.heldBack > 0 && (
         <p class="note">
-          {plural(view.heldBack, "critical or high finding")} rated possible.
-          The agent could not confirm{" "}
-          {view.heldBack === 1 ? "it, so it does" : "them, so they do"} not
-          count toward this advice. Check {view.heldBack === 1 ? "it" : "them"}{" "}
-          yourself.
+          {plural(view.heldBack, "critical or high finding")} the AI could not
+          confirm {view.heldBack === 1 ? "is" : "are"} rated possible and{" "}
+          {view.heldBack === 1 ? "doesn't" : "don't"} block. Check{" "}
+          {view.heldBack === 1 ? "it" : "them"} yourself.
+        </p>
+      )}
+      {finished ? (
+        <>
+          <h2 class="summary-h">What the AI read and concluded</h2>
+          <p class="summary">{v.summary}</p>
+        </>
+      ) : (
+        <p class="muted advice-wait">
+          {view.status === "failed"
+            ? "The review stopped before the AI wrote its summary."
+            : "The AI's summary appears here when the review finishes."}
         </p>
       )}
       <p class="muted">
-        This is advice. A named human owns the merge decision.
+        The AI advises. A named human decides whether to merge.
       </p>
     </div>
   );

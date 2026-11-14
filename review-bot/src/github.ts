@@ -3,6 +3,7 @@ import type { Target } from "./reviewer";
 // GitHub App auth and the REST calls the bot and the reviewer make.
 
 import { fromStored, SEVERITIES, type Severity } from "./findings";
+import { evidenceAllowsApproval, type Evidence } from "./evidence";
 
 export interface AppSecrets {
   APP_ID: string;
@@ -16,14 +17,29 @@ const HEADERS = {
   "x-github-api-version": "2022-11-28",
 };
 
+export class GitHubError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function gh(
   token: string,
   path: string,
-  init: { method?: string; body?: unknown; accept?: string } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    accept?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Response> {
   const method = init.method ?? "GET";
   const res = await fetch(path.startsWith("https://") ? path : API + path, {
     method,
+    signal: init.signal,
     headers: {
       ...HEADERS,
       ...(init.accept ? { accept: init.accept } : {}),
@@ -32,7 +48,7 @@ export async function gh(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
   if (!res.ok)
-    throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+    throw new GitHubError(res.status, `${method} ${path} -> ${res.status}`);
   return res;
 }
 
@@ -95,6 +111,7 @@ export async function publishReview(
   pr: Pr & { headSha: string },
   findings: readonly { severity: Severity }[],
   reportUrl: string,
+  evidence?: Evidence | null,
 ) {
   const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
   const current = await ghJson<{ head: { sha: string } }>(token, base);
@@ -120,7 +137,12 @@ export async function publishReview(
     method: "POST",
     body: {
       commit_id: pr.headSha,
-      event: findings.length === 0 ? "APPROVE" : "COMMENT",
+      event:
+        findings.length === 0 &&
+        evidence?.headSha === pr.headSha &&
+        evidenceAllowsApproval(evidence)
+          ? "APPROVE"
+          : "COMMENT",
       body: `${REVIEW_MARKER}\n${summary}\n\n[Full report](${reportUrl})`,
     },
   });

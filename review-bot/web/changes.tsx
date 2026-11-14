@@ -1,13 +1,14 @@
-// The PR as the agent described it: one row per logical change, with its
-// Situation, Task, Action and Result, its tags and line counts, the findings
-// in its files, and its diff inline.
+// The PR as the agent split it: one row per logical change, with its tags,
+// line counts and one-sentence summary, the findings in its files, and its
+// diff inline.
 
 import { useMemo, useState } from "preact/hooks";
 import { FileDiffs } from "./diff";
-import { FindingNote, SeverityCounts } from "./findings";
+import { FindingNote } from "./findings";
 import {
   type Change,
   type ChangedFile,
+  changeSentence,
   type Finding,
   type Focus,
   type LineUrl,
@@ -108,13 +109,6 @@ export function Changes({
   );
 }
 
-const STAR = [
-  ["situation", "Situation"],
-  ["task", "Task"],
-  ["action", "Action"],
-  ["result", "Result"],
-] as const;
-
 function ChangeRow({
   change,
   files,
@@ -133,6 +127,7 @@ function ChangeRow({
   const removed = files.reduce((n, f) => n + f.deletions, 0);
   const quiet = findings.every((f) => QUIET.has(f.severity));
   const diffId = `diff-${change.id}`;
+  const sentence = changeSentence(change);
 
   const locate = (f: Finding) => {
     if (!f.line) return;
@@ -160,7 +155,6 @@ function ChangeRow({
           {removed > 0 && <span>−{removed} removed</span>}
           {files.length > 0 && <span>{plural(files.length, "file")}</span>}
         </p>
-        <SeverityCounts findings={findings} />
         {files.length > 0 && (
           <button
             type="button"
@@ -176,32 +170,27 @@ function ChangeRow({
           </button>
         )}
       </div>
-      <div class="row-body">
-        <dl class="star">
-          {STAR.map(([key, label]) => (
-            <div key={key}>
-              <dt>{label}</dt>
-              <dd>{change[key]}</dd>
-            </div>
-          ))}
-        </dl>
-        {findings.length > 0 && (
-          <ul class="notes-findings" aria-label="Findings in this change">
-            {findings.map((f) => (
-              <FindingNote
-                key={f.id}
-                f={f}
-                focused={focus?.findingId === f.id}
-                onLocate={
-                  f.line && files.some((x) => x.path === f.path && x.patch)
-                    ? () => locate(f)
-                    : null
-                }
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+      {(sentence || findings.length > 0) && (
+        <div class="row-body">
+          {sentence && <p class="change-summary">{sentence}</p>}
+          {findings.length > 0 && (
+            <ul class="notes-findings" aria-label="Findings in this change">
+              {findings.map((f) => (
+                <FindingNote
+                  key={f.id}
+                  f={f}
+                  focused={focus?.findingId === f.id}
+                  onLocate={
+                    f.line && files.some((x) => x.path === f.path && x.patch)
+                      ? () => locate(f)
+                      : null
+                  }
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {open && (
         <div class="row-diff" id={diffId}>
           <FileDiffs

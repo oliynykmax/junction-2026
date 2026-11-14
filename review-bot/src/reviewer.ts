@@ -86,20 +86,32 @@ export type ChangedFile = {
   patch: string | null;
 };
 
-/** A logical change in the PR, told as Situation, Task, Action, Result. */
+/** A logical change in the PR: a title, tags, one sentence and its files. */
 export type Change = {
   id: string;
   title: string;
   tags: string[];
+  /** What the change does in its files. Absent on older reviews. */
+  summary?: string;
+  /** The per-change STAR that older reviews stored; only action is shown. */
+  action?: string;
+  files: string[];
+};
+
+/** The whole PR told as Situation, Task, Action, Result, one sentence each. */
+export type Star = {
   situation: string;
   task: string;
   action: string;
   result: string;
-  files: string[];
 };
+
+export const STAR_PARTS = ["situation", "task", "action", "result"] as const;
 
 export type Verdict = {
   decision: "no_blockers_found" | "changes_requested";
+  /** The agent's STAR description of the PR. Absent on older reviews. */
+  star?: Star;
   summary: string;
   notChecked: string[];
   dismissed: Dismissal[];
@@ -126,6 +138,10 @@ export type ReviewState = {
   changeRefusals?: number;
   /** Deterministic risk tier and test-change lane. Absent on older reviews. */
   risk?: Risk;
+  /** Times finish_review refused an invalid STAR. */
+  starRefusals?: number;
+  /** Times describe_change refused an invalid summary sentence. */
+  summaryRefusals?: number;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -144,6 +160,8 @@ export const EMPTY_REVIEW: ReviewState = {
   files: [],
   changes: [],
   changeRefusals: 0,
+  starRefusals: 0,
+  summaryRefusals: 0,
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -159,10 +177,17 @@ export const ReviewDoc = defineDoc<ReviewState>({
 const MAX_LOOKUP_ARGS = 300;
 const MAX_DOCS_REFUSALS = 2;
 const MAX_CHANGE_REFUSALS = 2;
+const MAX_STAR_REFUSALS = 2;
+const MAX_SUMMARY_REFUSALS = 2;
 // Patches are stored in the review document, so their size is capped.
 const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
-const MAX_STAR_CHARS = 280;
+const MAX_STAR_CHARS = 400;
+// The reviewer speaking about itself: "I", "we", "my", "our" and the like.
+// A word joined by a slash or hyphen is a technical token (I/O, us-east-1).
+const FIRST_PERSON =
+  /(?<![\w/-])(?:I|I'm|I've|I'd|I'll|[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Ww]e|[Ww]e're|[Ww]e've|[Ww]e'd|[Ww]e'll|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves)(?![\w/-])/;
+const MAX_CHANGE_SUMMARY_CHARS = 280;
 const MAX_TAGS = 3;
 const MAX_TAG_CHARS = 24;
 
@@ -195,24 +220,30 @@ export function capturedFiles(
   });
 }
 
+/** Problems with the PR's STAR description, or an empty list when it is valid. */
+export function starProblems(star: Star): string[] {
+  const problems: string[] = [];
+  for (const part of STAR_PARTS) {
+    const length = star[part].trim().length;
+    if (length === 0) problems.push(`Write the ${part} sentence.`);
+    else if (length > MAX_STAR_CHARS)
+      problems.push(
+        `${part} is ${length} characters; keep it to one sentence under ${MAX_STAR_CHARS}.`,
+      );
+    if (FIRST_PERSON.test(star[part]))
+      problems.push(
+        `${part} speaks in the first person. Describe the pull request in the third person; what you read, ran or concluded goes in summary or not_checked.`,
+      );
+  }
+  return problems;
+}
+
 /** Problems with a describe_change call, or an empty list when it is valid. */
 export function changeProblems(
-  args: {
-    tags: readonly string[];
-    situation: string;
-    task: string;
-    action: string;
-    result: string;
-    files: readonly string[];
-  },
+  args: { tags: readonly string[]; files: readonly string[] },
   changed: readonly string[],
 ): string[] {
   const problems: string[] = [];
-  for (const part of ["situation", "task", "action", "result"] as const)
-    if (args[part].length > MAX_STAR_CHARS)
-      problems.push(
-        `${part} is ${args[part].length} characters; keep it to one sentence under ${MAX_STAR_CHARS}.`,
-      );
   if (args.tags.length === 0 || args.tags.length > MAX_TAGS)
     problems.push(`Give 1 to ${MAX_TAGS} tags.`);
   for (const tag of args.tags)
@@ -224,6 +255,22 @@ export function changeProblems(
   if (unknown.length && changed.length)
     problems.push(
       `Not changed in this pull request: ${unknown.join(", ")}. Use paths exactly as pr_overview lists them.`,
+    );
+  return problems;
+}
+
+/** Problems with a change's summary sentence, or an empty list when it is valid. */
+export function summaryProblems(summary: string): string[] {
+  const problems: string[] = [];
+  const length = summary.trim().length;
+  if (length === 0) problems.push("Write the summary sentence.");
+  else if (length > MAX_CHANGE_SUMMARY_CHARS)
+    problems.push(
+      `summary is ${length} characters; keep it to one sentence under ${MAX_CHANGE_SUMMARY_CHARS}.`,
+    );
+  if (FIRST_PERSON.test(summary))
+    problems.push(
+      "summary speaks in the first person. Describe the change in the third person.",
     );
   return problems;
 }
@@ -439,14 +486,11 @@ export function reviewerExtension({
   const describeChange = defineTool({
     name: "describe_change",
     description:
-      "Describe one logical change in the pull request for the human owner, as Situation, Task, Action and Result, one sentence each. Call once per change; together the changes must cover every changed file. Calling again with the same title replaces that change.",
+      "Describe one logical change in the pull request for the human owner: a specific title, its tags, one third-person sentence on what it does in its files, and the changed files it covers. Call once per change; together the changes must cover every changed file. Calling again with the same title replaces that change.",
     parameters: obj({
       title: str(),
       tags: arr(str()),
-      situation: str(),
-      task: str(),
-      action: str(),
-      result: str(),
+      summary: str(),
       files: arr(str()),
     }),
     execute: async (args, api, context) => {
@@ -458,14 +502,20 @@ export function reviewerExtension({
           (state.files ?? []).map((f) => f.path),
         );
         if (problems.length) return;
+        // Summary refusals are capped across the review; past the cap the
+        // change is recorded without its sentence.
+        const bad = summaryProblems(args.summary);
+        const summaryRefusals = state.summaryRefusals ?? 0;
+        if (bad.length && summaryRefusals < MAX_SUMMARY_REFUSALS) {
+          state.summaryRefusals = summaryRefusals + 1;
+          problems = bad;
+          return;
+        }
         const change: Change = {
           id: api.callId,
           title: args.title,
           tags: args.tags.map((t) => t.toLowerCase()),
-          situation: args.situation,
-          task: args.task,
-          action: args.action,
-          result: args.result,
+          ...(bad.length ? {} : { summary: args.summary.trim() }),
           files: [...new Set(args.files)],
         };
         const others = (state.changes ?? []).filter(
@@ -485,8 +535,12 @@ export function reviewerExtension({
   const finishReview = defineTool({
     name: "finish_review",
     description:
-      "End the review. Call exactly once, after every finding is recorded. The decision is derived from the findings' severity and confidence and is advice to the human owner, never an approval.",
+      "End the review. Call exactly once, after every finding is recorded. Describe the whole pull request as Situation, Task, Action and Result, one third-person sentence each about the pull request, not about your review (that goes in summary). The decision is derived from the findings' severity and confidence and is advice to the human owner, never an approval.",
     parameters: obj({
+      situation: str(),
+      task: str(),
+      action: str(),
+      result: str(),
       summary: str(),
       not_checked: arr(str()),
       dismissed: opt(
@@ -500,13 +554,27 @@ export function reviewerExtension({
         ),
       ),
     }),
-    execute: async ({ summary, not_checked, dismissed }, api, context) => {
+    execute: async (args, api, context) => {
+      const { summary, not_checked, dismissed } = args;
+      const star: Star = {
+        situation: args.situation,
+        task: args.task,
+        action: args.action,
+        result: args.result,
+      };
+      const problems = starProblems(star);
       let refused: string | null = null;
       let findings: Finding[] = [];
       let decision: Verdict["decision"] | null = null;
       let risk: RiskTier | undefined;
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
+        const starRefusals = state.starRefusals ?? 0;
+        if (problems.length && starRefusals < MAX_STAR_REFUSALS) {
+          state.starRefusals = starRefusals + 1;
+          refused = `Not finished. ${problems.join(" ")}`;
+          return;
+        }
         const refusals = state.docsRefusals ?? 0;
         const noDocs = !state.lookups?.length;
         if (noDocs && refusals < MAX_DOCS_REFUSALS) {
@@ -524,9 +592,15 @@ export function reviewerExtension({
         decision = decisionFor(state.findings.map(fromStored));
         state.verdict = {
           decision,
+          ...(problems.length ? {} : { star }),
           summary,
           notChecked: [
             ...evidenceGaps(state.evidence),
+            ...(problems.length
+              ? [
+                  `The agent's Situation/Task/Action/Result description of the pull request is left out because it still failed the checks: ${problems.join(" ")}`,
+                ]
+              : []),
             ...(noDocs
               ? [
                   "The agent finished without looking up any documentation, so its claims about library, framework and platform behaviour come from memory.",
@@ -684,8 +758,14 @@ The review_evidence section contains a persisted CI snapshot and CODING_STANDARD
 5. Deterministic scanners (zizmor for GitHub Actions workflows, ty for Python, oxlint for JavaScript and TypeScript) already ran on the changed files; their output is in scanner_results below. Triage every diagnostic: read the code it points at, then either confirm it with report_finding (source set to the tool, severity by real impact, not the tool's label, confidence verified once you have read the code) or dismiss it in finish_review's dismissed list with a concrete reason. Several diagnostics with one root cause become one finding.
 6. risk_signals below holds deterministic checks that ran on the patches: a risk tier with the rules that set it, and every test file that lost tests or assertions, gained a skip marker or was deleted. You cannot change the tier. For each weakened test file, read its patch and the production code it covered, then either report a testing finding (severity by what the weakened test no longer protects, confidence verified once you have read both) or, when the requirement genuinely makes the old test wrong, say so with the reason in your summary. Never treat a weakened test as evidence that the change works.
 7. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. It is offered to the owner, never applied by you.
-8. Describe the pull request for the owner with describe_change, once per logical change (a fix, its tests, a docs update and an unrelated dependency bump are four changes). Every changed file belongs to a change. Write each part as one plain sentence from what you read, not from the PR description alone: situation is what was wrong or missing before; task is what the change sets out to do; action is what the code now does differently; result is the observable effect and the evidence for it (a test, a line, a doc), or says it is unverified. Never write that the change is correct, safe or approved. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator".
-9. Finish with finish_review exactly once. Give a short summary for the human owner, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, documentation you could not find, missing context), with the reason.
+8. Split the pull request into logical changes with describe_change, once per change (a fix, its tests, a docs update and an unrelated dependency bump are four changes), giving each a title, its tags, a summary and its files. Every changed file belongs to a change. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator". The title says what specifically changes, in a few words, not just its kind, which the tags already give: "Cover referenced-assembly generics", not "Tests" or "Docs and tests". The summary is one third-person sentence on what this change does in its files, naming what a reader would look for there (the cases a test adds, the section a doc changes, the version a dependency moves to).
+9. Finish with finish_review exactly once. Describe the whole pull request for the owner as Situation, Task, Action and Result: four plain sentences in the third person about the pull request, never about your review, written from what you read and not from the PR description alone.
+   - situation: the problem, need or risk that existed before, and who or what it affected. Not a restatement of the change ("X was missing" when the PR adds X); if the pull request states no reason and the code shows none, say the motivation is not stated.
+   - task: the goal the pull request sets out to reach, in terms of that situation.
+   - action: what the code now does differently, across all its changes, naming the main mechanism.
+   - result: what changes for users, callers or maintainers once it merges, and the evidence the pull request itself carries for that (a test it adds, a doc, a benchmark), or that it carries none. Your own findings, what you checked and what you could not run belong in summary and not_checked, not here. If the change has a side effect the pull request does not mention, record it with report_finding, not in result.
+   Never write that the pull request is correct, safe or approved.
+   Also give a short summary of what you concluded from the review, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, documentation you could not find, missing context), with the reason.
 
 Severity. Rate the impact if the finding is real, not how sure you are.
 - critical: exploitable vulnerability, data loss or corruption, or an outage on a normal path. Must not merge.

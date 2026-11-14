@@ -30,3 +30,9 @@ First verify server validation, public access, namespace separation, durable mod
 Thirteen Bun behavior tests cover URL validation, unauthenticated resolution, private-repository rejection, change-size limits, safe errors, namespace isolation, durable target restoration, manual completion without approval or token access, webhook approval preservation, pinned comparisons, and admission budgets. Formatting, oxlint, TypeScript checks, Python compilation, and a Wrangler dry-run pass. Local HTTP checks serve the actual landing, CSS, manual report shell, and validation errors. Browser screenshots and a live model review remain the parent's verification work.
 
 Manual report polling is fifteen seconds to reduce anonymous GitHub quota pressure; webhook reports keep their existing interval. The anonymous quota still limits practical demo use. No live model review was run during implementation. The scanner's optional authorization-header change must be deployed with its normal separate deployment process for anonymous public scans to work. Without that scanner update, scanner failures remain visible in the report rather than silently claiming checks ran.
+
+## Parent verification
+
+Desktop and mobile Chromium screenshots were captured at 1440×1000 and 390×844. The browser loaded all assets without errors. Invalid PR input produced the server validation message and re-enabled submission. A simulated successful API response navigated to its pinned manual report route. Mobile and desktop document widths matched their viewports. All 13 tests, formatting, lint, and type checks passed again. CI now runs the behavior suite.
+
+A live model review remains unverified because this checkout has no deployment secrets. Independent Claude review was attempted but failed at the provider API rate limit. Independent review remains blocked; this PR is not represented as independently approved or merge-ready. The team review-bot gate still applies before any human merge.

@@ -19,6 +19,7 @@ import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { fromStored, heldBack, type Stored } from "./findings";
+import { evidenceHtml } from "./evidence";
 import { type AppSecrets, publishReview, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { ManualGate } from "./manual-gate";
@@ -64,6 +65,7 @@ export type ReviewView = {
   heldBack: number;
   activity: Activity[];
   costUsd: number;
+  evidenceHtml: string;
 };
 
 const HEARTBEAT_MS = 60_000;
@@ -99,10 +101,16 @@ export class Review extends DurableObject<Env> {
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
-        publish: (target, token, findings) =>
+        publish: (target, token, findings, evidence) =>
           target.mode === "manual"
             ? Promise.resolve()
-            : publishReview(token, target, findings, reviewLink(env, target)),
+            : publishReview(
+                token,
+                target,
+                findings,
+                reviewLink(env, target),
+                evidence,
+              ),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);
@@ -256,6 +264,7 @@ export class Review extends DurableObject<Env> {
         prompt: prompt && { url: prompt.url, sha256: prompt.sha256 },
       },
       heldBack: findings.filter(heldBack).length,
+      evidenceHtml: evidenceHtml(review.evidence),
       activity,
       costUsd: Object.values(usage.models).reduce(
         (sum, u) => sum + u.cost.total,

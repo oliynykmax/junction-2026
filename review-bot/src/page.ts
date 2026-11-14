@@ -47,6 +47,7 @@ button{font:inherit;font-size:.85rem;padding:4px 12px;border-radius:6px;border:1
 <div id="verdict"></div>
 <h2>Findings</h2><div id="counts" class="counts"></div><div id="findings" class="empty">none yet</div>
 <h2>Scanners</h2><div id="scanners" class="empty">waiting for the scan</div>
+<h2>CI and team standard evidence</h2><div id="evidence" class="empty">waiting for the snapshot</div>
 <h2>Docs consulted</h2><div id="docs" class="empty">no documentation looked up yet</div>
 <h2>Not checked</h2><div id="notchecked" class="empty">reported when the review finishes</div>
 <h2>Agent activity</h2><div id="feed" class="feed"></div>
@@ -87,6 +88,8 @@ function render(v){
   $("docs").className=ls.length?"":"empty";
   $("docs").innerHTML=ls.length?'<ul>'+ls.map((l)=>'<li><code>'+esc(l.tool.replace(/^mcp__/,"").replace("__"," "))+'</code> <code>'+esc(l.args)+'</code></li>').join("")+'</ul>':(r.verdict?"none":"no documentation looked up yet");
   renderScan(r.scan,r.verdict,t);
+  $("evidence").className="";
+  $("evidence").innerHTML=v.evidenceHtml||'<p class="empty">No evidence snapshot for this review.</p>';
   if(r.verdict){const n=r.verdict.notChecked;$("notchecked").className=n.length?"":"empty";$("notchecked").innerHTML=n.length?'<ul>'+n.map((x)=>'<li>'+esc(x)+'</li>').join("")+'</ul>':"nothing listed"}
   $("feed").innerHTML=v.activity.map((a)=>{
     if(a.kind==="say")return '<div class="row"><span class="tag">agent</span>'+esc(a.text)+'</div>';

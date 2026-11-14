@@ -102,10 +102,10 @@ async function checkout(input, signal) {
   if (/[\r\n\0]/.test(token)) throw new Error("invalid githubToken");
   const id = key(input.session);
   const old = sessions.get(id);
-  if (old?.busy || old?.cleanup) throw new Error("session busy");
-  if (old) {
-    await destroy(old);
-  }
+  if (old?.busy) throw new Error("session busy");
+  // An idle reap may still be removing the old worker; a fresh checkout waits for it.
+  if (old) await destroy(old);
+  if (sessions.get(id)) throw new Error("session busy");
   if (sessions.size >= MAX_SESSIONS)
     throw new Error("executor capacity reached; retry later");
   const session = {
@@ -162,7 +162,7 @@ async function checkout(input, signal) {
         "--label",
         `${LABEL}=${SCOPE}`,
         "--opt",
-        "isolate=true",
+        "isolate=strict",
         session.name,
       ],
       { signal },

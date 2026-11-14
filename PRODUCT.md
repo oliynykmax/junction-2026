@@ -1,4 +1,4 @@
-# Earned Trust
+# Bumble Bot
 
 register: brand
 

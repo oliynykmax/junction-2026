@@ -36,3 +36,7 @@ Manual report polling is fifteen seconds to reduce anonymous GitHub quota pressu
 Desktop and mobile Chromium screenshots were captured at 1440×1000 and 390×844. The browser loaded all assets without errors. Invalid PR input produced the server validation message and re-enabled submission. A simulated successful API response navigated to its pinned manual report route. Mobile and desktop document widths matched their viewports. All 13 tests, formatting, lint, and type checks passed again. CI now runs the behavior suite.
 
 A live model review remains unverified because this checkout has no deployment secrets. Independent Claude review was attempted but failed at the provider API rate limit. Independent review remains blocked; this PR is not represented as independently approved or merge-ready. The team review-bot gate still applies before any human merge.
+
+## Branding synchronization
+
+The landing branch originally forked before Bumble Bot branding landed on main. Pulled that update into this branch and replaced the landing's copied logo with the Worker's shared favicon route. The title, home link label, header, and footer now use Bumble Bot. Icon URLs carry a branding version to avoid the older cached robot icon. Tieto's challenge retains its proper name.

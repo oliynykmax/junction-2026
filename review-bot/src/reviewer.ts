@@ -618,7 +618,7 @@ export function reviewerExtension({
       return text(
         `Checked out ${t.owner}/${t.repo}@${result.commit} at ${result.workspace}. ` +
           (result.base
-            ? `Fetched base ${result.base} with 50 commits of history on each side. `
+            ? `Fetched base ${result.base} with commit history. `
             : "") +
           "Use shell with that path, or omit cwd to use it by default.",
       );
@@ -649,7 +649,7 @@ export function reviewerExtension({
       );
       const status = result.timedOut ? "timed out" : `exit ${result.exitCode}`;
       return text(
-        `${status}\nstdout:\n${result.stdout || "(empty)"}\nstderr:\n${
+        `${status}\nstdout${result.stdoutTruncated ? " (truncated at 128 KiB)" : ""}:\n${result.stdout || "(empty)"}\nstderr${result.stderrTruncated ? " (truncated at 128 KiB)" : ""}:\n${
           result.stderr || "(empty)"
         }`,
       );
@@ -898,9 +898,11 @@ export function reviewerExtension({
       if (refused) return { ...text(refused), isError: true };
       if (decision) {
         finished(decision, findings.length);
-        await release?.(String(api.conversationId)).catch((error) =>
-          console.error("executor release failed", error),
-        );
+        try {
+          await release?.(String(api.conversationId));
+        } catch (error) {
+          console.error("executor release failed", error);
+        }
       }
       const { t, tok } = await target(api, context);
       if (t.mode !== "manual")

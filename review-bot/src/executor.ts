@@ -30,6 +30,8 @@ export type ShellResult = {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 };
 
 type ExecutorEnv = {

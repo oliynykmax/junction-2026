@@ -10,6 +10,8 @@ export function run(
   return new Promise((resolve, reject) => {
     let stdout = Buffer.alloc(0);
     let stderr = Buffer.alloc(0);
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     let done = false;
     let stopping = false;
     const child = spawn(file, args, {
@@ -32,6 +34,8 @@ export function run(
           stdout: stdout.toString(),
           stderr: stderr.toString(),
           timedOut,
+          stdoutTruncated,
+          stderrTruncated,
         });
     };
     const stop = (timedOut) => {
@@ -49,16 +53,16 @@ export function run(
     const abort = () => stop(false);
     const timer = setTimeout(() => stop(true), timeoutMs);
     child.stdout.on("data", (chunk) => {
-      stdout = Buffer.concat([
-        stdout,
-        chunk.subarray(0, Math.max(0, MAX_OUTPUT - stdout.length)),
-      ]);
+      const available = MAX_OUTPUT - stdout.length;
+      if (chunk.length > available) stdoutTruncated = true;
+      if (available > 0)
+        stdout = Buffer.concat([stdout, chunk.subarray(0, available)]);
     });
     child.stderr.on("data", (chunk) => {
-      stderr = Buffer.concat([
-        stderr,
-        chunk.subarray(0, Math.max(0, MAX_OUTPUT - stderr.length)),
-      ]);
+      const available = MAX_OUTPUT - stderr.length;
+      if (chunk.length > available) stderrTruncated = true;
+      if (available > 0)
+        stderr = Buffer.concat([stderr, chunk.subarray(0, available)]);
     });
     child.once("error", (error) => finish(1, false, error));
     child.once("close", (code) => {

@@ -8,9 +8,7 @@ web
 
 ## Stack
 
-Existing: Cloudflare Worker `j26-review-bot` (`review-bot/`, TypeScript, Bun, Wrangler), live at https://review.oliinyk.dev. It serves a placeholder at `/r/<owner>/<repo>/<pr>?sha=<head>`, which is where the review view goes.
-
-The review view will use a frontend framework (confirmed with the user). Which one is **undecided**; record the choice here when made.
+Cloudflare Worker `j26-review-bot` (`review-bot/`, TypeScript, Bun, Wrangler), live at https://review.oliinyk.dev. The review page (`/r/...` for webhook reviews, `/m/...` for manual ones) is a Preact + Vite client in `review-bot/web/`. The landing page is static HTML in `landing/`.
 
 ## Users
 
@@ -34,7 +32,7 @@ The AI review is advice with evidence, never the approval. "The AI said it was f
 
 ## Operating Context
 
-- GitHub pull request flow. A GitHub App (`j26-earned-trust-review`, installed only on `oliynykmax/junction26-messagepack-csharp`) posts one comment per PR linking to the review view. Later pushes edit that comment.
+- GitHub pull request flow. A GitHub App (Bumble Bot, installed only on `oliynykmax/junction26-messagepack-csharp`) posts one comment per PR linking to the review view. Later pushes edit that comment.
 - Sample code input is our own copy of `te-industry-tech-office/junction26-messagepack-csharp` (MessagePack-CSharp, C#). Never work on upstream.
 - Review depth follows risk: light checks for low-risk changes, a full read for high-risk ones.
 - Humans spot-check the AI reviewer and track what it misses. Trust is earned per area from track record and withdrawn after escapes.
@@ -48,11 +46,17 @@ The AI review is advice with evidence, never the approval. "The AI said it was f
 - Judges' questions the product must answer: what would make you not trust your own output, who owns the decision, how would this scale.
 - Out of scope: a finished product, model training, vendor selection.
 - Terminology: "owner" is the named human who signs. "Refused to decide" means a question the AI explicitly hands back to the owner.
-- Undecided: frontend framework; how findings are generated and verified in the reference implementation; where the requirement set lives (Tieto resources: requirements set, sample changes with requirement IDs, quality and security standards).
+- Undecided: how findings are generated and verified in the reference implementation; where the requirement set lives (Tieto resources: requirements set, sample changes with requirement IDs, quality and security standards).
 
 ## Brand Commitments
 
-The bot and GitHub App carry the name "Earned Trust Review" (`j26-earned-trust-review`). A logo and favicons exist in `review-bot/assets/` (`logo.svg`, `logo.png`, `favicon.ico`, `apple-touch-icon.png`). No voice or identity rules beyond these have been set.
+The bot and GitHub App are named **Bumble Bot** (`bumble-bot-review`). The bee logo and favicons are in `review-bot/assets/` (`logo.svg`, `logo.png`, `favicon.ico`, `apple-touch-icon.png`).
+
+## Landing page
+
+`landing/` is a hackathon concept landing page for engineers deciding whether to accept agent-written pull requests. It turns a public GitHub PR URL into a read-only evidence report (a manual review, served at `/m/...`). Manual starts must never write comments or approvals to GitHub.
+
+Its visual direction is white and orange, confident and trustworthy: readable typography, clear focus states, reduced-motion support, a responsive layout. No fabricated metrics, findings, endorsements or approval claims.
 
 ## Evidence on Hand
 

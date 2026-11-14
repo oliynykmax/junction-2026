@@ -11,7 +11,7 @@ Read [`challenge/earned-trust-in-ai-code.md`](challenge/earned-trust-in-ai-code.
 ## Status
 
 - **Current focus:** the AI PR reviewer challenge (above).
-- **Dropped:** the Telegram propaganda detector for Hostinger's "Decode the Noise" challenge. `telegram-propaganda-brief.md` and `sources.md` are kept for reference only. Don't build on them.
+- **Dropped:** the Telegram propaganda detector for Hostinger's "Decode the Noise" challenge. Its files were removed from the repo (see git history). Don't build on it.
 
 ## Working rules
 

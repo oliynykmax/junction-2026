@@ -1,0 +1,12 @@
+name: Set up CellD
+description: Install the pinned Linux amd64 runtime used on Verda
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        curl --fail --silent --show-error --location https://github.com/denoland/celld/releases/download/v0.6.2/celld-x86_64-unknown-linux-gnu.gz | gzip -dc > "$RUNNER_TEMP/celld"
+        printf '0c9ef440f566156176c3d538e4a3c4034f43775a5851f3ff862938533b5aceac  %s/celld\n' "$RUNNER_TEMP" | sha256sum --check
+        chmod 755 "$RUNNER_TEMP/celld"
+        echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+        "$RUNNER_TEMP/celld" --version

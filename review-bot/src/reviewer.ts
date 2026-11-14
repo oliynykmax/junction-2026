@@ -264,11 +264,17 @@ export type ReviewerDeps = {
     findings: readonly Finding[],
     evidence: Evidence | null,
   ) => Promise<void>;
+  finished: (decision: Verdict["decision"], findings: number) => void;
 };
 
 const MAX_FILE_LINES = 400;
 
-export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
+export function reviewerExtension({
+  token,
+  scan,
+  publish,
+  finished,
+}: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
     if (!state?.target) throw new Error("review has no target");
@@ -493,6 +499,9 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
     }),
     execute: async ({ summary, not_checked, dismissed }, api, context) => {
       let refused: string | null = null;
+      let findings: Finding[] = [];
+      let decision: Verdict["decision"] | null = null;
+      let evidence: Evidence | null = null;
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
         const refusals = state.docsRefusals ?? 0;
@@ -509,8 +518,9 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
           refused = `Not finished: no described change covers ${uncovered.join(", ")}. Call describe_change for the change each of these files belongs to (or add them to an existing change by calling it again with the same title), then call finish_review again.`;
           return;
         }
+        decision = decisionFor(state.findings.map(fromStored));
         state.verdict = {
-          decision: decisionFor(state.findings.map(fromStored)),
+          decision,
           summary,
           notChecked: [
             ...evidenceGaps(state.evidence),
@@ -528,13 +538,17 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
           ],
           dismissed: dismissed ?? [],
         };
+        // The draft cannot be read once the commit settles: copy it out.
+        findings = state.findings.map((f) => ({ ...f }));
+        evidence = state.evidence
+          ? JSON.parse(JSON.stringify(state.evidence))
+          : null;
       }, context);
       if (refused) return { ...text(refused), isError: true };
+      if (decision) finished(decision, findings.length);
       const { t, tok } = await target(api, context);
-      // Read after the commit: its documents are unusable once it settles.
-      const done = await api.snapshot(ReviewDoc, api.conversationId, context);
-      if (t.mode !== "manual" && done)
-        await publish(t, tok, done.findings, done.evidence ?? null).catch((e) =>
+      if (t.mode !== "manual")
+        await publish(t, tok, findings, evidence).catch((e) =>
           console.error(`review publication for ${t.headSha} failed`, e),
         );
       return { ...text("review finished"), control: { terminate: true } };

@@ -55,6 +55,7 @@ function review() {
     token: async () => "token",
     scan: async () => [],
     publish: async (...args) => publications.push(args),
+    finished: () => {},
   });
   return { state, runtime, api, reviewer, publications, submissions };
 }

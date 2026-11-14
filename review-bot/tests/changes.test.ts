@@ -30,6 +30,7 @@ function harness(state: ReviewState) {
   const { extension } = reviewerExtension({
     token: async () => "token",
     publish: async () => {},
+    finished: () => {},
     scan: async () => [],
   });
   const tool = (name: string) => {

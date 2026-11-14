@@ -19,11 +19,16 @@ import {
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
+import { alarmWrite, HEARTBEAT_MS } from "./alarm";
 import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
+import { Ledger, type RunSnapshot } from "./ledger";
+import { interruptedTasks, Lifecycle } from "./lifecycle";
 import { type AppSecrets, publishReview, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { ManualGate } from "./manual-gate";
+import { reviewKey } from "./review-key";
+import { failureClass, reviewStatus, type RunStatus } from "./status";
 import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
@@ -50,6 +55,8 @@ export interface Env extends AppSecrets {
   REVIEWS: DurableObjectNamespace<Review>;
   MANUAL_GATE: DurableObjectNamespace<ManualGate>;
   ASSETS: Fetcher;
+  /** The dashboard's ledger. Unbound (as in the write profile), telemetry is off. */
+  LEDGER?: D1Database;
 }
 
 export type ModelChoice = { provider: "anthropic" | "verda"; id: string };
@@ -60,7 +67,7 @@ export type Activity =
   | { kind: "result"; name: string; isError: boolean; text: string };
 
 export type ReviewView = {
-  status: "not_started" | "scanning" | "running" | "done" | "failed";
+  status: RunStatus;
   failure: string | null;
   review: Omit<ReviewState, "prompt" | "findings"> & {
     prompt: { url: string; sha256: string } | null;
@@ -72,8 +79,6 @@ export type ReviewView = {
   evidenceHtml: string;
 };
 
-const HEARTBEAT_MS = 60_000;
-
 export function reviewLink(env: Env, t: Target) {
   return `${env.REVIEW_BASE_URL}/${t.mode === "manual" ? "m" : "r"}/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
 }
@@ -82,10 +87,17 @@ export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
   #tokens = new Map<number, { token: string; expiresAt: number }>();
+  #issuedAlarm: number | null = null;
+  #lifecycle!: Lifecycle;
+  readonly #ledger: Ledger;
+  /** This boot saw work active, so its end is a run outcome worth recording. */
+  #working = false;
   #model: ModelChoice;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    const ids = { objectId: state.id.toString(), bootId: crypto.randomUUID() };
+    this.#ledger = new Ledger(env.LEDGER, ids, (p) => state.waitUntil(p));
     // The object id derives from the review key, so each (PR, commit) keeps
     // one model across retries while reviews spread evenly over MODELS.
     const bucket = parseInt(state.id.toString().slice(-8), 16);
@@ -94,8 +106,11 @@ export class Review extends DurableObject<Env> {
       // Armed before anything can throw, so an object whose open fails is started again.
       const fallback = Date.now() + HEARTBEAT_MS;
       const current = await state.storage.getAlarm();
-      if (current === null || current > fallback)
+      this.#issuedAlarm = current;
+      if (current === null || current > fallback) {
+        this.#issuedAlarm = fallback;
         await state.storage.setAlarm(fallback);
+      }
 
       const models = createModels({
         authContext: {
@@ -120,6 +135,10 @@ export class Review extends DurableObject<Env> {
                 reviewLink(env, target),
                 evidence,
               ),
+        finished: (decision, findings) => {
+          this.#lifecycle.finished(decision, findings);
+          this.#ledger.record(() => this.#snapshot());
+        },
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);
@@ -127,7 +146,21 @@ export class Review extends DurableObject<Env> {
         env.MCP_SERVERS,
         env as unknown as Record<string, unknown>,
       );
-      registry.install(await mcpExtension(servers, recordLookup));
+      registry.install(
+        await mcpExtension(servers, {
+          before: recordLookup,
+          after: (call) =>
+            this.#ledger.event({
+              kind: "mcp",
+              name: `${call.server}/${call.tool}`,
+              ok: call.ok,
+              ms: call.ms,
+              detail: call.aborted ? { aborted: true } : undefined,
+            }),
+          connected: (server, ok, ms) =>
+            this.#ledger.event({ kind: "mcp_connect", name: server, ok, ms }),
+        }),
+      );
       registry.install(
         createCodemodeExtension({
           sandbox: createInlineCodemodeSandbox(),
@@ -136,10 +169,17 @@ export class Review extends DurableObject<Env> {
         }),
       );
 
+      const storage = await openDurableObjectSqliteStorage(state.storage);
+      this.#lifecycle = new Lifecycle(
+        ids,
+        await interruptedTasks(storage, ctx),
+        (event) => this.#ledger.lifecycle(event),
+      );
       this.#harness = await Harness.open(
-        await openDurableObjectSqliteStorage(state.storage),
+        storage,
         {
           models,
+          telemetry: this.#lifecycle.telemetry,
           registry,
           settings: { retry: { maxRetries: 3 }, afterFailedRun: "withdraw" },
           onWake: (wake) =>
@@ -159,7 +199,12 @@ export class Review extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
-    await this.#arm({ ...this.#harness.wake(), active: true });
+    // The alarm that fired is consumed.
+    this.#issuedAlarm = null;
+    const wake = this.#harness.wake();
+    this.#lifecycle.alarm(wake);
+    this.#ledger.flush();
+    await this.#arm(wake);
     this.#harness.resume();
   }
 
@@ -196,6 +241,7 @@ export class Review extends DurableObject<Env> {
         ownership: { kind: "conversation" },
       });
     }, ctx);
+    this.#ledger.record(() => this.#snapshot());
   }
 
   async hasStarted(): Promise<boolean> {
@@ -207,30 +253,13 @@ export class Review extends DurableObject<Env> {
 
   async view(): Promise<ReviewView> {
     const root = await this.#root();
-    const [state, live, page] = await Promise.all([
-      this.#harness.snapshot(ReviewDoc, root.id, ctx),
-      this.#harness.snapshot(LiveDoc, root.id, ctx),
+    const [{ review, runFailure, status, usage }, page] = await Promise.all([
+      this.#read(),
       root.entries({ order: "ascending" }, 1000, undefined, ctx),
     ]);
-    const [usage, inspection] = await Promise.all([
-      this.#harness.usage(ctx),
-      this.#harness.inspect(ctx),
-    ]);
-    const review = state ?? EMPTY_REVIEW;
-    const failure = live?.runFailure
-      ? `${live.runFailure.reason}${live.runFailure.detail ? `: ${live.runFailure.detail}` : ""}`
+    const failure = runFailure
+      ? `${runFailure.reason}${runFailure.detail ? `: ${runFailure.detail}` : ""}`
       : null;
-    const status = !review.target
-      ? "not_started"
-      : review.verdict
-        ? "done"
-        : failure
-          ? "failed"
-          : review.scan?.status === "pending"
-            ? "scanning"
-            : inspection.tasks.length > 0
-              ? "running"
-              : "failed";
 
     const activity: Activity[] = [];
     for (const entry of page.items) {
@@ -282,6 +311,43 @@ export class Review extends DurableObject<Env> {
     };
   }
 
+  async #read() {
+    const root = await this.#root();
+    const [state, live, usage, inspection] = await Promise.all([
+      this.#harness.snapshot(ReviewDoc, root.id, ctx),
+      this.#harness.snapshot(LiveDoc, root.id, ctx),
+      this.#harness.usage(ctx),
+      this.#harness.inspect(ctx),
+    ]);
+    const review = state ?? EMPTY_REVIEW;
+    const runFailure = live?.runFailure ?? null;
+    const status = reviewStatus(review, runFailure, inspection.tasks.length);
+    return { review, runFailure, status, usage };
+  }
+
+  async #snapshot(): Promise<RunSnapshot | null> {
+    const { review, runFailure, status, usage } = await this.#read();
+    if (!review.target || status === "not_started") return null;
+    return {
+      runKey: reviewKey(review.target),
+      target: review.target,
+      model: review.model,
+      startedAt: review.startedAt ?? Date.now(),
+      status,
+      decision: review.verdict?.decision ?? null,
+      findings: review.findings.length,
+      failure: status === "failed" ? failureClass(runFailure) : null,
+      usage: Object.entries(usage.models).map(([model, u]) => ({
+        model,
+        input: u.input,
+        output: u.output,
+        cacheRead: u.cacheRead,
+        cacheWrite: u.cacheWrite,
+        costUsd: u.cost.total,
+      })),
+    };
+  }
+
   #root(): Promise<Conversation> {
     return this.#harness.root(ctx, {
       agent: {
@@ -297,6 +363,7 @@ export class Review extends DurableObject<Env> {
     token: string,
     checks: Check[],
   ): Promise<ScanResult[]> {
+    const started = Date.now();
     const res = await fetch(`${this.env.SCANNER_URL}/scan`, {
       method: "POST",
       headers: {
@@ -310,29 +377,75 @@ export class Review extends DurableObject<Env> {
         token,
         checks,
       }),
+    }).catch((error) => {
+      this.#scanEvent(false, started, 0, checks.length);
+      throw error;
     });
+    this.#scanEvent(res.ok, started, res.status, checks.length);
     if (!res.ok)
       throw new Error(`scanner -> ${res.status}: ${await res.text()}`);
     return res.json();
   }
 
+  #scanEvent(ok: boolean, started: number, status: number, checks: number) {
+    this.#ledger.event({
+      kind: "modal",
+      name: "scan",
+      ok,
+      ms: Date.now() - started,
+      detail: { status, checks },
+    });
+    // One scan per review, and evictions often follow: write it now.
+    this.#ledger.flush();
+  }
+
   async #token(installationId: number): Promise<string> {
     const cached = this.#tokens.get(installationId);
-    if (cached && cached.expiresAt - Date.now() > 5 * 60_000)
+    if (cached && cached.expiresAt - Date.now() > 5 * 60_000) {
+      this.#ledger.event({
+        kind: "github_token",
+        name: "hit",
+        ok: true,
+        ms: 0,
+      });
       return cached.token;
-    const fresh = await installationToken(this.env, installationId);
+    }
+    const started = Date.now();
+    const fresh = await installationToken(this.env, installationId).catch(
+      (error) => {
+        this.#ledger.event({
+          kind: "github_token",
+          name: "miss",
+          ok: false,
+          ms: Date.now() - started,
+        });
+        throw error;
+      },
+    );
+    this.#ledger.event({
+      kind: "github_token",
+      name: "miss",
+      ok: true,
+      ms: Date.now() - started,
+    });
     this.#tokens.set(installationId, fresh);
     return fresh.token;
   }
 
   async #arm(wake: Wake): Promise<void> {
-    // A recovery heartbeat while work runs, never later than the earliest sleep.
-    const heartbeat = wake.active ? Date.now() + HEARTBEAT_MS : undefined;
-    const at =
-      heartbeat === undefined || wake.at === undefined
-        ? (heartbeat ?? wake.at)
-        : Math.min(heartbeat, wake.at);
-    if (at === undefined) await this.ctx.storage.deleteAlarm();
-    else await this.ctx.storage.setAlarm(at);
+    if (wake.active) this.#working = true;
+    else if (this.#working) {
+      this.#working = false;
+      this.#ledger.record(() => this.#snapshot());
+    }
+    // Storage applies alarm writes in issue order, so update before awaiting.
+    const write = alarmWrite(wake, Date.now(), this.#issuedAlarm);
+    if (write.op === "delete") {
+      this.#issuedAlarm = null;
+      await this.ctx.storage.deleteAlarm();
+    } else if (write.op === "set") {
+      this.#issuedAlarm = write.at;
+      await this.ctx.storage.setAlarm(write.at);
+    }
   }
 }

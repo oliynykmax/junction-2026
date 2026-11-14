@@ -332,7 +332,9 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
             : not_checked,
           dismissed: dismissed ?? [],
         };
-        clean = decision === "no_blockers_found" && state.findings.length === 0;
+        clean =
+          state.verdict.decision === "no_blockers_found" &&
+          state.findings.length === 0;
       }, context);
       if (refused)
         return {

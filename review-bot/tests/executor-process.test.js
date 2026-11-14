@@ -22,3 +22,22 @@ test("abort settles independent of inherited pipes", async () => {
   setTimeout(() => controller.abort(), 100);
   expect((await result).exitCode).toBe(137);
 });
+
+test("output caps preserve prefixes and disclose truncation for each stream", async () => {
+  const cap = 128 * 1024;
+  const result = await run("node", [
+    "-e",
+    `process.stdout.write("a".repeat(${cap * 3})); process.stderr.write("b".repeat(${cap * 3}));`,
+  ]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("a".repeat(cap));
+  expect(result.stderr).toBe("b".repeat(cap));
+  expect(result.stdoutTruncated).toBe(true);
+  expect(result.stderrTruncated).toBe(true);
+  const complete = await run("node", [
+    "-e",
+    `process.stdout.write("a".repeat(${cap}));`,
+  ]);
+  expect(complete.stdoutTruncated).toBe(false);
+  expect(complete.stderrTruncated).toBe(false);
+});

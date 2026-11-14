@@ -171,6 +171,8 @@ export type ReviewState = {
   readings?: Record<string, ReadingPlan>;
   /** Times abridge_file refused a plan, per file. */
   readingRefusals?: Record<string, number>;
+  /** Times finish_review refused because files had no reading plan. */
+  readingGateRefusals?: number;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -194,6 +196,7 @@ export const EMPTY_REVIEW: ReviewState = {
   reads: 0,
   readings: {},
   readingRefusals: {},
+  readingGateRefusals: 0,
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -212,6 +215,9 @@ const MAX_CHANGE_REFUSALS = 2;
 const MAX_STAR_REFUSALS = 2;
 const MAX_SUMMARY_REFUSALS = 2;
 const MAX_READING_REFUSALS = 2;
+// Once is enough to catch a skipped step; the review then finishes, and the
+// owner sees those files' full diffs.
+const MAX_READING_GATE_REFUSALS = 1;
 // The preview abridge_file returns to the agent is capped, like any tool output.
 const MAX_READING_PREVIEW_CHARS = 8_000;
 // Patches are stored in the review document, so their size is capped.
@@ -314,6 +320,21 @@ export function summaryProblems(summary: string): string[] {
 export function uncoveredFiles(state: ReviewState): string[] {
   const covered = new Set((state.changes ?? []).flatMap((c) => c.files));
   return (state.files ?? []).map((f) => f.path).filter((p) => !covered.has(p));
+}
+
+/**
+ * Changed files the agent could still shorten for the owner: a stored diff,
+ * no reading plan yet, and abridge_file attempts left.
+ */
+export function unabridgedFiles(state: ReviewState): string[] {
+  return (state.files ?? [])
+    .filter(
+      (f) =>
+        f.patch !== null &&
+        !state.readings?.[f.path] &&
+        (state.readingRefusals?.[f.path] ?? 0) < MAX_READING_REFUSALS,
+    )
+    .map((f) => f.path);
 }
 
 /** Records one MCP call in the review, so the page and finish_review can see it. */
@@ -780,6 +801,16 @@ export function reviewerExtension({
         if (uncovered.length && changeRefusals < MAX_CHANGE_REFUSALS) {
           state.changeRefusals = changeRefusals + 1;
           refused = `Not finished: no described change covers ${uncovered.join(", ")}. Call describe_change for the change each of these files belongs to (or add them to an existing change by calling it again with the same title), then call finish_review again.`;
+          return;
+        }
+        const unabridged = unabridgedFiles(state);
+        const readingGateRefusals = state.readingGateRefusals ?? 0;
+        if (
+          unabridged.length &&
+          readingGateRefusals < MAX_READING_GATE_REFUSALS
+        ) {
+          state.readingGateRefusals = readingGateRefusals + 1;
+          refused = `Not finished: these changed files have no reading view for the owner: ${unabridged.join(", ")}. For each, read it with read_patch (numbered: true) and call abridge_file (protocol step 9), then call finish_review again. A file with nothing to hide still needs a plan: submit empty remove, fold and replace arrays.`;
           return;
         }
         decision = decisionFor(state.findings.map(fromStored));

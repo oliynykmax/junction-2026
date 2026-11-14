@@ -104,6 +104,23 @@ compiler. Cost: about $0.23.
 - Not covered by the trial: findings. No file had any, so the rule that
   cited lines stay visible was tested only by unit tests.
 
+## Shortening is checked, not optional, 2026-11-14
+
+After #37 shipped, the first two live reviews (PR #27 at `de206d3` and
+`9e7d29e`, both on Sonnet) wrote no reading plans for any of their 13 files
+and never called `abridge_file`. In the trial, shortening was the only task;
+in a real review it is step 9 of 10 and nothing checked it.
+
+`finish_review` now refuses once while any file with a stored diff has no
+plan and still has `abridge_file` attempts left, listing those files, the
+same way it already refuses for missing documentation lookups and files no
+change covers. The second call finishes regardless, so the step cannot loop.
+A file left without a plan is not added to "not checked": it is not a gap in
+the review, and the owner sees its full diff.
+
+Cost: one more tool call per file, each resending the conversation, against
+#35's work to cut review cost. Kimi is still untested on this step.
+
 ## Left out of meat, and why
 
 Move detection, chunking, Python structure checks and result caching. GitHub

@@ -2,6 +2,7 @@
 
 import {
   blocks,
+  type Confidence,
   CONFIDENCES,
   SEVERITIES,
   type Severity,
@@ -27,6 +28,29 @@ export const plural = (n: number, one: string, many = `${one}s`) =>
 export const isBlocking = (f: Finding) => blocks(f);
 
 export const QUIET: ReadonlySet<Severity> = new Set(["low", "info"]);
+
+/** What each severity means, as the reviewer agent's protocol defines it. */
+export const SEVERITY_MEANING: Record<Severity, string> = {
+  critical:
+    "Exploitable vulnerability, data loss or corruption, or an outage on a normal path.",
+  high: "A real bug or security hole on a reachable path, or a breaking change to a public contract with no migration.",
+  medium:
+    "A likely bug in an edge case, or a design problem that will cost real work later.",
+  low: "A local quality issue such as naming, duplication or a missing guard on an unlikely path.",
+  info: "An observation or question with no action required.",
+};
+
+/** What each confidence means, as the reviewer agent's protocol defines it. */
+export const CONFIDENCE_MEANING: Record<Confidence, string> = {
+  verified:
+    "The AI read the code path and can point at the lines that prove it.",
+  likely:
+    "The code the AI read strongly suggests it, but some context is unread.",
+  possible: "A suspicion for you to check.",
+};
+
+export const BLOCKING_RULE =
+  "Only critical or high findings rated verified or likely block, meaning the AI would ask for changes.";
 
 export function sortFindings(findings: readonly Finding[]): Finding[] {
   return [...findings].sort(

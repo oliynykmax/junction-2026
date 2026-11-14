@@ -58,6 +58,23 @@ Task endings are observed through phase spans. A failure settled without a phase
 
 `node scripts/profile-writes.mjs --repeats 5 --out profile.json` runs the `Review` object on local workerd with every outbound request answered by fixtures (`scripts/profile-writes/worker.ts`): no model, GitHub, scanner or MCP traffic. It runs a scripted five-turn review, repeat starts, warm and cold report reads and alarms after completion, and an eviction while a model request hangs. For each phase it reports SQLite cursor `rowsWritten` by table and statement, split into pi-durable records and the `review.state` document. It also reports `setAlarm` and `deleteAlarm` calls, which Cloudflare bills as row writes. It asserts the review's work and the recovery logs, and exits nonzero when a check fails. It runs on Node, because wrangler cannot forward requests to a local Worker under Bun. Results from 2026-11-14 are in `scripts/profile-writes/results/`.
 
+## Owner sign-off
+
+The review is advice. The decision belongs to a named human, who signs off at the bottom of the review page for that exact commit.
+
+- **Identity.** "Sign in with GitHub" uses the App's user authorization (`/auth/login`, `/auth/callback`). Only the GitHub login and id are kept, in an HMAC-signed, HttpOnly, `SameSite=Lax` cookie for 8 hours. The user token is used once to read `/user` and then dropped.
+- **Who may sign.** When someone signs, the Worker uses the installation token to check that the signer has `write` or `admin` permission on the repository, and that the commit is still the PR head. Public reviews (`/m/`) cannot be signed.
+- **What they sign.** What they checked themselves (required), what was not checked (the AI's list is copied in, and they can add to it), the residual risk they accept (required), and, for every blocking finding, "real, and I accept the risk" or "not a real problem" with a reason. A confirmation box names them and the commit.
+- **Storage.** `POST /api/r/<owner>/<repo>/<pr>/<sha>/signoff` stores the record in that commit's `Review` object, in key-value storage outside the agent's documents. The first sign-off wins. A new push is a new commit, with a new review and no sign-off.
+- **On GitHub.** Each push sets a `bumble-bot/owner-sign-off` commit status to pending. A sign-off posts a PR comment with the full record and sets the status to success, naming the signer. Mark that status as required in branch protection to make sign-off a merge gate. If either write fails, the sign-off still stands, and the page says what was not echoed.
+
+Setup (once, by an App admin):
+
+1. In the GitHub App settings, add the callback URL `https://review.oliinyk.dev/auth/callback` and grant **Commit statuses: read and write**. Installations must accept the new permission.
+2. Set the Worker secrets `GITHUB_CLIENT_ID` (the App's client ID), `GITHUB_CLIENT_SECRET` (generate one in the App settings) and `SESSION_SECRET` (any long random string, e.g. `openssl rand -base64 48`).
+
+Without these secrets the page says sign-in is not configured, and reviews run as before.
+
 ## Develop
 
 ```sh
@@ -73,7 +90,7 @@ CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint`, `bun
 
 ## Secrets
 
-`APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY`, `VERDA_API_KEY` and `SCANNER_TOKEN` are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
+`APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY`, `VERDA_API_KEY`, `SCANNER_TOKEN`, and for sign-off `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET`, are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
 
 ## Public landing and manual reviews
 

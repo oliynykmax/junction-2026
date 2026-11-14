@@ -30,11 +30,12 @@ import {
   installationToken,
   publicInstallationToken,
 } from "./github";
+import { reviewKey, reviewLink } from "./review-key";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { ManualGate } from "./manual-gate";
-import { reviewKey } from "./review-key";
 import { failureClass, reviewStatus, type RunStatus } from "./status";
 import type { Check, ScanResult } from "./scanners";
+import type { Echo, SignOff } from "./signoff";
 import {
   EMPTY_REVIEW,
   type Finding,
@@ -57,6 +58,11 @@ export interface Env extends PublicAppSecrets {
   SCANNER_TOKEN: string;
   MCP_SERVERS?: Record<string, unknown>;
   CONTEXT_DEV_API_KEY?: string;
+  /** GitHub App user authorization, for the owner's sign-off. Optional: without them the page cannot sign. */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /** Signs the sign-in session cookies. */
+  SESSION_SECRET?: string;
   REVIEWS: DurableObjectNamespace<Review>;
   MANUAL_GATE: DurableObjectNamespace<ManualGate>;
   ASSETS: Fetcher;
@@ -82,11 +88,15 @@ export type ReviewView = {
   activity: Activity[];
   costUsd: number;
   evidenceHtml: string;
+  /** The named owner's sign-off on this commit, if any. */
+  signOff: SignOff | null;
 };
 
-export function reviewLink(env: Env, t: Target) {
-  return `${env.REVIEW_BASE_URL}/${t.mode === "manual" ? "m" : "r"}/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
-}
+// Kept in the object's own key-value storage, outside the agent's documents,
+// so nothing the agent does can write or change it.
+const SIGNOFF_KEY = "signoff:v1";
+
+export { reviewLink } from "./review-key";
 
 export class Review extends DurableObject<Env> {
   #harness!: Harness;
@@ -256,12 +266,31 @@ export class Review extends DurableObject<Env> {
     );
   }
 
+  /** Stores the first sign-off for this commit. Returns the earlier one if it lost the race. */
+  async storeSignOff(record: SignOff): Promise<SignOff | null> {
+    const earlier = await this.ctx.storage.get<SignOff>(SIGNOFF_KEY);
+    if (earlier) return earlier;
+    await this.ctx.storage.put(SIGNOFF_KEY, record);
+    return null;
+  }
+
+  async getSignOff(): Promise<SignOff | null> {
+    return (await this.ctx.storage.get<SignOff>(SIGNOFF_KEY)) ?? null;
+  }
+
+  async recordEcho(echo: { comment: Echo; status: Echo }): Promise<void> {
+    const record = await this.ctx.storage.get<SignOff>(SIGNOFF_KEY);
+    if (record) await this.ctx.storage.put(SIGNOFF_KEY, { ...record, echo });
+  }
+
   async view(): Promise<ReviewView> {
     const root = await this.#root();
-    const [{ review, runFailure, status, usage }, page] = await Promise.all([
-      this.#read(),
-      root.entries({ order: "ascending" }, 1000, undefined, ctx),
-    ]);
+    const [{ review, runFailure, status, usage }, page, signOff] =
+      await Promise.all([
+        this.#read(),
+        root.entries({ order: "ascending" }, 1000, undefined, ctx),
+        this.ctx.storage.get<SignOff>(SIGNOFF_KEY),
+      ]);
     const failure = runFailure
       ? `${runFailure.reason}${runFailure.detail ? `: ${runFailure.detail}` : ""}`
       : null;
@@ -313,6 +342,7 @@ export class Review extends DurableObject<Env> {
         (sum, u) => sum + u.cost.total,
         0,
       ),
+      signOff: signOff ?? null,
     };
   }
 

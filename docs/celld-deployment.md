@@ -27,7 +27,7 @@ Run `systemctl enable bumble-celld caddy`. After publishing the first deployment
 
 Install Bun and the pinned CellD 0.6.2 CLI on your deployment machine. The GitHub action installs CellD with a pinned binary checksum. In `review-bot/`, run `bun install --frozen-lockfile`.
 
-Create a private JSON file with string values for `APP_ID`, `PRIVATE_KEY`, `WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`, `VERDA_API_KEY`, `SCANNER_TOKEN`, `CONTEXT_DEV_API_KEY`, and `ORIGIN_TOKEN`. The last value must match Caddy's origin token. `PRIVATE_KEY` is the GitHub App's PKCS#8 PEM with actual newlines encoded as JSON string escapes. The Verda inference key is separate from the Cloud API credentials used by the CLI.
+Create a private JSON file with string values for `APP_ID`, `PRIVATE_KEY`, `WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`, `VERDA_API_KEY`, `SCANNER_TOKEN`, `CONTEXT_DEV_API_KEY`, and `ORIGIN_TOKEN`. The last value must match Caddy's origin token. Add `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET` to enable owner sign-off. Without them the review page says sign-in is not configured. `PRIVATE_KEY` is the GitHub App's PKCS#8 PEM with actual newlines encoded as JSON string escapes. The Verda inference key is separate from the Cloud API credentials used by the CLI.
 
 Set these environment variables:
 

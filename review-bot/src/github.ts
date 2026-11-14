@@ -8,7 +8,7 @@ export interface AppSecrets {
 const API = "https://api.github.com";
 const HEADERS = {
   accept: "application/vnd.github+json",
-  "user-agent": "earned-trust-review-bot",
+  "user-agent": "bumble-bot",
   "x-github-api-version": "2022-11-28",
 };
 

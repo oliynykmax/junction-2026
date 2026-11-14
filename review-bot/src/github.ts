@@ -85,11 +85,18 @@ type PrReview = {
 
 type Pr = { owner: string; repo: string; number: number };
 
-function botReviews(token: string, pr: Pr) {
-  return ghJson<PrReview[]>(
-    token,
-    `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=100`,
-  ).then((all) => all.filter((r) => r.body?.startsWith(REVIEW_MARKER)));
+/** The bot's marked reviews, across every page of the PR's reviews. */
+async function botReviews(token: string, pr: Pr): Promise<PrReview[]> {
+  const all: PrReview[] = [];
+  for (let page = 1; page <= 30; page++) {
+    const batch = await ghJson<PrReview[]>(
+      token,
+      `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=100&page=${page}`,
+    );
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all.filter((r) => r.body?.startsWith(REVIEW_MARKER));
 }
 
 /**

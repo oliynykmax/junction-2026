@@ -26,7 +26,11 @@ function github(head = pr.headSha, reviews: Review[] = []) {
         });
       return Response.json({});
     }
-    if (path.endsWith("/reviews?per_page=100")) return Response.json(reviews);
+    const page = path.match(/\/reviews\?per_page=100&page=(\d+)$/);
+    if (page) {
+      const start = (Number(page[1]) - 1) * 100;
+      return Response.json(reviews.slice(start, start + 100));
+    }
     if (path === "/repos/team/demo/pulls/1")
       return Response.json({ head: { sha: head } });
     throw new Error(`Unexpected GitHub request ${path}`);
@@ -139,5 +143,22 @@ test("dismisses every bot approval, including the head's, and no human's", async
   expect(writes.map((write) => write.path)).toEqual([
     "/repos/team/demo/pulls/1/reviews/1/dismissals",
     "/repos/team/demo/pulls/1/reviews/3/dismissals",
+  ]);
+});
+
+test("dismisses a bot approval past the first page of reviews", async () => {
+  const humans: Review[] = Array.from({ length: 100 }, (_, i) => ({
+    id: i + 1,
+    state: "COMMENTED",
+    commit_id: "old",
+    body: "Human review",
+  }));
+  const writes = github(pr.headSha, [
+    ...humans,
+    { id: 101, state: "APPROVED", commit_id: pr.headSha, body: marker },
+  ]);
+  await dismissBotApprovals("token", pr);
+  expect(writes.map((write) => write.path)).toEqual([
+    "/repos/team/demo/pulls/1/reviews/101/dismissals",
   ]);
 });

@@ -67,7 +67,7 @@ const TEST_DECL =
 const ASSERTION =
   /\bAssert\.\w+|\.Should\(\)|\bexpect\(|\bassert\b|\bself\.assert\w+|\bt\.(Error|Fatal)f?\(/g;
 const SKIP =
-  /\bSkip\s*=|\[Ignore\b|\.skip\(|\bx(it|describe|test)\(|@pytest\.mark\.skip|@unittest\.skip|\bt\.Skip\(|#if\s+false/g;
+  /\bSkip\s*=|\[Ignore\b|\.skip\(|\bx(it|describe|test)\(|@pytest\.mark\.skip|@unittest\.skip|\bt\.Skip(Now|f)?\(|#if\s+false/g;
 const UNSAFE =
   /\bunsafe\b|\bstackalloc\b|\bUnsafe\.\w+|\bMemoryMarshal\.\w+|\bMarshal\.\w+|\bfixed\s*\(/;
 

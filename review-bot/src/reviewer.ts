@@ -176,9 +176,10 @@ const MAX_STAR_REFUSALS = 2;
 const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
 const MAX_STAR_CHARS = 400;
-// The reviewer speaking about itself: "I", "I've", "my", "me" and the like.
+// The reviewer speaking about itself: "I", "we", "my", "our" and the like.
+// A word joined by a slash or hyphen is a technical token (I/O, us-east-1).
 const FIRST_PERSON =
-  /\b(?:I|I'm|I've|I'd|I'll|[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Ww]e|[Ww]e're|[Ww]e've|[Ww]e'd|[Ww]e'll|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves)\b/;
+  /(?<![\w/-])(?:I|I'm|I've|I'd|I'll|[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Ww]e|[Ww]e're|[Ww]e've|[Ww]e'd|[Ww]e'll|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves)(?![\w/-])/;
 const MAX_CHANGE_SUMMARY_CHARS = 280;
 const MAX_TAGS = 3;
 const MAX_TAG_CHARS = 24;

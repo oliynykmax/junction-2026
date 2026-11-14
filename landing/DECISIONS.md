@@ -54,3 +54,13 @@ The low-severity context-abstraction suggestion is deferred. The target union an
 Main now publishes compact GitHub reviews for findings as well as clean approvals. The conflict resolution keeps that publication for webhook reviews and suppresses all publication in manual mode. Completion tests now exercise the publication callback.
 
 The second bot pass suggested reducing anonymous reads further and canonicalizing manual report paths. Resolution now verifies base repository visibility from the PR response in one GitHub request, and a shared review-key function lowercases repository paths for both modes. The duplicated manual-key function was removed. The remaining schema/context refactor suggestions are deferred; they describe maintainability preferences rather than observed behavior defects.
+
+## Theme switch and UI SDK, 2026-11-14
+
+The landing was light-only while the review page follows `prefers-color-scheme`, so anyone on a dark OS saw a white landing hand off to a black report. The landing now follows the OS by default and has a Dark mode switch in the header that pins light or dark. The choice is saved in `localStorage` (`bumble-color-scheme`) and applied by a small inline script before first paint, so there is no flash.
+
+The landing's controls are now `@ui-sdk/web` elements (vercel-labs/ui, 0.1.0-beta.2, pinned): `ui-switch` for the theme, `ui-field` with `ui-input` and `ui-button` for the form (native validation messages, server errors through the field's `invalid` state, pending submit), and `ui-preferences` with `createColorScheme` for the theme state. We chose the SDK's behaviors with our own styles because it is headless: no stylesheet comes with it, so the look stays ours. Colours are one `light-dark()` pair per token.
+
+`web/landing.ts` replaces `landing/assets/app.js` and is bundled with the SDK by `vite.landing.config.ts` into `landing/assets/landing.js` (git-ignored build output, made by `bun run build`, which Wrangler runs on deploy). The package is a beta, which is the main risk; the pin and the bundled copy mean a release cannot change the page under us.
+
+The review page honours the same saved choice: the key and the pre-paint script live once in `src/theme.ts`; the review shell and the bundle import them, and `tests/landing.test.ts` asserts that the static `landing/index.html` inlines the same script and that the SDK stores a bare `light` or `dark` value, so drift fails a test instead of flashing the wrong theme. `web/styles.css` now defines each review-page colour once as a `light-dark()` pair, with `color-scheme` set from `data-color-scheme`.

@@ -8,9 +8,9 @@ import {
   type Severity,
 } from "../src/findings";
 import type { ReviewView } from "../src/review";
-import type { Change, ChangedFile } from "../src/reviewer";
+import type { Change, ChangedFile, Star } from "../src/reviewer";
 
-export type { Change, ChangedFile };
+export type { Change, ChangedFile, Star };
 export type Finding = ReviewView["review"]["findings"][number];
 export type LineUrl = (path: string, line: number | null) => string;
 
@@ -73,6 +73,10 @@ export function severityCounts(findings: readonly Finding[]) {
     };
   }).filter((c) => c.count > 0);
 }
+
+/** The change's sentence, falling back to the Action of older per-change STARs. */
+export const changeSentence = (c: Change): string | null =>
+  c.summary?.trim() || c.action?.trim() || null;
 
 export const location = (f: { path: string; line: number | null }) =>
   f.path + (f.line ? `:${f.line}` : "");

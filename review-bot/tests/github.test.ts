@@ -29,7 +29,10 @@ function github(
       return Response.json({});
     }
     if (path === "/repos/team/demo/labels") {
-      writes.push({ path: `POST ${path}`, body: JSON.parse(String(init!.body)) });
+      writes.push({
+        path: `POST ${path}`,
+        body: JSON.parse(String(init!.body)),
+      });
       return Response.json({});
     }
     if (!path.startsWith("/repos/team/demo/pulls/1"))
@@ -138,7 +141,9 @@ test("replaces a stale risk label and leaves other labels alone", async () => {
 test("does not touch labels without a risk tier or on a stale head", async () => {
   const writes = github();
   await publishReview("token", pr, [], report);
-  expect(writes.map((w) => w.path)).toEqual(["/repos/team/demo/pulls/1/reviews"]);
+  expect(writes.map((w) => w.path)).toEqual([
+    "/repos/team/demo/pulls/1/reviews",
+  ]);
   const stale = github("b".repeat(40));
   await publishReview("token", pr, [], report, "high");
   expect(stale).toEqual([]);
@@ -146,9 +151,12 @@ test("does not touch labels without a risk tier or on a stale head", async () =>
 
 test("a failed label does not block the review", async () => {
   const writes = github();
-  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof spyOn>;
-  const original = fetchMock.getMockImplementation()!;
-  fetchMock.mockImplementation(async (input: any, init: any) => {
+  const fetchMock = globalThis.fetch as unknown as {
+    getMockImplementation(): typeof fetch;
+    mockImplementation(fn: typeof fetch): void;
+  };
+  const original = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (input, init) => {
     if (String(input).includes("/issues/1/labels"))
       return new Response("forbidden", { status: 403 });
     return original(input, init);

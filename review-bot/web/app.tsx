@@ -13,7 +13,9 @@ import { FileDiffs } from "./diff";
 import { EvidencePanel } from "./evidence";
 import { Findings } from "./findings";
 import { BLOCKING_RULE, type Focus, plural, type Star } from "./shared";
+import { SignOffSection } from "./signoff";
 import { blocks } from "../src/findings";
+import type { SignOff } from "../src/signoff";
 import { RiskBand } from "./risk";
 
 export type PageConfig = {
@@ -23,6 +25,8 @@ export type PageConfig = {
   owner: string;
   repo: string;
   number: string;
+  /** Null on public reviews, which have no owner to sign. */
+  signOffApi: string | null;
 };
 
 type Dismissal = NonNullable<
@@ -75,8 +79,19 @@ function useReview(api: string, pollMs: number) {
   return { view, error };
 }
 
-export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
+export function App({
+  api,
+  pollMs,
+  prUrl,
+  owner,
+  repo,
+  number,
+  signOffApi,
+}: PageConfig) {
   const { view, error } = useReview(api, pollMs);
+  // The page stops polling once the review is done, so a fresh sign-off is held here.
+  const [justSigned, setJustSigned] = useState<SignOff | null>(null);
+  const signed = justSigned ?? view?.signOff ?? null;
   const repoUrl = prUrl.replace(/\/pull\/\d+$/, "");
   const sha = view?.review.target?.headSha ?? null;
   // A removed file does not exist at the head, so it links to the PR's diff.
@@ -153,7 +168,13 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
               <p class="muted">{error ? null : "Loading the review…"}</p>
             )}
           </div>
-          <Facts view={view} owner={owner} error={error} />
+          <Facts
+            view={view}
+            owner={owner}
+            error={error}
+            signed={signed}
+            canSign={Boolean(signOffApi)}
+          />
         </section>
         {view && <EvidencePanel html={view.evidenceHtml} />}
         {view && tab === "diff" && (
@@ -217,6 +238,12 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
             />
             <NotChecked view={view} />
             <Docs view={view} />
+            <SignOffSection
+              view={view}
+              api={signOffApi}
+              signed={signed}
+              onSigned={setJustSigned}
+            />
             <ActivityFeed
               activity={view.activity}
               live={LIVE.has(view.status)}
@@ -324,10 +351,14 @@ function Facts({
   view,
   owner,
   error,
+  signed,
+  canSign,
 }: {
   view: ReviewView | null;
   owner: string;
   error: string | null;
+  signed: SignOff | null;
+  canSign: boolean;
 }) {
   const r = view?.review;
   return (
@@ -336,6 +367,20 @@ function Facts({
         <dt>Repository owner</dt>
         <dd>{owner}</dd>
       </div>
+      {view && canSign && (
+        <div>
+          <dt>Signed off by</dt>
+          <dd>
+            {signed ? (
+              <a href="#sign-off">
+                <strong>@{signed.signer.login}</strong>
+              </a>
+            ) : (
+              <a href="#sign-off">Nobody yet</a>
+            )}
+          </dd>
+        </div>
+      )}
       {r?.target && (
         <div>
           <dt>Commit</dt>

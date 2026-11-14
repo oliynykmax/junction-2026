@@ -2,7 +2,7 @@
 
 Cloudflare Worker `j26-review-bot`, live at https://review.oliinyk.dev. GitHub App: https://github.com/apps/j26-earned-trust-review, installed only on our copy of the sample repo, `oliynykmax/junction26-messagepack-csharp`.
 
-When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It also posts one comment linking to `https://review.oliinyk.dev/r/<owner>/<repo>/<pr>?sha=<head>`, and later pushes edit that comment. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
+When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It also posts one comment linking to `https://review.oliinyk.dev/r/<owner>/<repo>/<pr>?sha=<head>`, and later pushes edit that comment, which says so. When a review ends with `no_blockers_found` and no findings, the bot approves the PR at that commit, provided the commit is still the head. Each push dismisses the bot's approvals of older commits, so an approval always belongs to a clean review of the current head. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
 
 ## Review runtime
 

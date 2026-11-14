@@ -125,11 +125,12 @@ export type ReviewerDeps = {
     token: string,
     checks: Check[],
   ) => Promise<ScanResult[]>;
+  approve: (target: Target, token: string) => Promise<void>;
 };
 
 const MAX_FILE_LINES = 400;
 
-export function reviewerExtension({ token, scan }: ReviewerDeps) {
+export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
     if (!state?.target) throw new Error("review has no target");
@@ -302,6 +303,7 @@ export function reviewerExtension({ token, scan }: ReviewerDeps) {
       context,
     ) => {
       let refused = false;
+      let clean = false;
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
         const refusals = state.docsRefusals ?? 0;
@@ -322,6 +324,7 @@ export function reviewerExtension({ token, scan }: ReviewerDeps) {
             : not_checked,
           dismissed: dismissed ?? [],
         };
+        clean = decision === "no_blockers_found" && state.findings.length === 0;
       }, context);
       if (refused)
         return {
@@ -330,6 +333,12 @@ export function reviewerExtension({ token, scan }: ReviewerDeps) {
           ),
           isError: true,
         };
+      if (clean) {
+        const { t, tok } = await target(api, context);
+        await approve(t, tok).catch((e) =>
+          console.error(`approval for ${t.headSha} failed`, e),
+        );
+      }
       return { ...text("review finished"), control: { terminate: true } };
     },
   });

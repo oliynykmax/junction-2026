@@ -243,7 +243,13 @@ test("checkout_pr and shell expose the pinned writable workspace without returni
     api,
     {},
   );
-  expect(shells).toEqual([
+  expect(shells[0].command).toContain(
+    "verify-pr-change/scripts/provision-verifiers.sh",
+  );
+  expect(checkedOut.output[0].text).toContain(
+    "Verification skill installation failed",
+  );
+  expect(shells.slice(1)).toEqual([
     {
       session: "test",
       command: "go test ./...",

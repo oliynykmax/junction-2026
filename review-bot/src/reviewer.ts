@@ -1,6 +1,7 @@
 // The reviewer agent: its stored review document, its GitHub-backed tools and
 // its system prompt, as one pi-durable extension.
 
+import { installVerificationSkill } from "./verification-skill";
 import {
   defineDoc,
   defineExtension,
@@ -60,6 +61,15 @@ import type {
   ShellInput,
   ShellResult,
 } from "./executor";
+
+import {
+  receiptFrom,
+  uncoveredVerificationFiles,
+  VERIFICATION_METHODS,
+  VERIFICATION_OUTCOMES,
+  verificationProblems,
+  type VerificationReceipt,
+} from "./formal";
 
 export type Target = {
   owner: string;
@@ -165,6 +175,8 @@ export type ReviewState = {
   starRefusals?: number;
   /** Times describe_change refused an invalid summary sentence. */
   summaryRefusals?: number;
+  /** Agent-reported receipts. Absent on reviews stored before receipts existed. */
+  verifications?: VerificationReceipt[];
   /** read_file and list_dir calls spent against the read budget. */
   reads?: number;
   /**
@@ -197,6 +209,7 @@ export const EMPTY_REVIEW: ReviewState = {
   changeRefusals: 0,
   starRefusals: 0,
   summaryRefusals: 0,
+  verifications: [],
   reads: 0,
   readings: {},
   readingRefusals: {},
@@ -610,12 +623,29 @@ export function reviewerExtension({
         },
         context.abortSignal,
       );
+      const skill = installVerificationSkill(result.workspace);
+      let availability =
+        "Verification skill files could not be installed because the shell is unavailable.";
+      if (shell) {
+        const installed = await shell(
+          {
+            session: String(api.conversationId),
+            command: skill.command,
+          },
+          context.abortSignal,
+        );
+        availability =
+          installed.exitCode === 0 && !installed.timedOut
+            ? `Verification skill at ${skill.directory}/SKILL.md. Provision with bash ${skill.directory}/scripts/provision-verifiers.sh.`
+            : `Verification skill installation failed: ${installed.stderr || installed.stdout}. Instructions remain in the brief; report provisioning as not run unless recovered.`;
+      }
       return text(
         `Checked out ${t.owner}/${t.repo}@${result.commit} at ${result.workspace}. ` +
           (result.base
             ? `Fetched base ${result.base} with commit history. `
             : "") +
-          "Use shell with that path, or omit cwd to use it by default.",
+          "Use shell with that path, or omit cwd to use it by default. " +
+          availability,
       );
     },
   });
@@ -758,6 +788,53 @@ export function reviewerExtension({
     },
   });
 
+  const recordVerification = defineTool({
+    name: "record_verification",
+    description:
+      "Record one formal-verification-style receipt for changed files: the target, property and harm; the verifier and exact rerun command; its result and scope; a broken variant; and explicit assumptions and limits. This tool does not run a verifier or authenticate its result. All receipt content is agent-reported. For passed or counterexample, call only after reading a real checker result. Use outcome not_run when no checker ran; never represent a plan as a pass. Together receipts must cover every changed file before finish_review can complete.",
+    parameters: obj({
+      files: arr(str()),
+      target: str(),
+      property: str(),
+      harm: str(),
+      method: oneOf(VERIFICATION_METHODS),
+      checker: str(),
+      command: str(),
+      outcome: oneOf(VERIFICATION_OUTCOMES),
+      result: str(),
+      scope: str(),
+      broken_variant: opt(str()),
+      assumptions: arr(str()),
+      limits: arr(str()),
+    }),
+    execute: async (args, api, context) => {
+      let problems: string[] = [];
+      await api.commit(async (tx) => {
+        const state = await tx.doc(ReviewDoc, api.conversationId);
+        problems = verificationProblems(
+          args,
+          (state.files ?? []).map((file) => file.path),
+        );
+        if (problems.length) return;
+        const receipt = receiptFrom(api.callId, args);
+        const others = (state.verifications ?? []).filter(
+          (item) =>
+            item.target !== receipt.target ||
+            item.files.length !== receipt.files.length ||
+            item.files.some((file) => !receipt.files.includes(file)) ||
+            receipt.files.some((file) => !item.files.includes(file)),
+        );
+        state.verifications = [...others, receipt];
+      }, context);
+      if (problems.length)
+        return {
+          ...text(`Not recorded. ${problems.join(" ")}`),
+          isError: true,
+        };
+      return text("verification recorded");
+    },
+  });
+
   const finishReview = defineTool({
     name: "finish_review",
     description:
@@ -817,6 +894,14 @@ export function reviewerExtension({
         }
         refused = readingGateRefusal(state);
         if (refused) return;
+        const unverified = uncoveredVerificationFiles(
+          state.files ?? [],
+          state.verifications ?? [],
+        );
+        if (unverified.length) {
+          refused = `Not finished: no verification receipt covers ${unverified.join(", ")}. Record the target, property, checker result or not-run reason, scope, broken variant when passed, assumptions and limits for each changed file, then call finish_review again.`;
+          return;
+        }
         decision = decisionFor(state.findings.map(fromStored));
         state.verdict = {
           decision,
@@ -953,6 +1038,7 @@ export function reviewerExtension({
       reportFinding,
       describeChange,
       abridgeFile,
+      recordVerification,
       finishReview,
     ],
     sections: [
@@ -1012,7 +1098,8 @@ The review_evidence section contains a persisted CI snapshot and CODING_STANDARD
 7. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. When you can, apply it in the checkout and run the tests it touches first, then undo it. It is offered to the owner, never applied to the pull request.
 8. Split the pull request into logical changes with describe_change, once per change (a fix, its tests, a docs update and an unrelated dependency bump are four changes), giving each a title, its tags, a summary and its files. Every changed file belongs to a change. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator". The title says what specifically changes, in a few words, not just its kind, which the tags already give: "Cover referenced-assembly generics", not "Tests" or "Docs and tests". The summary is one third-person sentence on what this change does in its files, naming what a reader would look for there (the cases a test adds, the section a doc changes, the version a dependency moves to).
 9. After all findings are recorded, shorten each changed file with a diff for the owner with abridge_file, using the patch line numbers of the numbered diff in the brief, or of read_patch with numbered for a file the brief leaves out. The owner reviews concepts, data flow and control flow, not mechanics. Keep anything that changes behaviour: a changed argument, a new condition, a different call, a changed return or error path, a public signature. Hide what is obvious, forced or repetitive: repeated renames or call-site edits after one representative example, blank lines and unchanged context that does not orient the reader, formatting-only edits, and generated files (remove every line). Fold the repetitive inside of a block while keeping its opening and closing lines. Replace long error-message text and arguments with ... but keep the throw or return itself. Never hide a line you are unsure about. A line a later finding cites invalidates the file's plan and the owner sees the full diff, so report findings first.
-10. Finish with finish_review exactly once. Describe the whole pull request for the owner as Situation, Task, Action and Result: four plain sentences in the third person about the pull request, never about your review, written from what you read and not from the PR description alone.
+10. Record formal-verification-style evidence with record_verification for every changed file. Pick the lowest-cost tool that answers the property's real question: TLA+ for event ordering and state machines; Dafny, Verus, Gobra, Nagini or Frama-C when the implementation language and property fit; Kani or CBMC for bounded Rust/C/C++ behavior. Follow verify-pr-change in the brief and attempt its relevant provisioning first. If the runtime cannot run a suitable verifier, record outcome not_run and plainly name the missing check in its result and limits. A pass requires an exact command, a stated scope, and a deliberately broken variant that the same check rejected. Label generated or bounded tests as such; never infer a pass from a code read or memory. State assumptions and what the model, bound or tool cannot establish. This is a receipt for the owner, not a claim that the entire PR is verified.
+11. Finish with finish_review exactly once. Describe the whole pull request for the owner as Situation, Task, Action and Result: four plain sentences in the third person about the pull request, never about your review, written from what you read and not from the PR description alone.
    - situation: the problem, need or risk that existed before, and who or what it affected. Not a restatement of the change ("X was missing" when the PR adds X); if the pull request states no reason and the code shows none, say the motivation is not stated.
    - task: the goal the pull request sets out to reach, in terms of that situation.
    - action: what the code now does differently, across all its changes, naming the main mechanism.

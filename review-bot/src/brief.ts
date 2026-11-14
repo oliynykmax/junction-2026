@@ -2,6 +2,7 @@
 // collected once when the review starts and capped to fit the review document
 // and the model's context. renderBrief fills the review skill with it.
 
+import { VERIFICATION_SKILL } from "./verification-skill";
 import { GitHubError, ghJson } from "./github";
 import { numberedPatch } from "./reading";
 import type { ChangedFile, Target } from "./reviewer";
@@ -432,7 +433,7 @@ Check each point of an earlier review or inline comment against the head and the
 ## How to review
 
 1. Read the commit messages as evidence of intent. An author states the reason for a decision there far more often than anywhere else, so a "why was this done" finding is often answered already.
-2. Read CI before you run anything, and run only what CI did not. CI is the evidence that the author's tests, linters, formatters and type checks pass. Run a command yourself only to test a change you propose, to reproduce a finding, or when you can show from the workflow triggers and path filters that no check covers the change. When the pull request has no CI at all, read the CI configuration and the build scripts, run each check the change reaches, and put each command and its result in finish_review's summary.
+2. Read CI before you run anything, and run only what CI did not. CI is the evidence that the author's tests, linters, formatters and type checks pass. Run a command yourself for the verification property selected below, to test a change you propose, to reproduce a finding, or when you can show from the workflow triggers and path filters that no check covers the change. When the pull request has no CI at all, read the CI configuration and the build scripts, run each check the change reaches, and put each command and its result in finish_review's summary.
 3. Stay quiet about what the pull request page already shows: check names, pass and pending counts, file and line counts. Name a check only when it failed, or when no check covers the change. A run that has not finished is pending, never a pass.
 4. Verify every claim against the official documentation of the version the repository pins. Find the pin (lockfiles, package manifests, action refs, tool versions, image tags) and read that version's page, a release tag rather than main. Every finding that names a flag, a function, an action or a resource ends with a "Docs: <url>" line. When you cannot find the page, put the claim in not_checked.
 5. Check the tests against this standard. A breach is a finding: high severity when the path touches money, credentials, permissions, deletion or production state, medium otherwise. A repository with no test setup gets that finding once.
@@ -447,6 +448,14 @@ ${simplify}
 Review with this skill:
 
 ${rubric?.trim() || "(the review rubric could not be loaded: apply the review protocol below)"}
+
+## Verify the riskiest changed promise
+
+Apply verify-pr-change alongside the review rubric. checkout_pr installs the bundled skill and its provisioning script outside the reviewed repository and returns their directory. Run the provisioning script from that directory with Bash before declaring the relevant checker unavailable. It may require toolchains not preinstalled in the container. Record an attempted setup failure honestly.
+
+${VERIFICATION_SKILL}
+
+For this runtime, record evidence with record_verification rather than writing a separate final report. Cover every changed file, grouping related files. The riskiest promise needs the strongest practical check. Other files may have not_run dispositions with specific reasons. A passed receipt requires a meaningful controlled mutation caught by the same check. Keep assumptions and limits explicit. These are agent-reported results, not independently authenticated runtime evidence. A counterexample must also become a report_finding entry with its impact and code location. not_run is a disposition, never a pass. The review can finish with disclosed unrun checks; the named human owns the remaining risk.
 
 ## The rules that override everything
 

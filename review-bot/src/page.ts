@@ -10,7 +10,7 @@ export function reviewPage(
   const esc = (s: string) =>
     s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Review ${esc(label)}</title>
+<title>Bumble Bot review of ${esc(label)}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -42,7 +42,7 @@ button{font:inherit;font-size:.85rem;padding:4px 12px;border-radius:6px;border:1
 .diag .sev{min-width:4.5rem}.error{--sev:var(--critical)}.warning{--sev:var(--high)}
 </style>
 <main>
-<h1>Review of <a href="${esc(prUrl)}">${esc(label)}</a></h1>
+<h1><img src="/favicon.svg" alt="" width="28" height="28" style="vertical-align:-6px;border-radius:6px;margin-right:8px">Bumble Bot review of <a href="${esc(prUrl)}">${esc(label)}</a></h1>
 <div class="meta" id="meta">loading…</div>
 <div id="verdict"></div>
 <h2>Findings</h2><div id="counts" class="counts"></div><div id="findings" class="empty">none yet</div>

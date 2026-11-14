@@ -493,8 +493,6 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
     }),
     execute: async ({ summary, not_checked, dismissed }, api, context) => {
       let refused: string | null = null;
-      let findings: Finding[] = [];
-      let evidence: Evidence | null = null;
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
         const refusals = state.docsRefusals ?? 0;
@@ -530,13 +528,13 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
           ],
           dismissed: dismissed ?? [],
         };
-        findings = state.findings;
-        evidence = state.evidence ?? null;
       }, context);
       if (refused) return { ...text(refused), isError: true };
       const { t, tok } = await target(api, context);
-      if (t.mode !== "manual")
-        await publish(t, tok, findings, evidence).catch((e) =>
+      // Read after the commit: its documents are unusable once it settles.
+      const done = await api.snapshot(ReviewDoc, api.conversationId, context);
+      if (t.mode !== "manual" && done)
+        await publish(t, tok, done.findings, done.evidence ?? null).catch((e) =>
           console.error(`review publication for ${t.headSha} failed`, e),
         );
       return { ...text("review finished"), control: { terminate: true } };

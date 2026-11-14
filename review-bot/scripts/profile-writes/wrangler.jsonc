@@ -10,7 +10,7 @@
   "vars": {
     "REVIEW_BASE_URL": "https://review.invalid",
     "REVIEW_PROMPT_URL": "https://rubric.invalid/prompt.md",
-    "MODEL_ID": "claude-sonnet-5-5",
+    "MODELS": [{ "provider": "anthropic", "id": "claude-sonnet-5-5" }],
     "THINKING_LEVEL": "medium",
     "ANTHROPIC_API_KEY": "offline-fixture",
     "SCANNER_URL": "https://scanner.invalid",

@@ -135,6 +135,8 @@ export type ReviewState = {
   changes?: Change[];
   /** Times finish_review refused because changed files had no change. */
   changeRefusals?: number;
+  /** Times finish_review refused an invalid STAR. */
+  starRefusals?: number;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -153,6 +155,7 @@ export const EMPTY_REVIEW: ReviewState = {
   files: [],
   changes: [],
   changeRefusals: 0,
+  starRefusals: 0,
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -168,6 +171,7 @@ export const ReviewDoc = defineDoc<ReviewState>({
 const MAX_LOOKUP_ARGS = 300;
 const MAX_DOCS_REFUSALS = 2;
 const MAX_CHANGE_REFUSALS = 2;
+const MAX_STAR_REFUSALS = 2;
 // Patches are stored in the review document, so their size is capped.
 const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
@@ -536,17 +540,18 @@ export function reviewerExtension({
         result: args.result,
       };
       const problems = starProblems(star);
-      if (problems.length)
-        return {
-          ...text(`Not finished. ${problems.join(" ")}`),
-          isError: true,
-        };
       let refused: string | null = null;
       let findings: Finding[] = [];
       let decision: Verdict["decision"] | null = null;
       let evidence: Evidence | null = null;
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
+        const starRefusals = state.starRefusals ?? 0;
+        if (problems.length && starRefusals < MAX_STAR_REFUSALS) {
+          state.starRefusals = starRefusals + 1;
+          refused = `Not finished. ${problems.join(" ")}`;
+          return;
+        }
         const refusals = state.docsRefusals ?? 0;
         const noDocs = !state.lookups?.length;
         if (noDocs && refusals < MAX_DOCS_REFUSALS) {
@@ -564,10 +569,15 @@ export function reviewerExtension({
         decision = decisionFor(state.findings.map(fromStored));
         state.verdict = {
           decision,
-          star,
+          ...(problems.length ? {} : { star }),
           summary,
           notChecked: [
             ...evidenceGaps(state.evidence),
+            ...(problems.length
+              ? [
+                  `The agent's Situation/Task/Action/Result description of the pull request is left out because it still failed the checks: ${problems.join(" ")}`,
+                ]
+              : []),
             ...(noDocs
               ? [
                   "The agent finished without looking up any documentation, so its claims about library, framework and platform behaviour come from memory.",

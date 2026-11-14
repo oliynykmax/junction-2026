@@ -3,7 +3,7 @@
 // diff inline.
 
 import { useMemo, useState } from "preact/hooks";
-import { FileDiffs } from "./diff";
+import { FileDiffs, type Readings } from "./diff";
 import { FindingNote } from "./findings";
 import {
   type Change,
@@ -38,12 +38,14 @@ export function Changes({
   owned,
   running,
   lineUrl,
+  readings,
 }: {
   changes: readonly Change[];
   files: readonly ChangedFile[];
   owned: Map<string, Finding[]>;
   running: boolean;
   lineUrl: LineUrl;
+  readings?: Readings;
 }) {
   const [tag, setTag] = useState<string | null>(null);
   const tags = useMemo(() => {
@@ -100,6 +102,7 @@ export function Changes({
                 files={files.filter((f) => c.files.includes(f.path))}
                 findings={owned.get(c.id) ?? []}
                 lineUrl={lineUrl}
+                readings={readings}
               />
             ))}
           </ol>
@@ -114,11 +117,13 @@ function ChangeRow({
   files,
   findings: unsorted,
   lineUrl,
+  readings,
 }: {
   change: Change;
   files: readonly ChangedFile[];
   findings: readonly Finding[];
   lineUrl: LineUrl;
+  readings?: Readings;
 }) {
   const [open, setOpen] = useState(false);
   const [focus, setFocus] = useState<Focus>(null);
@@ -199,6 +204,7 @@ function ChangeRow({
             focus={focus}
             onFocus={setFocus}
             lineUrl={lineUrl}
+            readings={readings}
           />
         </div>
       )}

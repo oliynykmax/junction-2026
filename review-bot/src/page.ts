@@ -28,7 +28,7 @@ h1{font-size:1.25rem;margin:0 0 4px}h2{font-size:.8rem;text-transform:uppercase;
 .sev{color:var(--sev);font-weight:700;font-size:.75rem;text-transform:uppercase}.loc{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
 .finding p,.verdict p{margin:6px 0 0;white-space:pre-wrap}
 .critical{--sev:var(--critical)}.high{--sev:var(--high)}.medium{--sev:var(--medium)}.low{--sev:var(--low)}.info{--sev:var(--info)}
-.tag{font-family:var(--mono);font-size:.72rem;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+.chip{font-family:var(--mono);font-size:.72rem;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px}
 .counts{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.85rem;margin:0 0 4px}.counts span{color:var(--sev);font-weight:600}
 ul{margin:6px 0 0;padding-left:20px}
 .feed{font-size:.85rem}.feed .row{border-top:1px solid var(--line);padding:6px 0}.feed .tag{font-family:var(--mono);color:var(--muted);margin-right:6px}
@@ -80,7 +80,7 @@ function render(v){
   if(fs.length)$("findings").innerHTML=fs.map((f)=>{
     const loc=f.path+(f.line?":"+f.line:"");
     const href=t?BLOB+"/blob/"+t.headSha+"/"+f.path+(f.line?"#L"+f.line:""):"#";
-    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+esc(f.severity)+'</span>'+(f.class?'<span class="tag">'+esc(f.class)+'</span>':'')+(f.confidence?'<span class="tag">'+esc(f.confidence)+'</span>':'')+'<strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+linkDocs(esc(f.body))+'</p>'
+    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+esc(f.severity)+'</span>'+(f.class?'<span class="chip">'+esc(f.class)+'</span>':'')+(f.confidence?'<span class="chip">'+esc(f.confidence)+'</span>':'')+'<strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+linkDocs(esc(f.body))+'</p>'
       +(f.suggestedPatch?'<details><summary>Suggested fix</summary><pre>'+esc(f.suggestedPatch)+'</pre><button disabled title="Not wired up yet">Open fix PR (coming soon)</button></details>':'')+'</div>';
   }).join("");
   const ls=r.lookups||[];

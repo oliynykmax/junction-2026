@@ -29,6 +29,8 @@ type Graded = { severity: Severity; confidence?: Confidence };
 
 const SEVERE: ReadonlySet<Severity> = new Set(["critical", "high"]);
 
+// A missing confidence (legacy data) counts as confirmed, so old severe
+// findings keep blocking.
 export const blocks = (f: Graded) =>
   SEVERE.has(f.severity) && f.confidence !== "possible";
 
@@ -57,8 +59,9 @@ export type Stored<F> = Omit<F, "severity" | "class" | "confidence"> & {
 };
 
 export function fromStored<F extends { severity: string }>(f: F): Stored<F> {
-  const severity = isSeverity(f.severity)
-    ? f.severity
-    : (LEGACY[f.severity] ?? "info");
-  return { ...f, severity };
+  if (isSeverity(f.severity)) return { ...f, severity: f.severity };
+  const legacy = LEGACY[f.severity];
+  if (legacy) return { ...f, severity: legacy };
+  console.warn(`unknown stored severity ${JSON.stringify(f.severity)}`);
+  return { ...f, severity: "info" };
 }

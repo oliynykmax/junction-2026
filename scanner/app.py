@@ -13,6 +13,8 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Literal
 
 import modal
@@ -21,25 +23,67 @@ from pydantic import BaseModel
 ZIZMOR = "1.32.0"
 TY = "0.0.104"
 OXLINT = "1.93.0"
-VERSIONS = {"zizmor": ZIZMOR, "ty": TY, "oxlint": OXLINT}
+RUFF = "0.17.5"
+OXFMT = "0.78.0"
+DOTNET_SDK = "8.0.402"
+NODE = "22.12.0"
+DOTNET_CONFIGURATION = "Debug"
+VERSIONS = {
+    "zizmor": ZIZMOR,
+    "ty": TY,
+    "oxlint": OXLINT,
+    "ruff-format": RUFF,
+    "oxfmt": OXFMT,
+    "dotnet-ci": DOTNET_SDK,
+    "dotnet-format": DOTNET_SDK,
+}
 TIMEOUT_S = 120
+DOTNET_TIMEOUT_S = 300
+DOTNET_FUNCTION_TIMEOUT_S = DOTNET_TIMEOUT_S * 2 + 60
+WEB_TIMEOUT_S = DOTNET_FUNCTION_TIMEOUT_S + 60
 
-image = (
+scanner_image = (
     modal.Image.debian_slim(python_version="3.13")
-    .apt_install("curl", "ca-certificates")
-    .uv_pip_install(f"zizmor=={ZIZMOR}", f"ty=={TY}", "fastapi[standard]")
+    .apt_install("curl", "ca-certificates", "libicu-dev", "xz-utils")
+    .uv_pip_install(
+        f"zizmor=={ZIZMOR}",
+        f"ty=={TY}",
+        f"ruff=={RUFF}",
+        "fastapi[standard]",
+    )
     .run_commands(
         f"curl -fsSL https://github.com/oxc-project/oxc/releases/download/oxlint_v{OXLINT}/"
         "oxlint-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin",
         "mv /usr/local/bin/oxlint* /usr/local/bin/oxlint 2>/dev/null || true",
         "oxlint --version",
+        f"curl -fsSL https://nodejs.org/dist/v{NODE}/node-v{NODE}-linux-x64.tar.xz "
+        "| tar -xJ -C /usr/local --strip-components=1",
+        f"npm install --global oxfmt@{OXFMT}",
+        "oxfmt --version",
     )
 )
 
-app = modal.App("j26-review-scanner", image=image)
+dotnet_image = scanner_image.run_commands(
+    "mkdir -p /usr/local/dotnet",
+    f"curl -fsSL https://dotnetcli.azureedge.net/dotnet/Sdk/{DOTNET_SDK}/"
+    f"dotnet-sdk-{DOTNET_SDK}-linux-x64.tar.gz | tar -xz -C /usr/local/dotnet",
+    "ln -s /usr/local/dotnet/dotnet /usr/local/bin/dotnet",
+    "dotnet --info",
+)
 
-Tool = Literal["zizmor", "ty", "oxlint"]
+app = modal.App("j26-review-scanner", image=scanner_image)
+
+Tool = Literal[
+    "zizmor",
+    "ty",
+    "oxlint",
+    "ruff-format",
+    "oxfmt",
+    "dotnet-ci",
+    "dotnet-format",
+]
 Severity = Literal["error", "warning", "info"]
+DOTNET_TOOLS = frozenset({"dotnet-ci", "dotnet-format"})
 
 
 class Check(BaseModel):
@@ -75,7 +119,7 @@ class ScanResult(BaseModel):
     error: str | None
 
 
-def checkout(req: ScanRequest, into: str) -> None:
+def download_archive(req: ScanRequest) -> bytes:
     request = urllib.request.Request(
         f"https://api.github.com/repos/{req.owner}/{req.repo}/tarball/{req.sha}",
         headers={
@@ -85,7 +129,10 @@ def checkout(req: ScanRequest, into: str) -> None:
         },
     )
     with urllib.request.urlopen(request, timeout=60) as res:
-        data = res.read()
+        return res.read()
+
+
+def extract_archive(data: bytes, into: str) -> None:
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
         for member in tar.getmembers():
             member.name = member.name.split("/", 1)[1] if "/" in member.name else ""
@@ -163,17 +210,115 @@ def oxlint(paths: list[str], cwd: str) -> list[Diagnostic]:
     ]
 
 
-RUNNERS = {"zizmor": zizmor, "ty": ty, "oxlint": oxlint}
+def ruff_format(paths: list[str], cwd: str) -> list[Diagnostic]:
+    run(["ruff", "format", "--check", *paths], cwd, ok={0})
+    return []
 
 
-def run(cmd: list[str], cwd: str, ok: set[int]) -> str:
+def oxfmt(paths: list[str], cwd: str) -> list[Diagnostic]:
+    run(["oxfmt", "--check", *paths], cwd, ok={0})
+    return []
+
+
+def dotnet_targets(cwd: str) -> list[str]:
+    root = Path(cwd)
+    ignored = {".git", "bin", "obj", "node_modules"}
+
+    def paths(pattern: str) -> list[str]:
+        return sorted(
+            path.relative_to(root).as_posix()
+            for path in root.rglob(pattern)
+            if not ignored.intersection(path.relative_to(root).parts)
+        )
+
+    return paths("*.sln") or paths("*.csproj")
+
+
+def dotnet_ci(_: list[str], cwd: str) -> list[Diagnostic]:
+    targets = dotnet_targets(cwd)
+    if not targets:
+        raise RuntimeError("no .sln or .csproj file found for dotnet CI")
+    for target in targets:
+        run(
+            [
+                "dotnet",
+                "build",
+                target,
+                "--configuration",
+                DOTNET_CONFIGURATION,
+                "--nologo",
+            ],
+            cwd,
+            ok={0},
+            timeout=DOTNET_TIMEOUT_S,
+        )
+        run(
+            [
+                "dotnet",
+                "test",
+                target,
+                "--configuration",
+                DOTNET_CONFIGURATION,
+                "--no-build",
+                "--nologo",
+            ],
+            cwd,
+            ok={0},
+            timeout=DOTNET_TIMEOUT_S,
+        )
+    return []
+
+
+def dotnet_format(paths: list[str], cwd: str) -> list[Diagnostic]:
+    targets = dotnet_targets(cwd)
+    if not targets:
+        raise RuntimeError("no .sln or .csproj file found for dotnet format")
+    source_paths = [path for path in paths if path.endswith((".cs", ".csx"))]
+    for target in targets:
+        command = [
+            "dotnet",
+            "format",
+            target,
+            "--verify-no-changes",
+            "--no-restore",
+            "--verbosity",
+            "minimal",
+        ]
+        if source_paths:
+            command.extend(["--include", *source_paths])
+        run(command, cwd, ok={0}, timeout=DOTNET_TIMEOUT_S)
+    return []
+
+
+RUNNERS = {
+    "zizmor": zizmor,
+    "ty": ty,
+    "oxlint": oxlint,
+    "ruff-format": ruff_format,
+    "oxfmt": oxfmt,
+    "dotnet-ci": dotnet_ci,
+    "dotnet-format": dotnet_format,
+}
+
+
+def run(cmd: list[str], cwd: str, ok: set[int], timeout: int = TIMEOUT_S) -> str:
     proc = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT_S, check=False
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        env={
+            **os.environ,
+            "CI": "true",
+            "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+            "DOTNET_NOLOGO": "1",
+        },
     )
     if proc.returncode not in ok:
-        raise RuntimeError(
-            f"{cmd[0]} exited {proc.returncode}: {proc.stderr.strip()[-800:]}"
-        )
+        output = "\n".join(part for part in (proc.stderr, proc.stdout) if part).strip()
+        raise RuntimeError(f"{cmd[0]} exited {proc.returncode}: {output[-800:]}")
     return proc.stdout
 
 
@@ -196,11 +341,36 @@ def scan_one(check: Check, cwd: str) -> ScanResult:
     )
 
 
-@app.function(secrets=[modal.Secret.from_name("j26-review-scanner")], timeout=600)
+def scan_archive(
+    archive: bytes, checks: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Run executable .NET checks in a secret-free restricted function."""
+    with tempfile.TemporaryDirectory() as cwd:
+        extract_archive(archive, cwd)
+        return [
+            scan_one(Check.model_validate(check), cwd).model_dump() for check in checks
+        ]
+
+
+@app.function(
+    image=dotnet_image,
+    timeout=DOTNET_FUNCTION_TIMEOUT_S,
+    restrict_modal_access=True,
+)
+def run_dotnet_checks(
+    archive: bytes, checks: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    if any(check.get("tool") not in DOTNET_TOOLS for check in checks):
+        raise ValueError("restricted runner only accepts dotnet checks")
+    return scan_archive(archive, checks)
+
+
+@app.function(
+    secrets=[modal.Secret.from_name("j26-review-scanner")], timeout=WEB_TIMEOUT_S
+)
 @modal.asgi_app()
 def web():
     import hmac
-    from concurrent.futures import ThreadPoolExecutor
 
     from fastapi import FastAPI, Header, HTTPException
 
@@ -212,9 +382,32 @@ def web():
             authorization, f"Bearer {os.environ['SCANNER_TOKEN']}"
         ):
             raise HTTPException(401, "bad token")
+        archive = download_archive(req)
+        dotnet_checks = [
+            check.model_dump() for check in req.checks if check.tool in DOTNET_TOOLS
+        ]
+        static_checks = [
+            check for check in req.checks if check.tool not in DOTNET_TOOLS
+        ]
         with tempfile.TemporaryDirectory() as cwd:
-            checkout(req, cwd)
+            extract_archive(archive, cwd)
             with ThreadPoolExecutor() as pool:
-                return list(pool.map(lambda c: scan_one(c, cwd), req.checks))
+                static = list(
+                    pool.map(lambda check: scan_one(check, cwd), static_checks)
+                )
+                dotnet = (
+                    [
+                        ScanResult.model_validate(result)
+                        for result in run_dotnet_checks.remote(archive, dotnet_checks)
+                    ]
+                    if dotnet_checks
+                    else []
+                )
+        static_results = iter(static)
+        dotnet_results = iter(dotnet)
+        return [
+            next(dotnet_results) if check.tool in DOTNET_TOOLS else next(static_results)
+            for check in req.checks
+        ]
 
     return api

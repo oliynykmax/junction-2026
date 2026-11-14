@@ -1,0 +1,13 @@
+{
+  "name": "j26-review-bot",
+  "main": "src/index.ts",
+  "account_id": "b9065ca4c59a3d2ebb9430692a07bf2c",
+  "compatibility_date": "2026-11-13",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "vars": { "REVIEW_BASE_URL": "https://review.oliinyk.dev" },
+  "routes": [
+    { "pattern": "review.oliinyk.dev", "custom_domain": true, "zone_name": "oliinyk.dev" }
+  ]
+}

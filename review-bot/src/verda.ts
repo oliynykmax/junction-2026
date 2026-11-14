@@ -31,8 +31,8 @@ export function verdaProvider() {
         id: "kimi-k3-1-pro",
         provider: "verda",
         baseUrl: BASE_URL,
-        // Verda's per-token price is not published to us, so cost stays unpriced.
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        // Verda's list price, USD per 1M tokens.
+        cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 0 },
       },
     ],
     api: openAICompletionsApi(),

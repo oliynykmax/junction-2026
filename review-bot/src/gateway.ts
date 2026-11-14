@@ -3,7 +3,7 @@ import proxy from "./proxy";
 import type { Env } from "./review";
 import type { ProxyEnv } from "./proxy";
 
-export { Review, ManualGate } from "./index";
+export { Review, ManualGate, Hive } from "./index";
 
 type GatewayEnv = Env & Partial<ProxyEnv>;
 

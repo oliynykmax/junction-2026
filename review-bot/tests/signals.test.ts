@@ -158,3 +158,10 @@ test("security paths need the keyword as a whole segment or stem", () => {
       assessRisk([file(p, "@@\n+x")]).reasons.map((r) => r.rule),
     ).toContain("security-surface");
 });
+
+test("every Go skip form marks the test weakened", () => {
+  for (const call of ['t.Skip("x")', "t.SkipNow()", 't.Skipf("x %d", 1)'])
+    expect(
+      testChange(file("pkg/x_test.go", `@@\n+\t${call}`)).weakened,
+    ).toEqual(["1 skip marker added."]);
+});

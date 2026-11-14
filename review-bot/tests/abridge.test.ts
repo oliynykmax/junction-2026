@@ -121,29 +121,46 @@ test("calling abridge_file again replaces the file's plan", async () => {
   });
 });
 
-test("abridge_file refuses to hide a line a finding cites, then stops retries", async () => {
+test("abridge_file refuses to hide a line a finding cites; the second refusal is final", async () => {
   const state = reviewWith({ "src/W.cs": PATCH });
   // Patch line 6 is new-side line 5.
   state.findings = [finding(5)];
   const run = harness(state);
-  for (let i = 0; i < 2; i++) {
-    const res = await run(
-      "abridge_file",
-      plan({ fold: [{ start_line: 6, end_line: 7 }] }),
-    );
-    expect(res.isError).toBe(true);
-    expect(res.text).toMatch(/Fix every problem[\s\S]*cited by a finding/);
-  }
-  const last = await run(
+  const hiding = plan({ fold: [{ start_line: 6, end_line: 7 }] });
+  const first = await run("abridge_file", hiding);
+  expect(first.isError).toBe(true);
+  expect(first.text).toMatch(/Fix every problem[\s\S]*cited by a finding/);
+  const second = await run("abridge_file", hiding);
+  expect(second.isError).toBe(true);
+  expect(second.text).toMatch(
+    /no more attempts for src\/W\.cs; the owner sees its full diff[\s\S]*cited by a finding/,
+  );
+  // Past the limit even a valid plan is not taken, and nothing is compiled.
+  const valid = await run(
     "abridge_file",
-    plan({ fold: [{ start_line: 6, end_line: 7 }] }),
+    plan({ remove: [{ start_line: 7, end_line: 7 }] }),
   );
-  expect(last.isError).toBe(true);
-  expect(last.text).toMatch(
-    /no more attempts for src\/W\.cs: the owner sees its full diff/,
-  );
+  expect(valid.isError).toBe(true);
+  expect(valid.text).toMatch(/no more attempts for src\/W\.cs/);
   expect(state.readings).toEqual({});
-  expect(state.readingRefusals).toEqual({ "src/W.cs": 3 });
+  expect(state.readingRefusals).toEqual({ "src/W.cs": 2 });
+});
+
+test("after the limit, an earlier accepted plan stays and the agent is told so", async () => {
+  const state = reviewWith({ "src/W.cs": PATCH });
+  state.findings = [finding(5)];
+  const run = harness(state);
+  const accepted = plan({ remove: [{ start_line: 7, end_line: 7 }] });
+  expect((await run("abridge_file", accepted)).isError).toBe(false);
+  const hiding = plan({ fold: [{ start_line: 6, end_line: 7 }] });
+  await run("abridge_file", hiding);
+  const final = await run("abridge_file", hiding);
+  expect(final.text).toMatch(
+    /the owner sees the last plan you recorded for it/,
+  );
+  expect(state.readings?.["src/W.cs"]?.remove).toEqual([
+    { start_line: 7, end_line: 7 },
+  ]);
 });
 
 test("abridge_file refuses unknown files and files without a stored diff", async () => {

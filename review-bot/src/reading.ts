@@ -120,13 +120,38 @@ export function numberedPatch(patch: string): string {
 const CS_USING =
   /^\s*(?:global\s+)?using\s+(?:static\s+)?(?:[A-Za-z_][\w]*\s*=\s*)?[A-Za-z_][\w.]*(?:<[\w.,\s<>]*>)?\s*;\s*(?:\/\/.*)?$/;
 
+// What may precede a C# file's using directives: blank lines, line and block
+// comment lines, preprocessor lines, extern alias, and a byte-order mark.
+const CS_PREAMBLE =
+  /^﻿?\s*(?:$|\/\/|\/\*|\*|#|extern\s+alias\s+[A-Za-z_]\w*\s*;)/;
+
 /** Marks the source lines the automatic rule hides for this file. */
 export function automaticHidden(path: string, lines: PatchLine[]): boolean[] {
-  const csharp = /\.cs$/i.test(path);
-  return lines.map(
-    (l) =>
-      csharp && l.kind !== "hunk" && l.kind !== "eof" && CS_USING.test(l.text),
-  );
+  const hidden = lines.map(() => false);
+  if (!/\.cs$/i.test(path)) return hidden;
+  // Only the file's opening block: a hunk that starts at line 1 of the file,
+  // up to its first line that is not a comment, blank, preprocessor, extern
+  // alias or using line. No string can be open there, so a `using` line inside
+  // an embedded C# source string is never mistaken for a directive. Directives
+  // the rule misses stay visible; the agent can still hide them.
+  let leading = false;
+  let started = false;
+  lines.forEach((l, i) => {
+    if (l.kind === "hunk") {
+      leading = false;
+      started = false;
+      return;
+    }
+    if (l.kind === "eof") return;
+    if (!started) {
+      started = true;
+      leading = l.old === 1 || l.new === 1;
+    }
+    if (!leading) return;
+    if (CS_USING.test(l.text)) hidden[i] = true;
+    else if (!CS_PREAMBLE.test(l.text)) leading = false;
+  });
+  return hidden;
 }
 
 /**
@@ -465,8 +490,19 @@ export function isElision(old: string, next: string): boolean {
   if (parts.length < 2) return false;
   if (/\.{4,}/.test(next)) return false;
   for (let k = 1; k < parts.length - 1; k++) if (parts[k] === "") return false;
-  const pattern = parts.map(escapeRegExp).join("[\\s\\S]+");
-  return new RegExp(`^${pattern}$`).test(old);
+  // One left-to-right scan, no regex: place each literal part at its earliest
+  // position after a gap of at least one character. Earliest placement leaves
+  // the most room for what follows, so if it fails, every placement fails.
+  const first = parts[0]!;
+  const last = parts.at(-1)!;
+  if (!old.startsWith(first)) return false;
+  let cursor = first.length;
+  for (let k = 1; k < parts.length - 1; k++) {
+    const at = old.indexOf(parts[k]!, cursor + 1);
+    if (at < 0) return false;
+    cursor = at + parts[k]!.length;
+  }
+  return old.endsWith(last) && old.length - last.length >= cursor + 1;
 }
 
 function applyElisions(
@@ -495,8 +531,4 @@ function commonIndent(texts: string[]): string {
     }
   }
   return indent ?? "";
-}
-
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -32,9 +32,9 @@ export function reviewPage(t: PageTarget): Response {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bumble Bot review of ${esc(label)}</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="icon" href="/favicon.ico" sizes="32x32">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot">
 <link rel="stylesheet" href="/review/app.css">
 <script type="module" src="/review/app.js"></script>
 </head>

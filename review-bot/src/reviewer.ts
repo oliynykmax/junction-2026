@@ -37,8 +37,10 @@ export type Target = {
   repo: string;
   number: number;
   headSha: string;
-  installationId: number;
-};
+} & (
+  | { mode: "manual"; baseSha: string }
+  | { mode?: "webhook"; installationId: number }
+);
 
 export type Finding = {
   id: string;
@@ -148,7 +150,13 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
     if (!state?.target) throw new Error("review has no target");
-    return { t: state.target, tok: await token(state.target.installationId) };
+    return {
+      t: state.target,
+      tok:
+        state.target.mode === "manual"
+          ? ""
+          : await token(state.target.installationId),
+    };
   }
 
   const text = (s: string) => ({
@@ -173,6 +181,10 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
         }>(tok, `/repos/${t.owner}/${t.repo}/pulls/${t.number}`),
         prFiles(tok, t),
       ]);
+      if (pr.head.sha !== t.headSha)
+        throw new Error(
+          "The PR head changed. Start a new review for the current commit.",
+        );
       const list = files
         .map(
           (f) =>
@@ -213,12 +225,14 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
       const { t, tok } = await target(api, context);
       const sha =
         ref === "base"
-          ? (
-              await ghJson<{ base: { sha: string } }>(
-                tok,
-                `/repos/${t.owner}/${t.repo}/pulls/${t.number}`,
-              )
-            ).base.sha
+          ? t.mode === "manual"
+            ? t.baseSha
+            : (
+                await ghJson<{ base: { sha: string } }>(
+                  tok,
+                  `/repos/${t.owner}/${t.repo}/pulls/${t.number}`,
+                )
+              ).base.sha
           : t.headSha;
       const res = await gh(
         tok,
@@ -347,9 +361,10 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
           isError: true,
         };
       const { t, tok } = await target(api, context);
-      await publish(t, tok, findings).catch((e) =>
-        console.error(`review publication for ${t.headSha} failed`, e),
-      );
+      if (t.mode !== "manual")
+        await publish(t, tok, findings).catch((e) =>
+          console.error(`review publication for ${t.headSha} failed`, e),
+        );
       return { ...text("review finished"), control: { terminate: true } };
     },
   });
@@ -364,7 +379,7 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
         const id = runtime.conversationId;
         const t = (await runtime.snapshot(ReviewDoc, id, context))?.target;
         if (!t) throw new Error("review has no target");
-        const tok = await token(t.installationId);
+        const tok = t.mode === "manual" ? "" : await token(t.installationId);
         const checks = planChecks(await prFiles(tok, t));
         let result: ScanState;
         try {

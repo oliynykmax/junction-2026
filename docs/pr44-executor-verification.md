@@ -89,3 +89,17 @@ All three received fixes with regression checks:
 
 The new tests failed before the fixes and pass afterward. These changes do not
 alter per-review container isolation, resource limits or deployment topology.
+
+The bot review of f63a22d also reported no blockers, with two medium findings.
+The deployment finding is fixed: the upgrade script enables bumble-executor
+before restarting it, so its multi-user.target installation survives reboot.
+The existing restart remains necessary to apply rebuilt images. Bash syntax
+and the enable-before-restart order were checked; no live service changed.
+
+The module-extraction finding is deferred. Moving checkout_pr and shell into
+another module could improve navigation, but this review identified no execution
+defect from their current location. The tools intentionally reuse the existing
+target resolver and review lifecycle. Their contract is covered by actual-tool
+tests. Extraction would move the same definitions that dependent PRs #45 and
+#46 extend, without improving the isolation fix. This is a follow-up refactor,
+not a reason to churn the current stack or weaken the tool behavior.

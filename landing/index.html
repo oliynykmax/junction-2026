@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Turn a public GitHub pull request into an AI review with traceable evidence and explicit limits. AI advises. You decide."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="theme-color"
+      content="#fbf8f4"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#131313"
+      media="(prefers-color-scheme: dark)"
+    />
+    <title>Bumble Bot — Evidence before approval</title>
+    <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot" />
+    <script>
+      try {
+        var s = localStorage.getItem("bumble-color-scheme");
+        if (s === "light" || s === "dark")
+          document.documentElement.setAttribute("data-color-scheme", s);
+      } catch (_) {}
+    </script>
+    <link
+      rel="preload"
+      href="/assets/public-sans-bold.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script type="module" src="/assets/landing.js"></script>
+  </head>
+
+  <body>
+    <ui-preferences></ui-preferences>
+    <a class="skip" href="#review">Skip to review form</a>
+    <header class="site-header wrap">
+      <div class="brand-group">
+        <a class="brand" href="/" aria-label="Bumble Bot home"
+          ><img
+            src="/favicon.svg?v=bumble-bot"
+            alt=""
+            width="40"
+            height="40"
+          />Bumble Bot</a
+        ><a
+          class="demo"
+          href="https://hackjunction.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Junction 2026 website (opens in a new tab)"
+          >Junction 2026</a
+        >
+      </div>
+      <label class="theme">
+        <span class="theme-label">Dark mode</span>
+        <ui-switch id="theme-switch">
+          <ui-switch-thumb></ui-switch-thumb>
+        </ui-switch>
+      </label>
+    </header>
+    <main>
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-inner">
+          <p class="intro">
+            <span class="status-dot" aria-hidden="true"></span> Evidence before
+            approval
+          </p>
+          <h1 id="hero-title">
+            AI wrote the code. You own the
+            <span class="accent">decision.</span>
+          </h1>
+          <p class="lede">
+            Give your next pull request a second set of eyes. <br />
+            Get findings you can trace, assumptions you can question, and a
+            clear view of what wasn't checked.
+          </p>
+          <form id="review" class="review-form" novalidate>
+            <ui-field name="url">
+              <ui-field-label>Public GitHub pull request</ui-field-label>
+              <div class="input-row">
+                <ui-input>
+                  <input
+                    id="pr-url"
+                    type="url"
+                    required
+                    maxlength="512"
+                    placeholder="https://github.com/owner/repo/pull/123"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </ui-input>
+                <ui-button focusable-when-disabled>
+                  <button type="submit">
+                    <span id="button-label">Run review</span
+                    ><span class="arrow" aria-hidden="true">↗</span>
+                  </button>
+                </ui-button>
+              </div>
+              <ui-field-description>
+                Read-only. No GitHub comments or approvals. Public PRs only.
+              </ui-field-description>
+              <ui-field-error match="valueMissing"
+                >Paste the link to a public pull request.</ui-field-error
+              >
+              <ui-field-error match="typeMismatch"
+                >That doesn't look like a link. Try
+                https://github.com/owner/repo/pull/123.</ui-field-error
+              >
+            </ui-field>
+            <p id="form-status" role="status" aria-live="polite"></p>
+            <noscript>
+              <p>Enable JavaScript to start a review.</p>
+            </noscript>
+          </form>
+          <nav class="examples" aria-labelledby="examples-title">
+            <h2 id="examples-title">Or open a finished review</h2>
+            <ul>
+              <li>
+                <a
+                  href="/r/oliynykmax/junction-2026/27?sha=3ed6fe6499fdb93acfbec6c14dd3ce157a539dc5"
+                  ><strong>Owner sign-off gate</strong
+                  ><span>3 findings</span></a
+                >
+              </li>
+              <li>
+                <a
+                  href="/m/oliynykmax/junction26-messagepack-csharp/1?sha=9df83c38409c8bfad0517aebffe48211eda4a5b4"
+                  ><strong>Generic types from other assemblies</strong
+                  ><span>1 finding</span></a
+                >
+              </li>
+              <li>
+                <a
+                  href="/m/oliynykmax/junction26-messagepack-csharp/3?sha=1130036350278926d39d35e559fa5b05dc4d8574"
+                  ><strong>New CI workflow</strong
+                  ><span>scanner failed</span></a
+                >
+              </li>
+              <li>
+                <a
+                  href="/m/oliynykmax/junction26-messagepack-csharp/4?sha=2168aebc502d2b68c5f468d1cbcf01fee5fa2ba3"
+                  ><strong>Docs typo fix</strong><span>no findings</span></a
+                >
+              </li>
+            </ul>
+            <p>
+              Agent-written pull requests on this project and on our copy of
+              MessagePack-CSharp, the challenge's sample code.
+            </p>
+          </nav>
+        </div>
+      </section>
+      <section class="ownership" aria-label="Our principle">
+        <div class="wrap ownership-inner">
+          <p>AI advises. <strong>You decide.</strong></p>
+          <span
+            >A review is evidence for your judgment.<br />The merge still has
+            your name on it.</span
+          >
+        </div>
+      </section>
+      <section
+        class="process wrap"
+        id="how-it-works"
+        aria-labelledby="process-title"
+      >
+        <div class="process-intro">
+          <h2 id="process-title">Less guesswork.<br />More to go on.</h2>
+          <p>A second opinion that shows its work, including where it stops.</p>
+        </div>
+        <ol class="steps">
+          <li>
+            <span class="step-number">1</span>
+            <div>
+              <h3>Bring a pull request</h3>
+              <p>
+                Paste a public GitHub PR. The review is tied to its current
+                commit, so you know exactly which change it covers.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <div>
+              <h3>Inspect the evidence</h3>
+              <p>
+                Follow the review as it runs. Check findings against source
+                lines, scanner results, and consulted documentation.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <div>
+              <h3>Own the next step</h3>
+              <p>
+                Question the findings. Read the unchecked areas. A named
+                engineer decides what to fix and which risks to accept.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+      <section class="limits wrap" aria-labelledby="limits-title">
+        <h2 id="limits-title">Trust has limits.<br />We make them visible.</h2>
+        <div>
+          <p>
+            AI can miss bugs and report things that aren't bugs. “No blockers
+            found” is advice about the checks performed, never a guarantee that
+            a change is safe.
+          </p>
+          <p>
+            This Junction demo accepts public PRs up to 60 files and 4,000
+            changed lines. Reviews can take several minutes. Shared usage and
+            GitHub API limits apply. Only submit code you have permission to
+            share for review.
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer class="wrap">
+      <a class="brand" href="/"
+        ><img
+          src="/favicon.svg?v=bumble-bot"
+          width="28"
+          height="28"
+          alt=""
+        />Bumble Bot</a
+      >
+      <p>
+        Built at Junction 2026 for Tieto's Earned Trust in AI Code challenge.
+      </p>
+    </footer>
+  </body>
+</html>

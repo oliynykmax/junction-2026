@@ -1,0 +1,115 @@
+# Bumble Bot (GitHub App)
+
+Cloudflare Worker `j26-review-bot`, live at https://review.oliinyk.dev. GitHub App: https://github.com/apps/bumble-bot-review, installed only on our copy of the sample repo, `oliynykmax/junction26-messagepack-csharp`.
+
+When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR only when its CI snapshot shows explicit success and its team standard is available or genuinely absent. Missing, pending, failed, or unreadable evidence produces a comment review instead. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
+
+## Review runtime
+
+Each (PR, head commit) gets its own Durable Object, `Review` in `src/review.ts`. It runs a [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable) 1.5.2 Harness on the object's SQLite storage. Model turns, tool calls and findings are committed before they are shown. An alarm heartbeat resumes the run if the object is evicted mid-review. A repeated webhook for the same commit finds the review already started.
+
+Before the agent starts, a durable `review.scan` task picks scanners from the changed files (`src/scanners.ts`). It calls the Modal scanner in `../scanner/`: zizmor for workflows, ty for Python, oxlint for JS and TS. It stores the results and submits the review input in one commit. The agent must confirm each diagnostic as a finding tagged with its tool, or dismiss it with a reason. A failed scan never blocks the review. The agent lists it as not checked.
+
+The agent (`src/reviewer.ts`) has read-only GitHub tools: `pr_overview`, `read_patch`, `read_file` (head or base) and `list_dir`. It has no shell and no checkout. It records each finding with `report_finding`, giving a severity (`critical`, `high`, `medium`, `low` or `info`), a class (`correctness`, `security`, `reliability`, `performance`, `breaking-change`, `maintainability`, `testing` or `docs`) and a confidence (`verified`, `likely` or `possible`). It splits the PR into logical changes with `describe_change`: a specific title, one to three tags, one sentence on what it does and the changed files it covers. It ends with `finish_review`, which describes the whole PR for the owner in one sentence each for Situation, Task, Action and Result, alongside its summary and what it did not check.
+
+- **Code mode.** pi-durable's `codemode` extension lets the agent run a JavaScript script that calls the other tools, so it can read several patches in one turn. Scripts run in QuickJS inside the Durable Object (`createInlineCodemodeSandbox` from `@earendil-works/pi-codemode/cloudflare`). The model catalog globals are turned off.
+- **MCP.** `MCP_SERVERS` in `wrangler.jsonc` lists Streamable HTTP MCP servers, in the usual `mcpServers` shape. `src/mcp.ts` connects to each one with `@earendil-works/pi-mcp` when the object starts, and turns its tools into `mcp__<server>__<tool>`. Those tools can be called only from code mode scripts, so they don't fill the model's tool list. A server that does not answer within 8 s is left out of that run. Stdio servers are refused, because Workers cannot start processes. Header values may name a Worker secret as `${NAME}`, and `tools` limits a server to the listed tool names. The defaults are Context.dev (`web-search` and `web-scrape` only, key in the `CONTEXT_DEV_API_KEY` secret) and Microsoft Learn (.NET and C# docs, no key).
+- **Docs gate.** Every MCP call is recorded in the review document and listed on the page under "Docs consulted". `finish_review` refuses, up to twice, while no documentation has been looked up. After that the review finishes, and "Not checked" says the agent's library and platform claims came from memory.
+- **Change gate.** The scan task stores every changed file with its line counts and patch (patches over 20 KB, or past 200 KB in total, are dropped). `finish_review` also refuses, up to twice, while a changed file belongs to no described change; after that the uncovered files are listed under "Not checked".
+
+The `finish_review` call holds a summary for the human owner, the dismissed scanner diagnostics and a list of what the agent did not check. The advisory decision is derived from the findings, not chosen by the agent: any `critical` or `high` finding rated `verified` or `likely` makes it `changes_requested`. A `possible` one is shown for the owner to check but does not change the decision. These are stored in the `review.state` document.
+
+- **Rubric.** `REVIEW_PROMPT_URL` points at Cursor's [thermo-nuclear code quality review](https://github.com/cursor/plugins/blob/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md) prompt, pinned to a commit. Each review fetches it once and stores the text and its sha256, so the page shows exactly which rubric ran. The prompt is fetched, not copied here, because that repo has no license.
+- **Model.** `MODELS` in `wrangler.jsonc` lists the models, with `THINKING_LEVEL` `medium`. Each review runs on one entry, picked from its Durable Object id, so a (PR, commit) keeps its model across retries and reviews split evenly: half on `anthropic/claude-sonnet-5-5`, half on `verda/kimi-k3-1-pro` (Kimi K3.1 Pro on Verda's OpenAI-compatible endpoint, `src/verda.ts`). Reviews started before a change to `MODELS` keep their original model. Verda is priced at $2 input, $10 output and $0.20 cached input per 1M tokens. The page records which provider and model ran each review.
+- **Page.** `/r/<owner>/<repo>/<pr>?sha=<head>` (and `/m/...` for manual reviews) is a Preact + Vite client in `web/`, built into `../landing/review/` and served from the Worker's assets. It shows the status, the finding count, the PR's Situation/Task/Action/Result and the AI's summary, then a scanner band with each scanner's diagnostics and the agent's dismissals. The **Changes** view lists each described change with its tags, line counts, summary sentence and the findings in its files; "Show diff" opens the change's patches inline, and selecting a finding's location dims every other line. The **Full diff** view shows every file with finding lines marked. Findings outside any change, what was not checked, docs consulted, cost and the agent's tool calls follow. Reviews stored before changes existed keep a plain findings list. It polls `/api/r/<owner>/<repo>/<pr>/<sha>` every 2 s (manual reviews every 15 s) while the review runs.
+
+## CI and team standards
+
+Before the agent starts, the review stores one evidence snapshot alongside the scanner workflow. Both the prompt and report use that same snapshot. Replays keep the committed snapshot.
+
+CI evidence includes check runs and legacy commit statuses for the exact reviewed head SHA. The collector follows pagination and keeps the newest legacy status per context. Permission errors, timeouts, malformed responses, and incomplete pagination remain visible alongside any usable results. Empty, pending, failed, unavailable, and successful evidence stay distinct. Skipped and neutral checks do not count as explicit success. The report shows the capture time and links to the original results. A snapshot does not track later CI changes or establish that branch-protection requirements are satisfied.
+
+The GitHub App needs **Checks: read** and **Commit statuses: read**, in addition to its existing contents permission. Installations must accept those permissions. Actions access is not required. Until access is granted, reviews still run and disclose the evidence gap, but they cannot approve.
+
+The collector reads root `CODING_STANDARDS.md` from the base repository at the base SHA captured in the signed PR webhook. A PR that edits, removes, or introduces the file cannot change its own review criteria. The report records the base repository, commit, Git blob SHA, SHA-256 digest, and exact text. Standards must be UTF-8 and no larger than 32 KiB. An inaccessible, invalid, or oversized standard is disclosed and prevents approval. A confirmed absent file falls back to the existing rubric. Standard text supplies review criteria and cannot override the review protocol or grant tool permissions.
+
+Older reviews retain their original findings. Their report shows that no evidence snapshot was captured. New publication attempts without complete evidence produce comments.
+
+## Recovery logs
+
+`src/lifecycle.ts` logs one structured object per lifecycle event to the Worker console, which Workers Logs indexes by field. It never writes to storage and never logs prompts, tool arguments or secrets. Every event carries `objectId` (the Durable Object id) and `bootId` (new on each instance start), so one review can be followed across restarts.
+
+- `review.boot`: every instance start, with `interruptedTasks`. An idle cold open, such as a report read of a finished review, logs `0`.
+- `review.recovery_detected`: tasks still `running` in storage when the instance started, read with `scanTasks` before `Harness.open`. Only a process that died mid-phase leaves one. Each task has its `taskId`, `taskName`, `taskPhase` and earlier `restarts`.
+- `review.recovery_phase`: an interrupted task ran its phase again in this boot, with the phase `outcome`.
+- `review.recovery_task_ended`: an interrupted task reached `done`, `faulted` or `aborted`.
+- `review.alarm`: an alarm fired. `workActive` is the wake before the heartbeat is re-armed. A heartbeat on a healthy run logs this with no detection.
+- `review.finished`: `finish_review` committed a verdict, with the decision and finding count. A replayed tool call can log it again.
+
+A task recovery is confirmed when `recovery_detected` is followed by `recovery_task_ended` with `done` for the same `objectId` and `taskId`. To count reviews that completed after recovery, also require a later `review.finished` for that object. Count distinct `objectId` values for reviews, and `objectId` plus `bootId` for interrupted boots. Detection alone does not prove success. The scan reads one page of 50 running tasks, and `scanComplete: false` says more existed. The logs do not see a process that dies before `review.boot` is written. They also do not see work that was queued but never started, because that work loses nothing.
+
+In the Worker's Observability tab, filter `event` to `review.recovery_detected`, then filter by `objectId` to follow the task outcomes and verdict across boots. These counts start after deployment and cannot establish past recoveries.
+
+Task endings are observed through phase spans. A failure settled without a phase, such as a restart-limit failure or a cascaded abort, may have no `review.recovery_task_ended` event. A missing terminal event means the outcome is unknown, not success.
+
+`observability.enabled` keeps the default head sampling rate of 1, so every invocation is logged. [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) keeps logs 3 days on Workers Free and 7 days on Workers Paid. Free accounts get 200,000 log events per day, and oversized lines are truncated. Query older history before it expires.
+
+## Write profile
+
+`node scripts/profile-writes.mjs --repeats 5 --out profile.json` runs the `Review` object on local workerd with every outbound request answered by fixtures (`scripts/profile-writes/worker.ts`): no model, GitHub, scanner or MCP traffic. It runs a scripted five-turn review, repeat starts, warm and cold report reads and alarms after completion, and an eviction while a model request hangs. For each phase it reports SQLite cursor `rowsWritten` by table and statement, split into pi-durable records and the `review.state` document. It also reports `setAlarm` and `deleteAlarm` calls, which Cloudflare bills as row writes. It asserts the review's work and the recovery logs, and exits nonzero when a check fails. It runs on Node, because wrangler cannot forward requests to a local Worker under Bun. Results from 2026-11-14 are in `scripts/profile-writes/results/`.
+
+## Owner sign-off
+
+The review is advice. The decision belongs to a named human, who signs off at the bottom of the review page for that exact commit.
+
+- **Identity.** "Sign in with GitHub" uses the App's user authorization (`/auth/login`, `/auth/callback`). Only the GitHub login and id are kept, in an HMAC-signed, HttpOnly, `SameSite=Lax` cookie for 8 hours. The user token is used once to read `/user` and then dropped.
+- **Who may sign.** When someone signs, the Worker uses the installation token to check that the signer has `write` or `admin` permission on the repository, and that the commit is still the PR head. Public reviews (`/m/`) cannot be signed.
+- **What they sign.** What they checked themselves (required), what was not checked (the AI's list is copied in, and they can add to it), the residual risk they accept (required), and, for every blocking finding, "real, and I accept the risk" or "not a real problem" with a reason. A confirmation box names them and the commit.
+- **Storage.** `POST /api/r/<owner>/<repo>/<pr>/<sha>/signoff` stores the record in that commit's `Review` object, in key-value storage outside the agent's documents. The first sign-off wins. A new push is a new commit, with a new review and no sign-off.
+- **On GitHub.** Each push sets a `bumble-bot/owner-sign-off` commit status to pending. A sign-off posts a PR comment with the full record and sets the status to success, naming the signer. Mark that status as required in branch protection to make sign-off a merge gate. If either write fails, the sign-off still stands, and the page says what was not echoed.
+
+Setup (once, by an App admin):
+
+1. In the GitHub App settings, add the callback URL `https://review.oliinyk.dev/auth/callback` and grant **Commit statuses: read and write**. Installations must accept the new permission.
+2. Set the Worker secrets `GITHUB_CLIENT_ID` (the App's client ID), `GITHUB_CLIENT_SECRET` (generate one in the App settings) and `SESSION_SECRET` (any long random string, e.g. `openssl rand -base64 48`).
+
+Without these secrets the page says sign-in is not configured, and reviews run as before.
+
+## Develop
+
+```sh
+bun install
+bun fmt        # format
+bun lint
+bun check      # type check
+bun test       # evidence, review flow, report rendering, and publication
+bunx wrangler dev   # local run; secrets go in .dev.vars (gitignored)
+```
+
+CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint`, `bun check` and `bun test` on Bun canary for every PR and push that touches `review-bot/`. A push to `main` then deploys with `wrangler deploy`, using the repo secret `CLOUDFLARE_API_TOKEN`.
+
+## Secrets
+
+`APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY`, `VERDA_API_KEY`, `SCANNER_TOKEN`, and for sign-off `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET`, are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
+
+## Public landing and manual reviews
+
+The Worker serves the static landing from `../landing` through `ASSETS`.
+`POST /api/reviews` accepts JSON `{ "url": "https://github.com/owner/repo/pull/123" }`
+and returns `{ "url": "/m/owner/repo/123?sha=<head>" }`.
+Only publicly readable repositories are accepted. Manual reviews use anonymous GitHub
+reads and never obtain app tokens, post comments, or approve PRs. Their persisted targets,
+Durable Object keys, and report API paths are separate from webhook reviews.
+
+`MANUAL_GATE` limits new public reviews to two per IP per hour, ten globally per
+hour, and fifty per day. The demo accepts at most 60 files and 4,000 changed lines.
+Failed resolutions and stored reviews do not spend review slots. Duplicate concurrent
+admissions are charged once per pinned review key. A separate lookup budget limits
+resolution attempts to ten per IP per hour, thirty globally per hour and one hundred
+per day before any GitHub calls. Anonymous GitHub API quotas can still interrupt reviews.
+Manual report reads use only the stored manual target verified public at admission;
+historical public evidence remains readable if a repository later becomes private. See [the decision log](../landing/DECISIONS.md)
+for the integration choice and limits. Deploy the scanner's anonymous-read header change
+through its separate deployment process as well; no scanner credential is sent to GitHub.
+
+Run `bun test`, `bun lint`, `bun check`, and `bun fmt --check` from `review-bot/`.

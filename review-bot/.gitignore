@@ -1,0 +1,8 @@
+node_modules
+.wrangler/
+*.pem
+.dev.vars
+.celld/
+celld.json
+celld.local.json
+

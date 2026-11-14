@@ -1,0 +1,80 @@
+{
+  "name": "j26-review-bot",
+  "main": "src/gateway.ts",
+  "account_id": "b9065ca4c59a3d2ebb9430692a07bf2c",
+  "compatibility_date": "2026-11-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  // The review page client (web/), built by Vite into ../landing/review/
+  // and served from the same assets directory as the landing page.
+  "build": { "command": "bun run build", "watch_dir": "web" },
+  "rules": [
+    { "type": "Text", "globs": ["**/*.svg"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.ico", "**/*.png"], "fallthrough": true },
+  ],
+  "assets": {
+    "directory": "../landing",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
+  "vars": {
+    "PUBLIC_INSTALLATION_ID": "181863658",
+    "REVIEW_BASE_URL": "https://review.oliinyk.dev",
+    // Pinned to a commit so every review records exactly which rubric it ran.
+    "REVIEW_PROMPT_URL": "https://raw.githubusercontent.com/cursor/plugins/6e3d2ea56d7d446b955eaae6ac4c8eef8bf504cf/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
+    // Each review runs on one entry, picked from its Durable Object id, so
+    // reviews split evenly. "anthropic" uses ANTHROPIC_API_KEY, "verda" VERDA_API_KEY.
+    "MODELS": [
+      { "provider": "anthropic", "id": "claude-sonnet-5-5" },
+      { "provider": "verda", "id": "kimi-k3-1-pro" },
+    ],
+    "THINKING_LEVEL": "medium",
+    // The executor is loopback-only on the dedicated Verda VM. Its matching
+    // EXECUTOR_TOKEN is a private app binding, never a checked-in variable.
+    "EXECUTOR_URL": "http://127.0.0.1:8787",
+    "MCP_SERVERS": {
+      "mslearn": {
+        "url": "https://learn.microsoft.com/api/mcp",
+        "description": "Microsoft Learn: official .NET, C# and Azure documentation and code samples.",
+      },
+      "contextdev": {
+        "url": "https://mcp.context.dev/mcp",
+        "description": "Context.dev: live web search, and any page as clean Markdown.",
+        "headers": { "Authorization": "Bearer ${CONTEXT_DEV_API_KEY}" },
+        "tools": ["web-search", "web-scrape"],
+      },
+    },
+    "SCANNER_URL": "https://j26-earned-trust--j26-review-scanner-web.us-east.modal.run",
+  },
+  // The dashboard's ledger (src/ledger.ts). Apply migrations/ with
+  // `bunx wrangler d1 migrations apply bumble-review-ledger --remote`.
+  "d1_databases": [
+    {
+      "binding": "LEDGER",
+      "database_name": "bumble-review-ledger",
+      "database_id": "df4baf88-e01d-400b-ba1e-94a32411753d",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // Daily prune of ledger events past 30 days.
+  "triggers": { "crons": ["17 3 * * *"] },
+  "durable_objects": {
+    "bindings": [
+      { "name": "REVIEWS", "class_name": "Review" },
+      { "name": "MANUAL_GATE", "class_name": "ManualGate" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Review"] },
+    { "tag": "v2", "new_sqlite_classes": ["ManualGate"] },
+  ],
+  "routes": [
+    {
+      "pattern": "review.oliinyk.dev",
+      "custom_domain": true,
+      "zone_name": "oliinyk.dev",
+    },
+  ],
+}

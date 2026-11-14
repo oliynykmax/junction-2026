@@ -1,0 +1,113 @@
+name: review-bot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      [
+        ".agents/skills/verify-pr-change/**",
+        "review-bot/**",
+        "landing/**",
+        ".github/workflows/review-bot.yml",
+        ".github/actions/setup-celld/**",
+      ]
+  pull_request:
+    paths:
+      [
+        ".agents/skills/verify-pr-change/**",
+        "review-bot/**",
+        "landing/**",
+        ".github/workflows/review-bot.yml",
+        ".github/actions/setup-celld/**",
+      ]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: review-bot-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: review-bot
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: canary
+      - run: bun --revision
+      - run: bun install --frozen-lockfile
+      - run: bun fmt --check
+      - run: bun fmt --check ../landing
+      - run: bun lint
+      - run: bun test
+      - run: bun check
+      - run: bun test
+      - uses: ./.github/actions/setup-celld
+      - run: bun run build && bun run celld:prepare
+      - run: celld deploy celld.json --dry-run --bucket s3://ci-build-only
+        env:
+          CELLD_ESBUILD: ./node_modules/.bin/esbuild
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    environment: production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: canary
+      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup-celld
+        if: vars.CELLD_ORIGIN_URL != ''
+      - name: Deploy the app to Verda
+        if: vars.CELLD_ORIGIN_URL != ''
+        env:
+          CELLD_SSH_HOST: ${{ vars.CELLD_SSH_HOST }}
+          CELLD_BUCKET: ${{ vars.CELLD_BUCKET }}
+          S3_ENDPOINT: ${{ vars.CELLD_S3_ENDPOINT }}
+          AWS_REGION: ${{ vars.CELLD_S3_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CELLD_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CELLD_S3_SECRET_ACCESS_KEY }}
+          APP_SECRETS: ${{ secrets.CELLD_APP_SECRETS }}
+          SSH_KEY: ${{ secrets.CELLD_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.CELLD_SSH_KNOWN_HOSTS }}
+          ORIGIN_URL: ${{ vars.CELLD_ORIGIN_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          printf '%s' "$APP_SECRETS" > "$RUNNER_TEMP/celld-secrets.json"
+          export CELLD_SECRETS_FILE="$RUNNER_TEMP/celld-secrets.json"
+          bash scripts/celld-deploy.sh
+          bun -e 'const s=await Bun.file(process.env.CELLD_SECRETS_FILE).json(); await Bun.write(process.env.RUNNER_TEMP+"/origin-token",s.ORIGIN_TOKEN);'
+          CELLD_ORIGIN_TOKEN_FILE="$RUNNER_TEMP/origin-token" bun scripts/celld-verify.mjs "$ORIGIN_URL"
+          bunx wrangler secret put ORIGIN_TOKEN < "$RUNNER_TEMP/origin-token"
+      - run: bunx wrangler deploy
+        if: vars.CELLD_ORIGIN_URL == ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - run: bunx wrangler deploy --var "ORIGIN_URL:$ORIGIN_URL"
+        if: vars.CELLD_ORIGIN_URL != ''
+        env:
+          ORIGIN_URL: ${{ vars.CELLD_ORIGIN_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

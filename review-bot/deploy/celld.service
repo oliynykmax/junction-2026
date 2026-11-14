@@ -1,0 +1,17 @@
+[Unit]
+Description=Bumble review app on CellD
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/bumble/runtime.env
+ExecStartPre=-/usr/bin/podman rm -f bumble-celld
+ExecStart=/usr/bin/podman run --rm --name bumble-celld --network host --read-only --tmpfs /tmp --env-file /etc/bumble/runtime.env --volume /var/lib/bumble:/data ghcr.io/denoland/celld@sha256:6ae0e0b453f8d85dae969fbef44c3ba12806989f43f69bdc6094205662018334
+ExecStop=/usr/bin/podman stop --time 45 bumble-celld
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

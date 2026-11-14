@@ -23,11 +23,10 @@
     <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot" />
     <script>
-      // Applies a saved theme choice before first paint. Same key as landing.ts.
       try {
-        var saved = localStorage.getItem("bumble-color-scheme");
-        if (saved === "light" || saved === "dark")
-          document.documentElement.setAttribute("data-color-scheme", saved);
+        var s = localStorage.getItem("bumble-color-scheme");
+        if (s === "light" || s === "dark")
+          document.documentElement.setAttribute("data-color-scheme", s);
       } catch (_) {}
     </script>
     <link

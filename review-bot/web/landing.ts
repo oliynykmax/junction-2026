@@ -9,6 +9,7 @@ import "@ui-sdk/web/field";
 import "@ui-sdk/web/input";
 import "@ui-sdk/web/preferences";
 import "@ui-sdk/web/switch";
+import { THEME_KEY } from "../src/theme";
 
 function need<T>(value: T | null): T {
   if (value === null) throw new Error("Landing markup changed");
@@ -23,10 +24,9 @@ const SUN =
 const MOON =
   '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 14.5A9 9 0 0 1 9.5 3a9 9 0 1 0 11.5 11.5Z"/></svg>';
 
-// Same key as the inline script in index.html that applies it before first paint.
 const scheme = createColorScheme({
   global: true,
-  storage: createLocalStorage("bumble-color-scheme"),
+  storage: createLocalStorage(THEME_KEY),
 });
 const preferences = document.querySelector("ui-preferences");
 if (preferences) preferences.preferences = [scheme];

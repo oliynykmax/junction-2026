@@ -142,9 +142,18 @@ test("places runs and their cost in the bucket they started in", () => {
   );
   expect(view.series).toHaveLength(24);
   expect(view.window.bucketMs).toBe(HOUR);
-  expect(view.series[23]).toMatchObject({ done: 1, findings: 2, cost: { "a/x": 0.25 } });
+  expect(view.series[23]).toMatchObject({
+    done: 1,
+    findings: 2,
+    cost: { "a/x": 0.25 },
+  });
   expect(view.series[20]).toMatchObject({ done: 1, failed: 1 });
-  expect(view.kpis).toMatchObject({ reviews: 3, done: 2, failed: 1, findings: 4 });
+  expect(view.kpis).toMatchObject({
+    reviews: 3,
+    done: 2,
+    failed: 1,
+    findings: 4,
+  });
   expect(view.outcomes).toEqual({
     noBlockers: 2,
     changesRequested: 0,
@@ -172,7 +181,10 @@ test("compares with the previous window only when the ledger was collecting then
 test("bins done runs by time to verdict, with an open last bin", () => {
   const view = shapeView(
     q(""),
-    { ...empty, runs: [done(HOUR, 1), done(HOUR, 3), done(HOUR, 3.5), done(HOUR, 90)] },
+    {
+      ...empty,
+      runs: [done(HOUR, 1), done(HOUR, 3), done(HOUR, 3.5), done(HOUR, 90)],
+    },
     now,
   );
   expect(view.durations[0]).toEqual({ toMs: 2 * 60_000, n: 1 });
@@ -186,7 +198,11 @@ test("the funnel counts runs that reached each step", () => {
     q(""),
     {
       ...empty,
-      runs: [done(HOUR, 3), done(HOUR, 3, { decision: "changes_requested" }), run({})],
+      runs: [
+        done(HOUR, 3),
+        done(HOUR, 3, { decision: "changes_requested" }),
+        run({}),
+      ],
       reached: [
         { kind: "modal", n: 3 },
         { kind: "shell", n: 2 },
@@ -209,8 +225,12 @@ test("sums verification receipts from terminal status events, skipping runs that
     {
       ...empty,
       settled: [
-        { detail: JSON.stringify({ passed: 2, counterexample: 1, not_run: 3 }) },
-        { detail: JSON.stringify({ passed: 1, counterexample: 0, not_run: 0 }) },
+        {
+          detail: JSON.stringify({ passed: 2, counterexample: 1, not_run: 3 }),
+        },
+        {
+          detail: JSON.stringify({ passed: 1, counterexample: 0, not_run: 0 }),
+        },
         { detail: JSON.stringify({ failure: "scanner" }) },
         { detail: null },
         { detail: "not json" },
@@ -288,7 +308,12 @@ test("models aggregate per-run usage; cache share is cache reads over all prompt
     cost_usd: 1,
   };
   const [row] = modelRows([m, m]);
-  expect(row).toMatchObject({ runs: 2, input: 100, cacheRead: 300, costUsd: 2 });
+  expect(row).toMatchObject({
+    runs: 2,
+    input: 100,
+    cacheRead: 300,
+    costUsd: 2,
+  });
   expect(row.promptCacheHitRatio).toBe(0.6);
   expect(
     modelRows([{ ...m, input: 0, cache_read: 0, cache_write: 0 }])[0]
@@ -318,4 +343,10 @@ test("an open recovery followed by a later detection on the same object is super
     unverified: 1,
     superseded: 1,
   });
+});
+
+test("flags a run read that hit its cap so the page can say figures are partial", () => {
+  expect(shapeView(q(""), empty, now).truncated).toBeNull();
+  const runs = Array.from({ length: 5_000 }, () => done(HOUR, 3));
+  expect(shapeView(q(""), { ...empty, runs }, now).truncated).toBe(5_000);
 });

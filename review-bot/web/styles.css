@@ -233,6 +233,10 @@ h1 .num {
   margin-bottom: 6px;
 }
 
+.summary-h {
+  margin: 14px 0 4px;
+}
+
 .summary {
   font-size: 16px;
   white-space: pre-wrap;
@@ -281,7 +285,7 @@ h1 .num {
   border-top: 1px solid var(--rule-strong);
   border-bottom: 1px solid var(--rule-strong);
   padding: 16px 0;
-  margin-bottom: 40px;
+  margin-bottom: 24px;
 }
 
 .band-label {
@@ -519,6 +523,15 @@ h2 {
 
 .sev.notable {
   color: var(--ink);
+}
+
+.explained[title] {
+  cursor: help;
+}
+
+.tag-key {
+  font-weight: 500;
+  color: var(--ink-2);
 }
 
 .held {

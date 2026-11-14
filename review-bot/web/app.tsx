@@ -1,18 +1,16 @@
-// The review page: status and the AI's advice, the scanner band, findings
-// with their evidence, what the AI did not check, docs it consulted and the
-// agent's activity. It polls the review's JSON view while the review runs.
+// The review page: status and the AI's advice, the scanner band, the PR's
+// changes told as Situation/Task/Action/Result with their findings and diffs,
+// what the AI did not check, docs it consulted and the agent's activity. It
+// polls the review's JSON view while the review runs.
 
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
-import {
-  blocks,
-  CONFIDENCES,
-  heldBack,
-  SEVERITIES,
-  type Severity,
-} from "../src/findings";
 import type { Activity, ReviewView } from "../src/review";
 import type { Diagnostic, ScanResult, ScanState } from "../src/scanners";
+import { Changes, findingsByChange } from "./changes";
+import { FileDiffs } from "./diff";
+import { Findings } from "./findings";
+import { type Focus, plural } from "./shared";
 
 export type PageConfig = {
   api: string;
@@ -23,7 +21,6 @@ export type PageConfig = {
   number: string;
 };
 
-type Finding = ReviewView["review"]["findings"][number];
 type Dismissal = NonNullable<
   ReviewView["review"]["verdict"]
 >["dismissed"][number];
@@ -41,9 +38,6 @@ const STATUS_LABEL: Record<ReviewView["status"], string> = {
   done: "Review finished",
   failed: "Review failed",
 };
-
-const plural = (n: number, one: string, many = `${one}s`) =>
-  `${n} ${n === 1 ? one : many}`;
 
 function useReview(api: string, pollMs: number) {
   const [view, setView] = useState<ReviewView | null>(null);
@@ -83,6 +77,18 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
   const sha = view?.review.target?.headSha ?? null;
   const lineUrl = (path: string, line: number | null) =>
     sha ? `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}` : prUrl;
+  const [tab, setTab] = useState<"changes" | "diff">("changes");
+  const [focus, setFocus] = useState<Focus>(null);
+  const r = view?.review;
+  // Reviews stored before changes existed have no files and keep the old layout.
+  const storied = r?.files !== undefined;
+  const files = r?.files ?? [];
+  const changes = r?.changes ?? [];
+  const split = useMemo(
+    () => findingsByChange(changes, r?.findings ?? []),
+    [changes, r?.findings],
+  );
+  const live = view ? LIVE.has(view.status) : true;
 
   return (
     <>
@@ -92,6 +98,24 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
             <img src="/favicon.svg" alt="" width="24" height="24" />
             Bumble Bot
           </span>
+          {storied && files.length > 0 && (
+            <nav class="tabs" aria-label="Review views">
+              <button
+                type="button"
+                aria-current={tab === "changes" ? "page" : undefined}
+                onClick={() => setTab("changes")}
+              >
+                Changes
+              </button>
+              <button
+                type="button"
+                aria-current={tab === "diff" ? "page" : undefined}
+                onClick={() => setTab("diff")}
+              >
+                Full diff
+              </button>
+            </nav>
+          )}
           {view && <Status status={view.status} />}
         </div>
       </header>
@@ -111,14 +135,59 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
           </div>
           <Facts view={view} owner={owner} error={error} />
         </section>
-        {view && (
+        {view && tab === "diff" && (
+          <section class="section" aria-labelledby="diff-h">
+            <div class="section-head">
+              <h2 id="diff-h">Full diff</h2>
+              <p class="counts">
+                <span>{plural(files.length, "file")}</span>
+              </p>
+            </div>
+            <FileDiffs
+              files={files}
+              findings={view.review.findings}
+              focus={focus}
+              onFocus={setFocus}
+              lineUrl={lineUrl}
+            />
+          </section>
+        )}
+        {view && tab === "changes" && (
           <>
             <Scanners
               scan={view.review.scan}
               dismissed={view.review.verdict?.dismissed ?? []}
               lineUrl={lineUrl}
             />
-            <Findings view={view} lineUrl={lineUrl} />
+            {storied && (
+              <Changes
+                changes={changes}
+                files={files}
+                owned={split.owned}
+                running={live}
+                lineUrl={lineUrl}
+              />
+            )}
+            <Findings
+              findings={
+                storied && changes.length ? split.other : view.review.findings
+              }
+              heading={
+                storied && changes.length
+                  ? "Findings outside the changes"
+                  : "Findings"
+              }
+              empty={
+                storied && changes.length
+                  ? null
+                  : view.status === "done"
+                    ? "The AI reported no findings."
+                    : view.status === "failed"
+                      ? "No findings were recorded before the review stopped."
+                      : "None yet. Findings appear here as the agent confirms them."
+              }
+              lineUrl={lineUrl}
+            />
             <NotChecked view={view} />
             <Docs view={view} />
             <ActivityFeed
@@ -405,213 +474,6 @@ function ToolMeta({ r }: { r: ScanResult }) {
     <span class="meta">
       {r.version} · {plural(r.paths.length, "file")} · {r.durationMs} ms
     </span>
-  );
-}
-
-// Findings
-
-function Findings({
-  view,
-  lineUrl,
-}: {
-  view: ReviewView;
-  lineUrl: (path: string, line: number | null) => string;
-}) {
-  const [cls, setCls] = useState<string | null>(null);
-  const findings = useMemo(
-    () =>
-      [...view.review.findings].sort(
-        (a, b) =>
-          SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) ||
-          CONFIDENCES.indexOf(a.confidence ?? "verified") -
-            CONFIDENCES.indexOf(b.confidence ?? "verified") ||
-          String(a.class ?? "").localeCompare(String(b.class ?? "")),
-      ),
-    [view.review.findings],
-  );
-  const classes = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const f of findings)
-      if (f.class) counts.set(f.class, (counts.get(f.class) ?? 0) + 1);
-    return [...counts];
-  }, [findings]);
-  const shown = cls ? findings.filter((f) => f.class === cls) : findings;
-  const bySeverity = SEVERITIES.map(
-    (s) => [s, findings.filter((f) => f.severity === s).length] as const,
-  ).filter(([, n]) => n > 0);
-
-  return (
-    <section class="section" aria-labelledby="findings-h">
-      <div class="section-head">
-        <h2 id="findings-h">Findings</h2>
-        {bySeverity.length > 0 && (
-          <p class="counts">
-            {bySeverity.map(([s, n]) => (
-              <span
-                key={s}
-                class={s === "critical" || s === "high" ? "alert" : ""}
-              >
-                {n} {s}
-              </span>
-            ))}
-          </p>
-        )}
-      </div>
-      {findings.length === 0 ? (
-        <p class="empty">
-          {view.status === "done"
-            ? "The AI reported no findings."
-            : view.status === "failed"
-              ? "No findings were recorded before the review stopped."
-              : "None yet. Findings appear here as the agent confirms them."}
-        </p>
-      ) : (
-        <>
-          {classes.length > 1 && (
-            <div
-              class="filter"
-              role="group"
-              aria-label="Filter findings by class"
-            >
-              <button
-                type="button"
-                aria-pressed={cls === null}
-                onClick={() => setCls(null)}
-              >
-                All <span>{findings.length}</span>
-              </button>
-              {classes.map(([c, n]) => (
-                <button
-                  type="button"
-                  key={c}
-                  aria-pressed={cls === c}
-                  onClick={() => setCls(cls === c ? null : c)}
-                >
-                  {c.replace("-", " ")} <span>{n}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <ol class="rows">
-            {shown.map((f) => (
-              <FindingRow key={f.id} f={f} href={lineUrl(f.path, f.line)} />
-            ))}
-          </ol>
-        </>
-      )}
-    </section>
-  );
-}
-
-const QUIET: ReadonlySet<Severity> = new Set(["low", "info"]);
-
-function FindingRow({ f, href }: { f: Finding; href: string }) {
-  const [open, setOpen] = useState(false);
-  const severe = blocks(f) || heldBack(f);
-  const loc = f.path + (f.line ? `:${f.line}` : "");
-  return (
-    <li class={`grid row${QUIET.has(f.severity) ? " quiet" : ""}`}>
-      <div class="row-head">
-        <p class={`sev${severe ? " alert" : ""}`}>
-          {f.severity}
-          {heldBack(f) && <span class="held"> · possible, not counted</span>}
-        </p>
-        <h3>{f.title}</h3>
-        <p class="tags">
-          {f.class && <span class="tag">{f.class.replace("-", " ")}</span>}
-          {f.confidence && <span class="tag">{f.confidence}</span>}
-          {f.source && f.source !== "agent" && (
-            <span class="tag source">from {f.source}</span>
-          )}
-        </p>
-        <a class="loc" href={href}>
-          {loc}
-        </a>
-        {f.suggestedPatch && (
-          <button
-            type="button"
-            class="toggle"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-          >
-            {open ? "Hide suggested fix" : "Show suggested fix"}
-          </button>
-        )}
-      </div>
-      <div class="row-body">
-        <Body text={f.body} />
-        {open && f.suggestedPatch && (
-          <div class="fix">
-            <Patch text={f.suggestedPatch} />
-            <button type="button" disabled title="Not wired up yet">
-              Open fix PR (coming soon)
-            </button>
-          </div>
-        )}
-      </div>
-    </li>
-  );
-}
-
-// Finding bodies end with "Docs: <url>" lines for the pages they rely on.
-function Body({ text }: { text: string }) {
-  const docs: string[] = [];
-  const prose = text
-    .split("\n")
-    .filter((line) => {
-      const m = line.match(/^\s*Docs:\s*(https?:\/\/\S+)\s*$/);
-      if (m) docs.push(m[1]);
-      return !m;
-    })
-    .join("\n")
-    .trim();
-  return (
-    <>
-      <p class="body">
-        {prose
-          .split(/(`[^`\n]+`)/)
-          .map((part, i) =>
-            part.length > 2 && part.startsWith("`") && part.endsWith("`") ? (
-              <code key={i}>{part.slice(1, -1)}</code>
-            ) : (
-              part
-            ),
-          )}
-      </p>
-      {docs.length > 0 && (
-        <ul class="doc-links">
-          {docs.map((u) => (
-            <li key={u}>
-              Docs: <a href={u}>{u}</a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
-}
-
-function Patch({ text }: { text: string }) {
-  return (
-    <pre class="patch">
-      {text.split("\n").map((line, i) => (
-        <span
-          key={i}
-          class={
-            line.startsWith("+") && !line.startsWith("+++")
-              ? "add"
-              : line.startsWith("-") && !line.startsWith("---")
-                ? "del"
-                : line.startsWith("@@")
-                  ? "hunk"
-                  : undefined
-          }
-        >
-          {line}
-          {"\n"}
-        </span>
-      ))}
-    </pre>
   );
 }
 

@@ -50,6 +50,19 @@ same agent and model as the review, since it has already read every patch.
   takes file lines at the PR head.
 - Shortening is optional: `finish_review` does not require a plan per file.
 
+## The viewer, 2026-11-14
+
+- **The reading view lives in the Changes tab**, in each change's diff. The
+  Full diff tab stays the complete patch, so its name stays true.
+- **Each file opens shortened when it has a valid plan**, with a bar saying
+  `Reading view: kept 2/4 changed lines. The AI chose what to hide; lines that
+  findings cite always show.` and a toggle to the full diff.
+- **Hidden runs say who hid them**: "3 lines hidden by the AI" or "1 using
+  directive hidden automatically". A fold shows as `...` at the code's indent.
+  Both expand in place on click.
+- **A plan that no longer fits the findings is not used.** The file shows its
+  full diff with a note, instead of hiding cited evidence.
+
 ## Left out of meat, and why
 
 Move detection, chunking, Python structure checks and result caching. GitHub

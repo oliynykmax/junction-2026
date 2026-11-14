@@ -25,8 +25,8 @@ export type ReadingPlan = {
   replace: LineReplacement[];
 };
 
-type SourceKind = "add" | "del" | "ctx";
-type PatchLine =
+export type SourceKind = "add" | "del" | "ctx";
+export type PatchLine =
   | { kind: "hunk"; text: string }
   | { kind: "eof"; text: string }
   | { kind: SourceKind; text: string; old: number | null; new: number | null };

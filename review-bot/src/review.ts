@@ -24,12 +24,18 @@ import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
 import { Ledger, type RunSnapshot } from "./ledger";
 import { interruptedTasks, Lifecycle } from "./lifecycle";
-import { type AppSecrets, publishReview, installationToken } from "./github";
+import {
+  type PublicAppSecrets,
+  publishReview,
+  installationToken,
+  publicInstallationToken,
+} from "./github";
+import { reviewKey, reviewLink } from "./review-key";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { ManualGate } from "./manual-gate";
-import { reviewKey } from "./review-key";
 import { failureClass, reviewStatus, type RunStatus } from "./status";
 import type { Check, ScanResult } from "./scanners";
+import type { Echo, SignOff } from "./signoff";
 import {
   EMPTY_REVIEW,
   type Finding,
@@ -40,7 +46,7 @@ import {
   type Target,
 } from "./reviewer";
 
-export interface Env extends AppSecrets {
+export interface Env extends PublicAppSecrets {
   WEBHOOK_SECRET: string;
   REVIEW_BASE_URL: string;
   REVIEW_PROMPT_URL: string;
@@ -52,6 +58,11 @@ export interface Env extends AppSecrets {
   SCANNER_TOKEN: string;
   MCP_SERVERS?: Record<string, unknown>;
   CONTEXT_DEV_API_KEY?: string;
+  /** GitHub App user authorization, for the owner's sign-off. Optional: without them the page cannot sign. */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /** Signs the sign-in session cookies. */
+  SESSION_SECRET?: string;
   REVIEWS: DurableObjectNamespace<Review>;
   MANUAL_GATE: DurableObjectNamespace<ManualGate>;
   ASSETS: Fetcher;
@@ -77,16 +88,20 @@ export type ReviewView = {
   activity: Activity[];
   costUsd: number;
   evidenceHtml: string;
+  /** The named owner's sign-off on this commit, if any. */
+  signOff: SignOff | null;
 };
 
-export function reviewLink(env: Env, t: Target) {
-  return `${env.REVIEW_BASE_URL}/${t.mode === "manual" ? "m" : "r"}/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
-}
+// Kept in the object's own key-value storage, outside the agent's documents,
+// so nothing the agent does can write or change it.
+const SIGNOFF_KEY = "signoff:v1";
+
+export { reviewLink } from "./review-key";
 
 export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
-  #tokens = new Map<number, { token: string; expiresAt: number }>();
+  #tokens = new Map<number | "public", { token: string; expiresAt: number }>();
   #issuedAlarm: number | null = null;
   #lifecycle!: Lifecycle;
   readonly #ledger: Ledger;
@@ -251,12 +266,31 @@ export class Review extends DurableObject<Env> {
     );
   }
 
+  /** Stores the first sign-off for this commit. Returns the earlier one if it lost the race. */
+  async storeSignOff(record: SignOff): Promise<SignOff | null> {
+    const earlier = await this.ctx.storage.get<SignOff>(SIGNOFF_KEY);
+    if (earlier) return earlier;
+    await this.ctx.storage.put(SIGNOFF_KEY, record);
+    return null;
+  }
+
+  async getSignOff(): Promise<SignOff | null> {
+    return (await this.ctx.storage.get<SignOff>(SIGNOFF_KEY)) ?? null;
+  }
+
+  async recordEcho(echo: { comment: Echo; status: Echo }): Promise<void> {
+    const record = await this.ctx.storage.get<SignOff>(SIGNOFF_KEY);
+    if (record) await this.ctx.storage.put(SIGNOFF_KEY, { ...record, echo });
+  }
+
   async view(): Promise<ReviewView> {
     const root = await this.#root();
-    const [{ review, runFailure, status, usage }, page] = await Promise.all([
-      this.#read(),
-      root.entries({ order: "ascending" }, 1000, undefined, ctx),
-    ]);
+    const [{ review, runFailure, status, usage }, page, signOff] =
+      await Promise.all([
+        this.#read(),
+        root.entries({ order: "ascending" }, 1000, undefined, ctx),
+        this.ctx.storage.get<SignOff>(SIGNOFF_KEY),
+      ]);
     const failure = runFailure
       ? `${runFailure.reason}${runFailure.detail ? `: ${runFailure.detail}` : ""}`
       : null;
@@ -308,6 +342,7 @@ export class Review extends DurableObject<Env> {
         (sum, u) => sum + u.cost.total,
         0,
       ),
+      signOff: signOff ?? null,
     };
   }
 
@@ -399,7 +434,7 @@ export class Review extends DurableObject<Env> {
     this.#ledger.flush();
   }
 
-  async #token(installationId: number): Promise<string> {
+  async #token(installationId: number | "public"): Promise<string> {
     const cached = this.#tokens.get(installationId);
     if (cached && cached.expiresAt - Date.now() > 5 * 60_000) {
       this.#ledger.event({
@@ -411,17 +446,19 @@ export class Review extends DurableObject<Env> {
       return cached.token;
     }
     const started = Date.now();
-    const fresh = await installationToken(this.env, installationId).catch(
-      (error) => {
-        this.#ledger.event({
-          kind: "github_token",
-          name: "miss",
-          ok: false,
-          ms: Date.now() - started,
-        });
-        throw error;
-      },
-    );
+    const issuing =
+      installationId === "public"
+        ? publicInstallationToken(this.env)
+        : installationToken(this.env, installationId);
+    const fresh = await issuing.catch((error) => {
+      this.#ledger.event({
+        kind: "github_token",
+        name: "miss",
+        ok: false,
+        ms: Date.now() - started,
+      });
+      throw error;
+    });
     this.#ledger.event({
       kind: "github_token",
       name: "miss",

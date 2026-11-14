@@ -18,6 +18,8 @@ import { reviewPage } from "./page";
 import { type Env, reviewLink } from "./review";
 import { reviewKey } from "./review-key";
 import type { Target } from "./reviewer";
+import { callback, login, logout, me } from "./auth";
+import { signOff, syncOwnerStatus } from "./signoff";
 
 export { ManualGate } from "./manual-gate";
 export { Review } from "./review";
@@ -43,6 +45,9 @@ const LIVE_PR = new RegExp(
 const VIEW = new RegExp(
   `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})$`,
 );
+const SIGN = new RegExp(
+  `^/api/r/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})/signoff$`,
+);
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -54,8 +59,23 @@ export default {
     if (request.method === "POST" && url.pathname === "/webhook") {
       return handleWebhook(request, env);
     }
+    const sign = request.method === "POST" && url.pathname.match(SIGN);
+    if (sign) {
+      const [, owner, repo, number, headSha] = sign;
+      return signOff(request, env, {
+        owner,
+        repo,
+        number: Number(number),
+        headSha,
+      });
+    }
     if (request.method !== "GET")
       return new Response("not found\n", { status: 404 });
+
+    if (url.pathname === "/auth/login") return login(request, env);
+    if (url.pathname === "/auth/callback") return callback(request, env);
+    if (url.pathname === "/auth/logout") return logout(request);
+    if (url.pathname === "/api/me") return me(request, env);
 
     const icon = ICONS[url.pathname];
     if (icon) {
@@ -169,7 +189,8 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     },
     installationId: payload.installation.id,
   };
-  await env.REVIEWS.getByName(reviewKey(target)).start(target);
+  const review = env.REVIEWS.getByName(reviewKey(target));
+  await review.start(target);
 
   const { token } = await installationToken(env, target.installationId);
   const comment = `${MARKER}\n🐝 [Bumble Bot review](${reviewLink(env, target)})`;
@@ -182,5 +203,13 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     comment,
   );
   await dismissBotApprovals(token, target);
+  // The owner sign-off status follows what is stored for this commit (see
+  // syncOwnerStatus). A failure here (for example the App lacking "Commit
+  // statuses: write") must not stop the review.
+  try {
+    await syncOwnerStatus(env, token, target, review);
+  } catch (e) {
+    console.error("owner sign-off status", e);
+  }
   return new Response("review started\n");
 }

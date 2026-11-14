@@ -10,6 +10,8 @@ import type { PrLive } from "../src/pr-live";
 import type { ReviewView } from "../src/review";
 import type { ScanResult } from "../src/scanners";
 import { Findings } from "./findings";
+import { SignOffSection } from "./signoff";
+import type { SignOff } from "../src/signoff";
 import { RiskBand } from "./risk";
 import {
   BLOCKING_RULE,
@@ -27,6 +29,8 @@ export type PageConfig = {
   owner: string;
   repo: string;
   number: string;
+  /** Null on public reviews, which have no owner to sign. */
+  signOffApi: string | null;
 };
 
 export function App(config: PageConfig) {
@@ -157,8 +161,19 @@ function ago(iso: string): string {
   return `updated ${Math.round(hours / 24)}d ago`;
 }
 
-function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
+function LivePage({
+  api,
+  pollMs,
+  prUrl,
+  owner,
+  repo,
+  number,
+  signOffApi,
+}: PageConfig) {
   const { view, error } = useReview(api, pollMs);
+  // The page stops polling once the review is done, so a fresh sign-off is held here.
+  const [justSigned, setJustSigned] = useState<SignOff | null>(null);
+  const signed = justSigned ?? view?.signOff ?? null;
   const live = usePrLive(api);
   const pr = live?.pr;
   const r = view?.review;
@@ -231,6 +246,12 @@ function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
               <>
                 <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
                 <NotChecked view={view} />
+                <SignOffSection
+                  view={view}
+                  api={signOffApi}
+                  signed={signed}
+                  onSigned={setJustSigned}
+                />
               </>
             )}
           </>

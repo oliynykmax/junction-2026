@@ -12,6 +12,8 @@ Create a private object-storage bucket and a dedicated access key. The tested en
 
 Create `/etc/bumble/runtime.env` from `deploy/runtime.env.example`. Give it mode `600`. The single-node configuration binds both CellD listeners to loopback. Caddy is the only public app listener.
 
+The review runtime also runs `bumble-executor`, a separate loopback-only Podman container. It is intentionally writable and gives review agents a free root shell with network access. It has no persistent volume: checkout state and installed tools disappear when the container restarts. CellD itself stays read-only and calls the executor over `127.0.0.1`.
+
 Create `/etc/bumble/caddy.env` with mode `600`:
 
 ```dotenv
@@ -21,13 +23,13 @@ CELLD_ORIGIN_TOKEN=your-random-origin-token
 
 The origin hostname must resolve to the VM and permit Caddy to obtain an HTTPS certificate on ports 80 and 443. The gateway connects over HTTPS and sends the origin token. Caddy and the app reject requests without it. Keep ports 8080 and 8081 inaccessible from the internet. Caddy's admin port stays on loopback.
 
-Run `systemctl enable bumble-celld caddy`. After publishing the first deployment, start Caddy with `systemctl restart caddy`.
+Run `systemctl enable bumble-executor bumble-celld caddy`. After publishing the first deployment, start Caddy with `systemctl restart caddy`.
 
 ## Deploy the app
 
 Install Bun and the pinned CellD 0.6.2 CLI on your deployment machine. The GitHub action installs CellD with a pinned binary checksum. In `review-bot/`, run `bun install --frozen-lockfile`.
 
-Create a private JSON file with string values for `APP_ID`, `PRIVATE_KEY`, `WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`, `VERDA_API_KEY`, `SCANNER_TOKEN`, `CONTEXT_DEV_API_KEY`, and `ORIGIN_TOKEN`. The last value must match Caddy's origin token. Add `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET` to enable owner sign-off. Without them the review page says sign-in is not configured. `PRIVATE_KEY` is the GitHub App's PKCS#8 PEM with actual newlines encoded as JSON string escapes. The Verda inference key is separate from the Cloud API credentials used by the CLI.
+Create a private JSON file with string values for `APP_ID`, `PRIVATE_KEY`, `WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`, `VERDA_API_KEY`, `SCANNER_TOKEN`, `CONTEXT_DEV_API_KEY`, `ORIGIN_TOKEN`, and a random `EXECUTOR_TOKEN`. The last value must match Caddy's origin token. The executor token authenticates only CellD-to-executor calls and is copied into `/etc/bumble/executor.env` with mode `600`; never make it an application variable in Git. Add `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET` to enable owner sign-off. Without them the review page says sign-in is not configured. `PRIVATE_KEY` is the GitHub App's PKCS#8 PEM with actual newlines encoded as JSON string escapes. The Verda inference key is separate from the Cloud API credentials used by the CLI.
 
 Set these environment variables:
 
@@ -42,6 +44,8 @@ CELLD_SECRETS_FILE=/absolute/path/to/private-app-secrets.json
 ```
 
 Verify the VM's SSH host key and add it to `known_hosts` before deploying. Run `bun run celld:deploy`. This builds both web clients, generates a private `celld.json`, uploads the deployment, reloads the node, and applies the existing ledger migrations. The generated config and copied assets are ignored by Git. Production preparation fails if an enabled model lacks its credential.
+
+During a review, `checkout_pr` creates a detached checkout at the exact stored PR head with `git fetch --depth=1 origin <head_sha>`. The executor returns its opaque session workspace path to the agent, currently `/tmp/bumble-review-shell/<sha256(conversationId)>/repo`. The GitHub App token exists only for that fetch and is not written to the remote or child shell environment. `shell` has no command allow-list; each call is limited to 15 minutes and captures at most 128 KiB each of stdout and stderr. `gh` is not configured or authenticated in that checkout. Agents may mutate their checkout for verification, but should leave it clean and the detached `HEAD` at the pinned commit.
 
 CellD stores application bindings, including secrets, in the private deployment bucket. Anyone with bucket credentials can read them and control the fleet. The generated config and remote migration config also contain those bindings and must remain private.
 

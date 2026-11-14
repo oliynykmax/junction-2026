@@ -1,6 +1,16 @@
 // GitHub App webhook receiver. On pull request events it posts (or updates)
 // one comment on the PR linking to the review session for that PR.
 
+import faviconSvg from "../assets/logo.svg";
+import faviconIco from "../assets/favicon.ico";
+import appleTouchIcon from "../assets/apple-touch-icon.png";
+
+const ICONS: Record<string, [BodyInit, string]> = {
+  "/favicon.svg": [faviconSvg, "image/svg+xml"],
+  "/favicon.ico": [faviconIco, "image/x-icon"],
+  "/apple-touch-icon.png": [appleTouchIcon, "image/png"],
+};
+
 export interface Env {
   APP_ID: string;
   PRIVATE_KEY: string; // PKCS#8 PEM
@@ -17,6 +27,11 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/webhook") {
       return handleWebhook(request, env);
+    }
+
+    const icon = ICONS[url.pathname];
+    if (request.method === "GET" && icon) {
+      return new Response(icon[0], { headers: { "content-type": icon[1], "cache-control": "public, max-age=86400" } });
     }
 
     const m = url.pathname.match(/^\/r\/([\w.-]+)\/([\w.-]+)\/(\d+)\/?$/);
@@ -131,6 +146,9 @@ function placeholderPage(owner: string, repo: string, number: number, sha: strin
   const prUrl = `https://github.com/${owner}/${repo}/pull/${number}`;
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Review session</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>body{font:16px system-ui;max-width:40rem;margin:3rem auto;padding:0 16px}code{font-size:.9em}</style>
 <h1>Review session</h1>
 <p>Pull request: <a href="${esc(prUrl)}">${esc(owner)}/${esc(repo)}#${number}</a></p>

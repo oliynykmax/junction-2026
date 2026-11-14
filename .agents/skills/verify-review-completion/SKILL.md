@@ -34,7 +34,7 @@ it does not prove that the changed code is correct.
   property test of the real completion tool, not a hand-written state model.
 - **Reproducible command:** from `review-bot/`, run
   `bun test tests/changes.test.ts tests/formal.test.ts`.
-- **Last confirmed sync commit:** `274cc278e91629fc8b7cd6cdeed3ccc01f92d451`.
+- **Last confirmed sync commit:** `7ddd6854d6e817e9065d0f06df432aa9008e23cc`.
 
 ## Scope, assumptions and limits
 

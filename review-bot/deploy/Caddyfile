@@ -1,0 +1,8 @@
+{$CELLD_DOMAIN} {
+  @unauthorized not header X-Celld-Origin-Token {$CELLD_ORIGIN_TOKEN}
+  respond @unauthorized "Forbidden" 403
+  reverse_proxy 127.0.0.1:8080 {
+    header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
+    header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+  }
+}

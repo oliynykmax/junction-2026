@@ -1,6 +1,6 @@
 {
   "name": "j26-review-bot",
-  "main": "src/index.ts",
+  "main": "src/gateway.ts",
   "account_id": "b9065ca4c59a3d2ebb9430692a07bf2c",
   "compatibility_date": "2026-11-13",
   "compatibility_flags": ["nodejs_compat"],

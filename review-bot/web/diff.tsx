@@ -202,39 +202,58 @@ function FileDiff({
       case "gap": {
         if (opened.has(r.start_line))
           return expanded(r.start_line, r.end_line);
-        const count = lines
+        const hidden = lines
           .slice(r.start_line - 1, r.end_line)
-          .filter(isSource).length;
-        const label =
-          r.kind === "fold"
-            ? `Show ${plural(count, "folded line")}`
-            : r.reason === "using"
-              ? `${plural(count, "using directive")} hidden automatically. Show`
-              : `${plural(count, "line")} hidden by the AI. Show`;
-        return r.kind === "fold" ? (
-          <tr key={`r${r.start_line}`} class={`d-${r.sign} d-fold`}>
-            <td class="ln" />
-            <td class="ln" />
-            <td class="code">
-              <span class="sign" aria-hidden="true">
-                {r.sign === "add" ? "+" : r.sign === "del" ? "−" : " "}
-              </span>
-              <button
-                type="button"
-                aria-label={label}
-                title={label}
-                onClick={() => open(r.start_line)}
-              >
-                {`${r.indent}...`}
-              </button>
-            </td>
-          </tr>
-        ) : (
-          <tr key={`r${r.start_line}`} class="d-gap">
+          .filter(isSource);
+        const changed = hidden.filter(
+          (l) => l.kind !== "ctx" && l.text.trim() !== "",
+        ).length;
+        if (r.kind === "fold") {
+          const label = `Show ${plural(hidden.length, "folded line")}`;
+          return (
+            <tr key={`r${r.start_line}`} class={`d-${r.sign} d-fold`}>
+              <td class="ln" />
+              <td class="ln" />
+              <td class="code">
+                <span class="sign" aria-hidden="true">
+                  {r.sign === "add" ? "+" : r.sign === "del" ? "−" : " "}
+                </span>
+                {r.indent}
+                <button
+                  type="button"
+                  aria-label={label}
+                  title={label}
+                  onClick={() => open(r.start_line)}
+                >
+                  ...
+                </button>
+              </td>
+            </tr>
+          );
+        }
+        // Unchanged context and blank lines the AI dropped are a thin marker;
+        // hidden changes are spelled out, since those are what the owner is
+        // not reading.
+        const quiet = changed === 0 && r.reason === "removed";
+        const label = quiet
+          ? `Show ${plural(hidden.length, "unchanged or blank line")}`
+          : r.reason === "using"
+            ? `${plural(hidden.length, "using directive")} hidden automatically. Show`
+            : `${plural(changed, "changed line")} hidden by the AI. Show`;
+        return (
+          <tr
+            key={`r${r.start_line}`}
+            class={`d-gap${quiet ? " quiet" : ""}`}
+          >
             <td colSpan={2} />
             <td>
-              <button type="button" onClick={() => open(r.start_line)}>
-                {label}
+              <button
+                type="button"
+                aria-label={quiet ? label : undefined}
+                title={quiet ? label : undefined}
+                onClick={() => open(r.start_line)}
+              >
+                {quiet ? "⋯" : label}
               </button>
             </td>
           </tr>

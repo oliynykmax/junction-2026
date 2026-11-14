@@ -1130,8 +1130,14 @@ pre {
 }
 
 .d-fold .code button {
-  white-space: pre;
   padding: 0;
+}
+
+.d-gap.quiet td button {
+  text-decoration: none;
+  line-height: 1;
+  padding: 0 12px 2px;
+  background: none;
 }
 
 .d-gap td button:hover,
@@ -1140,8 +1146,8 @@ pre {
   text-decoration-thickness: 2px;
 }
 
-.diff tr.elided .code {
-  box-shadow: inset 0 -1px 0 var(--rule-strong);
+.d-gap.quiet td button:hover {
+  background: var(--code-bg);
 }
 
 .no-patch,

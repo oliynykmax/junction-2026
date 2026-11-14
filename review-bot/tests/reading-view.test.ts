@@ -68,11 +68,16 @@ test("a plan opens the reading view with the kept count and a full-diff toggle",
   expect(html).toContain("writer.Flush();");
 });
 
-test("lines the AI removed say who hid them", () => {
-  const html = render({
+test("hidden changed lines say who hid them; hidden context is a thin marker", () => {
+  const changed = render({
+    "src/W.cs": { remove: [{ start_line: 4, end_line: 4 }], fold: [], replace: [] },
+  });
+  expect(changed).toContain("1 changed line hidden by the AI. Show");
+  const context = render({
     "src/W.cs": { remove: [{ start_line: 3, end_line: 3 }], fold: [], replace: [] },
   });
-  expect(html).toContain("1 line hidden by the AI. Show");
+  expect(context).toContain('aria-label="Show 1 unchanged or blank line"');
+  expect(context).not.toContain("hidden by the AI");
 });
 
 test("a plan that would hide a cited line falls back to the full diff", () => {

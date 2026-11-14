@@ -42,6 +42,26 @@ Task endings are observed through phase spans. A failure settled without a phase
 
 `observability.enabled` keeps the default head sampling rate of 1, so every invocation is logged. [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) keeps logs 3 days on Workers Free and 7 days on Workers Paid. Free accounts get 200,000 log events per day, and oversized lines are truncated. Query older history before it expires.
 
+## Operations dashboard
+
+`/dashboard` (also `/dashbaord`, which redirects) is a public page that lists every review since the ledger was deployed. It shows each review's status, decision and estimated model cost. It also shows prompt-cache use per model, Modal scan and MCP call counts with latency, recoveries and a newest-first event log. It polls `/api/dashboard` every 15 s while the tab is visible. Responses are `no-store`. The client is `web/dashboard.tsx`, a second Vite input built to `/review/dashboard.js` beside the review page.
+
+The data comes from a D1 ledger, binding `LEDGER`, database `bumble-review-ledger`, schema in `migrations/`. Each `Review` object writes its own rows at a few boundaries (`src/ledger.ts`):
+
+- The run row is upserted after `start()` commits, when `finish_review` commits a verdict, and when work stops (`onWake` reports inactive after the boot saw it active). Each upsert holds the status, decision, finding count, failure class and a per-model usage snapshot from `harness.usage()`. Updates apply only to changed values, so a repeat or a cold reopen writes no rows.
+- Events are typed rows: `modal` (wall time, HTTP status, check count), `mcp` (server and tool, ok, wall time), `mcp_connect`, `github_token` (cache hit or miss) and `lifecycle` (status changes, `finished`, recovery detection and task ends). They buffer in memory, up to 200 per boot and 500 written per boot. They flush at 20, on each alarm, after a Modal scan and with each run upsert. Drops are counted and shown.
+- A boot that finds interrupted tasks writes a `recoveries` row. When the run ends it resolves to `recovered` (scan complete, every interrupted task ended `done`, verdict committed), `failed` or `unverified`. An open row followed by a later detection on the same object is shown as superseded.
+
+The ledger never holds prompts, tool arguments or output, failure text, tokens or secrets. A failure is one of `model_error`, `no_finish`, `scanner`, `github`, `aborted` or `other` (`src/status.ts`). Every ledger call is synchronous, never throws and writes through `waitUntil`, so a D1 outage only logs `ledger.write_failed`. Without the binding (as in the write profile) the ledger does nothing. The write profile's Durable Object row counts are unchanged with the ledger bound.
+
+Limits stated on the page. Runs before the migration are not collected. A run last seen running more than 15 minutes ago is `stale`, outcome unknown. Events buffered in an evicted object are lost, so call counts are a lower bound. Model cost is pi's list-price estimate. Cloudflare, Modal and MCP billing are unavailable. A daily cron (`17 3 * * *`) deletes events older than 30 days. Run rows are kept.
+
+Set up once, then deploy:
+
+```sh
+bunx wrangler d1 migrations apply bumble-review-ledger --remote
+```
+
 ## Write profile
 
 `node scripts/profile-writes.mjs --repeats 5 --out profile.json` runs the `Review` object on local workerd with every outbound request answered by fixtures (`scripts/profile-writes/worker.ts`): no model, GitHub, scanner or MCP traffic. It runs a scripted five-turn review, repeat starts, warm and cold report reads and alarms after completion, and an eviction while a model request hangs. For each phase it reports SQLite cursor `rowsWritten` by table and statement, split into pi-durable records and the `review.state` document. It also reports `setAlarm` and `deleteAlarm` calls, which Cloudflare bills as row writes. It asserts the review's work and the recovery logs, and exits nonzero when a check fails. It runs on Node, because wrangler cannot forward requests to a local Worker under Bun. Results from 2026-11-14 are in `scripts/profile-writes/results/`.

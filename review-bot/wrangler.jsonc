@@ -20,6 +20,7 @@
     "run_worker_first": true,
   },
   "vars": {
+    "PUBLIC_INSTALLATION_ID": "181863658",
     "REVIEW_BASE_URL": "https://review.oliinyk.dev",
     // Pinned to a commit so every review records exactly which rubric it ran.
     "REVIEW_PROMPT_URL": "https://raw.githubusercontent.com/cursor/plugins/6e3d2ea56d7d446b955eaae6ac4c8eef8bf504cf/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",

@@ -10,6 +10,22 @@ export interface AppSecrets {
   PRIVATE_KEY: string; // PKCS#8 PEM
 }
 
+export interface PublicAppSecrets extends AppSecrets {
+  PUBLIC_INSTALLATION_ID: string;
+}
+
+export function publicInstallationToken(app: PublicAppSecrets) {
+  const id = Number(app.PUBLIC_INSTALLATION_ID);
+  if (!Number.isSafeInteger(id) || id <= 0)
+    throw new Error(
+      "PUBLIC_INSTALLATION_ID must be a positive installation id",
+    );
+  return installationToken(app, id, {
+    contents: "read",
+    pull_requests: "read",
+  });
+}
+
 const API = "https://api.github.com";
 const HEADERS = {
   accept: "application/vnd.github+json",
@@ -226,13 +242,19 @@ export async function dismissBotApprovals(token: string, pr: Pr) {
 export async function installationToken(
   app: AppSecrets,
   installationId: number,
+  permissions?: { contents: "read"; pull_requests: "read" },
 ): Promise<{ token: string; expiresAt: number }> {
   const jwt = await appJwt(app.APP_ID, app.PRIVATE_KEY);
   const res = await fetch(
     `${API}/app/installations/${installationId}/access_tokens`,
     {
       method: "POST",
-      headers: { ...HEADERS, authorization: `Bearer ${jwt}` },
+      headers: {
+        ...HEADERS,
+        authorization: `Bearer ${jwt}`,
+        "content-type": "application/json",
+      },
+      body: permissions ? JSON.stringify({ permissions }) : undefined,
     },
   );
   if (!res.ok)

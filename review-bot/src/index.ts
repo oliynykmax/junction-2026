@@ -11,6 +11,7 @@ import {
   upsertComment,
   validSignature,
 } from "./github";
+import { dashboardApi, dashboardPage, pruneLedger } from "./dashboard";
 import { manualView, startManual } from "./manual";
 import { reviewPage } from "./page";
 import { type Env, reviewLink } from "./review";
@@ -40,7 +41,7 @@ const VIEW = new RegExp(
 );
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/api/reviews")
@@ -61,6 +62,11 @@ export default {
         },
       });
     }
+
+    if (url.pathname === "/dashbaord" || url.pathname === "/dashboard/")
+      return Response.redirect(new URL("/dashboard" + url.search, url), 301);
+    if (url.pathname === "/dashboard") return dashboardPage();
+    if (url.pathname === "/api/dashboard") return dashboardApi(env.LEDGER, url);
 
     let m = url.pathname.match(PAGE);
     if (m) {
@@ -94,7 +100,11 @@ export default {
       return env.ASSETS.fetch(request);
     return new Response("not found\n", { status: 404 });
   },
-};
+
+  async scheduled(_controller, env, ctx): Promise<void> {
+    if (env.LEDGER) ctx.waitUntil(pruneLedger(env.LEDGER, Date.now()));
+  },
+} satisfies ExportedHandler<Env>;
 
 async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const body = await request.text();

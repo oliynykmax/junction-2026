@@ -44,6 +44,18 @@
     },
     "SCANNER_URL": "https://j26-earned-trust--j26-review-scanner-web.us-east.modal.run",
   },
+  // The dashboard's ledger (src/ledger.ts). Apply migrations/ with
+  // `bunx wrangler d1 migrations apply bumble-review-ledger --remote`.
+  "d1_databases": [
+    {
+      "binding": "LEDGER",
+      "database_name": "bumble-review-ledger",
+      "database_id": "df4baf88-e01d-400b-ba1e-94a32411753d",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // Daily prune of ledger events past 30 days.
+  "triggers": { "crons": ["17 3 * * *"] },
   "durable_objects": {
     "bindings": [
       { "name": "REVIEWS", "class_name": "Review" },

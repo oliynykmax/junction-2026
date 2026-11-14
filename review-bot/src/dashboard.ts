@@ -12,7 +12,7 @@ const DEFAULT_WINDOW_MS = 86_400_000;
 const PAGE = 50;
 const LOG = 200;
 const MCP_GROUPS = 50;
-/** Call rows read per window for percentiles; more are counted but not ranked. */
+/** Newest call rows read per window for percentiles. Counts come from exact SQL totals, not from this sample. */
 const SAMPLE = 5_000;
 
 export type ShownStatus = "done" | "failed" | "running" | "stale";
@@ -194,6 +194,9 @@ export type DbRecovery = {
   detected_at: number;
   outcome: string;
 };
+/** Exact per kind and name count over the whole window; `bad` counts ok = 0. */
+export type DbTotal = { kind: string; name: string; n: number; bad: number };
+
 export type DbEvent = DbCall & {
   at: number;
   run_key: string | null;
@@ -259,25 +262,25 @@ export function percentile(
   ];
 }
 
-export function mcpRows(calls: readonly DbCall[]): McpRow[] {
-  const groups = new Map<string, DbCall[]>();
-  for (const c of calls) {
-    const group = groups.get(c.name);
-    if (group) group.push(c);
-    else groups.set(c.name, [c]);
+export function mcpRows(
+  totals: readonly DbTotal[],
+  sample: readonly DbCall[],
+): McpRow[] {
+  const ms = new Map<string, (number | null)[]>();
+  for (const c of sample) {
+    const group = ms.get(c.name);
+    if (group) group.push(c.ms);
+    else ms.set(c.name, [c.ms]);
   }
-  return [...groups]
-    .map(([name, group]) => {
-      const slash = name.indexOf("/");
+  return totals
+    .map((t) => {
+      const slash = t.name.indexOf("/");
       return {
-        server: slash < 0 ? name : name.slice(0, slash),
-        tool: slash < 0 ? "" : name.slice(slash + 1),
-        calls: group.length,
-        errors: group.filter((c) => !c.ok).length,
-        p50Ms: percentile(
-          group.map((c) => c.ms),
-          50,
-        ),
+        server: slash < 0 ? t.name : t.name.slice(0, slash),
+        tool: slash < 0 ? "" : t.name.slice(slash + 1),
+        calls: t.n,
+        errors: t.bad,
+        p50Ms: percentile(ms.get(t.name) ?? [], 50),
       };
     })
     .sort((a, b) => b.calls - a.calls || a.server.localeCompare(b.server))
@@ -330,6 +333,7 @@ export type DashboardRows = {
   runs: DbRun[];
   models: DbModel[];
   calls: DbCall[];
+  totals: DbTotal[];
   recoveries: DbRecovery[];
   log: DbEvent[];
   dropped: { n: number | null }[];
@@ -351,9 +355,13 @@ export function shapeView(
   const page = rows.runs.slice(0, PAGE);
   const last = page.at(-1);
   const of = (kind: string) => rows.calls.filter((c) => c.kind === kind);
+  const totalsOf = (kind: string) => rows.totals.filter((t) => t.kind === kind);
+  const count = (kind: string, name?: string) =>
+    totalsOf(kind)
+      .filter((t) => name === undefined || t.name === name)
+      .reduce((n, t) => n + t.n, 0);
+  const bad = (kind: string) => totalsOf(kind).reduce((n, t) => n + t.bad, 0);
   const modal = of("modal");
-  const connects = of("mcp_connect");
-  const tokens = of("github_token");
   const started = Number(rows.meta[0]?.v);
   return {
     collectionStartedAt:
@@ -370,8 +378,8 @@ export function shapeView(
     },
     models: rows.models.map(modelRow),
     modal: {
-      calls: modal.length,
-      failed: modal.filter((c) => !c.ok).length,
+      calls: count("modal"),
+      failed: bad("modal"),
       p50Ms: percentile(
         modal.map((c) => c.ms),
         50,
@@ -381,13 +389,13 @@ export function shapeView(
         95,
       ),
     },
-    mcp: mcpRows(of("mcp")),
+    mcp: mcpRows(totalsOf("mcp"), of("mcp")),
     connections: {
-      mcpConnects: connects.length,
-      mcpConnectFailures: connects.filter((c) => !c.ok).length,
-      mcpCalls: of("mcp").length,
-      tokenCacheHits: tokens.filter((c) => c.name === "hit").length,
-      tokenCacheMisses: tokens.filter((c) => c.name === "miss").length,
+      mcpConnects: count("mcp_connect"),
+      mcpConnectFailures: bad("mcp_connect"),
+      mcpCalls: count("mcp"),
+      tokenCacheHits: count("github_token", "hit"),
+      tokenCacheMisses: count("github_token", "miss"),
     },
     recoveries: recoveryCounts(rows.recoveries),
     billing: {
@@ -431,7 +439,7 @@ export async function dashboardView(
   const page = `AND (?7 IS NULL OR r.started_at < ?7 OR (r.started_at = ?7 AND r.object_id < ?8))`;
   const stmt = (sql: string, ...extra: unknown[]) =>
     db.prepare(sql).bind(...base, ...extra);
-  const [meta, counts, runs, models, calls, recoveries, log, dropped] =
+  const [meta, counts, runs, models, calls, totals, recoveries, log, dropped] =
     await db.batch([
       db.prepare("SELECT v FROM meta WHERE k = 'collection_started_at'"),
       stmt(
@@ -454,6 +462,11 @@ export async function dashboardView(
         `SELECT e.kind, e.name, e.ok, e.ms FROM events e
        WHERE e.kind IN ('modal', 'mcp', 'mcp_connect', 'github_token') AND ${eventWhere}
        ORDER BY e.at DESC LIMIT ${SAMPLE}`,
+      ),
+      stmt(
+        `SELECT e.kind, e.name, COUNT(*) AS n, SUM(e.ok = 0) AS bad FROM events e
+       WHERE e.kind IN ('modal', 'mcp', 'mcp_connect', 'github_token') AND ${eventWhere}
+       GROUP BY e.kind, e.name ORDER BY n DESC LIMIT 500`,
       ),
       stmt(
         `SELECT c.boot_id, c.object_id, c.detected_at, c.outcome FROM recoveries c
@@ -479,6 +492,7 @@ export async function dashboardView(
       runs: runs.results as DbRun[],
       models: models.results as DbModel[],
       calls: calls.results as DbCall[],
+      totals: totals.results as DbTotal[],
       recoveries: recoveries.results as DbRecovery[],
       log: log.results as DbEvent[],
       dropped: dropped.results as DashboardRows["dropped"],
@@ -488,6 +502,14 @@ export async function dashboardView(
 }
 
 const NO_STORE = { "cache-control": "no-store" };
+const JSON_NO_STORE = {
+  ...NO_STORE,
+  "content-type": "application/json;charset=UTF-8",
+};
+/** Public endpoint: identical queries in one isolate share a result for a few seconds, so open tabs cannot multiply D1 reads. */
+const CACHE_MS = 5_000;
+const CACHE_KEYS = 20;
+const cache = new Map<string, { at: number; body: string }>();
 
 export async function dashboardApi(
   db: D1Database | undefined,
@@ -511,9 +533,14 @@ export async function dashboardApi(
     throw error;
   }
   try {
-    return Response.json(await dashboardView(db, q, now), {
-      headers: NO_STORE,
-    });
+    const key = JSON.stringify([q.to - q.from, q.status, q.repo, q.cursor]);
+    const hit = cache.get(key);
+    if (hit && now - hit.at < CACHE_MS)
+      return new Response(hit.body, { headers: JSON_NO_STORE });
+    const body = JSON.stringify(await dashboardView(db, q, now));
+    if (cache.size >= CACHE_KEYS) cache.delete(cache.keys().next().value!);
+    cache.set(key, { at: now, body });
+    return new Response(body, { headers: JSON_NO_STORE });
   } catch (error) {
     console.warn({
       event: "dashboard.query_failed",

@@ -81,6 +81,7 @@ const empty: DashboardRows = {
   runs: [],
   models: [],
   calls: [],
+  totals: [],
   recoveries: [],
   log: [],
   dropped: [{ n: null }],
@@ -154,11 +155,17 @@ test("nearest-rank percentiles ignore missing durations", () => {
 });
 
 test("groups MCP calls by server and tool, busiest first", () => {
-  const rows = mcpRows([
-    { kind: "mcp", name: "mslearn/search", ok: 1, ms: 100 },
-    { kind: "mcp", name: "contextdev/web-search", ok: 0, ms: 300 },
-    { kind: "mcp", name: "contextdev/web-search", ok: 1, ms: 200 },
-  ]);
+  const rows = mcpRows(
+    [
+      { kind: "mcp", name: "mslearn/search", n: 1, bad: 0 },
+      { kind: "mcp", name: "contextdev/web-search", n: 2, bad: 1 },
+    ],
+    [
+      { kind: "mcp", name: "mslearn/search", ok: 1, ms: 100 },
+      { kind: "mcp", name: "contextdev/web-search", ok: 0, ms: 300 },
+      { kind: "mcp", name: "contextdev/web-search", ok: 1, ms: 200 },
+    ],
+  );
   expect(rows).toEqual([
     {
       server: "contextdev",
@@ -183,6 +190,12 @@ test("summarizes calls, token cache and dropped events", () => {
         { kind: "github_token", name: "hit", ok: 1, ms: 0 },
         { kind: "github_token", name: "miss", ok: 1, ms: 200 },
         { kind: "github_token", name: "hit", ok: 1, ms: 0 },
+      ],
+      totals: [
+        { kind: "modal", name: "scan", n: 2, bad: 1 },
+        { kind: "mcp_connect", name: "mslearn", n: 1, bad: 1 },
+        { kind: "github_token", name: "hit", n: 2, bad: 0 },
+        { kind: "github_token", name: "miss", n: 1, bad: 0 },
       ],
       dropped: [{ n: 7 }],
     },
@@ -216,4 +229,27 @@ test("an open recovery followed by a later detection on the same object is super
     unverified: 1,
     superseded: 1,
   });
+});
+
+test("counts come from exact totals even when the percentile sample is smaller", () => {
+  const view = shapeView(
+    q(""),
+    {
+      ...empty,
+      calls: [{ kind: "modal", name: "scan", ok: 1, ms: 500 }],
+      totals: [
+        { kind: "modal", name: "scan", n: 12_000, bad: 30 },
+        { kind: "mcp", name: "mslearn/search", n: 9_000, bad: 4 },
+      ],
+    },
+    now,
+  );
+  expect(view.modal).toEqual({
+    calls: 12_000,
+    failed: 30,
+    p50Ms: 500,
+    p95Ms: 500,
+  });
+  expect(view.connections.mcpCalls).toBe(9_000);
+  expect(view.mcp[0]).toMatchObject({ calls: 9_000, errors: 4, p50Ms: null });
 });

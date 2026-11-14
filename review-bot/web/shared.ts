@@ -1,6 +1,11 @@
 // Types and helpers shared by the review page's components.
 
-import { CONFIDENCES, SEVERITIES, type Severity } from "../src/findings";
+import {
+  blocks,
+  CONFIDENCES,
+  SEVERITIES,
+  type Severity,
+} from "../src/findings";
 import type { ReviewView } from "../src/review";
 import type { Change, ChangedFile } from "../src/reviewer";
 
@@ -14,12 +19,12 @@ export type Focus = { path: string; line: number; findingId: string } | null;
 export const plural = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
 
-/** Severities shown in red: the ones that need the owner's attention. */
-export const ATTENTION: ReadonlySet<Severity> = new Set([
-  "critical",
-  "high",
-  "medium",
-]);
+/**
+ * Red marks exactly the findings that make the advice "changes requested":
+ * critical or high, rated verified or likely. Anything red therefore agrees
+ * with the advice at the top of the page.
+ */
+export const isBlocking = (f: Finding) => blocks(f);
 
 export const QUIET: ReadonlySet<Severity> = new Set(["low", "info"]);
 
@@ -33,11 +38,16 @@ export function sortFindings(findings: readonly Finding[]): Finding[] {
   );
 }
 
-/** Non-zero finding counts by severity, most severe first. */
+/** Non-zero finding counts by severity, most severe first, with how many block. */
 export function severityCounts(findings: readonly Finding[]) {
-  return SEVERITIES.map(
-    (s) => [s, findings.filter((f) => f.severity === s).length] as const,
-  ).filter(([, n]) => n > 0);
+  return SEVERITIES.map((s) => {
+    const of = findings.filter((f) => f.severity === s);
+    return {
+      severity: s,
+      count: of.length,
+      blocking: of.filter(blocks).length,
+    };
+  }).filter((c) => c.count > 0);
 }
 
 export const location = (f: { path: string; line: number | null }) =>

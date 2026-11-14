@@ -2,10 +2,10 @@
 // note used inside a change, and the finding body and suggested-fix renderers.
 
 import { useMemo, useState } from "preact/hooks";
-import { blocks, heldBack } from "../src/findings";
+import { heldBack } from "../src/findings";
 import {
-  ATTENTION,
   type Finding,
+  isBlocking,
   type LineUrl,
   location,
   QUIET,
@@ -86,9 +86,10 @@ export function SeverityCounts({ findings }: { findings: readonly Finding[] }) {
   if (counts.length === 0) return null;
   return (
     <p class="counts">
-      {counts.map(([s, n]) => (
-        <span key={s} class={ATTENTION.has(s) ? "alert" : ""}>
-          {n} {s}
+      {counts.map(({ severity, count, blocking }) => (
+        <span key={severity} class={blocking ? "alert" : ""}>
+          {count} {severity}
+          {blocking > 0 && blocking < count && ` (${blocking} blocking)`}
         </span>
       ))}
     </p>
@@ -97,7 +98,9 @@ export function SeverityCounts({ findings }: { findings: readonly Finding[] }) {
 
 function Severity({ f }: { f: Finding }) {
   return (
-    <p class={`sev${ATTENTION.has(f.severity) ? " alert" : ""}`}>
+    <p
+      class={`sev${isBlocking(f) ? " alert" : QUIET.has(f.severity) ? "" : " notable"}`}
+    >
       {f.severity}
       {heldBack(f) && <span class="held"> · possible, not counted</span>}
     </p>
@@ -160,7 +163,7 @@ export function FindingNote({
   onLocate: (() => void) | null;
 }) {
   const [open, setOpen] = useState(false);
-  const attention = ATTENTION.has(f.severity) || blocks(f);
+  const attention = isBlocking(f);
   return (
     <li
       class={`note-finding${attention ? " attention" : ""}${focused ? " focused" : ""}`}

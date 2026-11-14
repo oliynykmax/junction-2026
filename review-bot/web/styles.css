@@ -517,6 +517,10 @@ h2 {
   color: var(--red);
 }
 
+.sev.notable {
+  color: var(--ink);
+}
+
 .held {
   font-weight: 600;
   letter-spacing: 0.02em;

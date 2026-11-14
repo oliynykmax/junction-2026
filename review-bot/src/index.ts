@@ -11,7 +11,7 @@ import {
   upsertComment,
   validSignature,
 } from "./github";
-import { ManualError, manualKey, requirePublic, startManual } from "./manual";
+import { manualView, startManual } from "./manual";
 import { reviewPage } from "./page";
 import { type Env, reviewKey, reviewLink } from "./review";
 import type { Target } from "./reviewer";
@@ -77,29 +77,9 @@ export default {
     m = url.pathname.match(VIEW);
     if (m) {
       const [, mode, owner, repo, number, headSha] = m;
-      if (mode === "m") {
-        try {
-          await requirePublic(owner, repo);
-        } catch (error) {
-          return Response.json(
-            {
-              error:
-                error instanceof ManualError
-                  ? error.message
-                  : "Report unavailable.",
-            },
-            { status: 404, headers: { "cache-control": "no-store" } },
-          );
-        }
-      }
-      const view = await env.REVIEWS.getByName(
-        (mode === "m" ? manualKey : reviewKey)({
-          owner,
-          repo,
-          number: Number(number),
-          headSha,
-        }),
-      ).view();
+      const target = { owner, repo, number: Number(number), headSha };
+      if (mode === "m") return manualView(env, target);
+      const view = await env.REVIEWS.getByName(reviewKey(target)).view();
       return Response.json(view, { headers: { "cache-control": "no-store" } });
     }
 

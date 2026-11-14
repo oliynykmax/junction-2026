@@ -2,13 +2,14 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { gh, prFiles } from "../src/github";
 import {
   manualKey,
+  manualView,
   parsePrUrl,
   resolveManual,
   startManual,
 } from "../src/manual";
 import { EMPTY_REVIEW, reviewerExtension } from "../src/reviewer";
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
-const { consume } = await import("../src/manual-gate");
+const { consume, ManualGate } = await import("../src/manual-gate");
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -46,15 +47,18 @@ function env() {
   const started = [];
   const keys = [];
   const admit = mock(async () => true);
+  const admitLookup = mock(async () => true);
   return {
     started,
     keys,
     admit,
-    MANUAL_GATE: { getByName: () => ({ admit }) },
+    admitLookup,
+    MANUAL_GATE: { getByName: () => ({ admit, admitLookup }) },
     REVIEWS: {
       getByName: (key) => {
         keys.push(key);
         return {
+          hasStarted: async () => started.some((t) => manualKey(t) === key),
           start: async (t) => {
             started.push(JSON.parse(JSON.stringify(t)));
           },
@@ -159,7 +163,7 @@ test("budget refusal stops before GitHub or model work", async () => {
     throw new Error("must not fetch");
   });
   const bindings = env();
-  bindings.admit.mockResolvedValue(false);
+  bindings.admitLookup.mockResolvedValue(false);
   const response = await startManual(
     request({ url: "https://github.com/team/demo/pull/12" }),
     bindings,
@@ -247,4 +251,111 @@ test("durable admission enforces per-client, global hourly and daily budgets acr
   expect(consume(budget, "ip", 3_600_000).hourly).toBe(1);
   expect(consume({ ...budget, daily: 50 }, "ip", 3_600_000)).toBeNull();
   expect(consume({ ...budget, daily: 50 }, "ip", 86_400_000).daily).toBe(1);
+});
+
+test("failed resolution never consumes model review budget", async () => {
+  github({ ...publicPr, changed_files: 61 });
+  const bindings = env();
+  const response = await startManual(
+    request({ url: "https://github.com/team/demo/pull/12" }),
+    bindings,
+  );
+  expect(response.status).toBe(422);
+  expect(bindings.admitLookup).toHaveBeenCalledTimes(1);
+  expect(bindings.admit).not.toHaveBeenCalled();
+});
+
+test("manual report polling reads stored public review without GitHub", async () => {
+  globalThis.fetch = mock(() => {
+    throw new Error("GitHub quota exhausted");
+  });
+  const view = { status: "done", review: { target } };
+  const bindings = {
+    REVIEWS: {
+      getByName: (key) => {
+        expect(key).toBe(manualKey(target));
+        return { view: async () => view };
+      },
+    },
+  };
+  for (let i = 0; i < 10; i++) {
+    const response = await manualView(bindings, target);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(view);
+  }
+  expect(globalThis.fetch).not.toHaveBeenCalled();
+});
+
+test("manual report reads refuse absent or webhook state", async () => {
+  for (const stored of [
+    null,
+    { ...target, mode: "webhook", installationId: 3 },
+  ]) {
+    const bindings = {
+      REVIEWS: {
+        getByName: () => ({
+          view: async () => ({ review: { target: stored } }),
+        }),
+      },
+    };
+    expect((await manualView(bindings, target)).status).toBe(404);
+  }
+});
+
+test("durable review admission charges a commit once across retries and clients", async () => {
+  const data = new Map();
+  const storage = {
+    get: async (key) => data.get(key),
+    put: async (key, value) => data.set(key, value),
+  };
+  const gate = { ctx: { storage: { transaction: async (fn) => fn(storage) } } };
+  expect(await ManualGate.prototype.admit.call(gate, "ip", "commit-1")).toBe(
+    true,
+  );
+  expect(await ManualGate.prototype.admit.call(gate, "ip", "commit-1")).toBe(
+    true,
+  );
+  expect(
+    await ManualGate.prototype.admit.call(gate, "other-ip", "commit-1"),
+  ).toBe(true);
+  expect(data.get("budget").hourly).toBe(1);
+  expect(await ManualGate.prototype.admit.call(gate, "ip", "commit-2")).toBe(
+    true,
+  );
+  expect(await ManualGate.prototype.admit.call(gate, "ip", "commit-3")).toBe(
+    false,
+  );
+  expect(await ManualGate.prototype.admit.call(gate, "ip", "commit-1")).toBe(
+    true,
+  );
+  expect(data.get("budget").hourly).toBe(2);
+});
+
+test("resubmitting a stored review bypasses an exhausted review budget", async () => {
+  github();
+  const bindings = env();
+  bindings.started.push(target);
+  bindings.admit.mockResolvedValue(false);
+  const response = await startManual(
+    request({ url: "https://github.com/team/demo/pull/12" }),
+    bindings,
+  );
+  expect(response.status).toBe(200);
+  expect(bindings.admit).not.toHaveBeenCalled();
+});
+
+test("lookup throttling has its own durable budget", async () => {
+  const data = new Map();
+  const storage = {
+    get: async (key) => data.get(key),
+    put: async (key, value) => data.set(key, value),
+  };
+  const gate = { ctx: { storage: { transaction: async (fn) => fn(storage) } } };
+  for (let i = 0; i < 10; i++)
+    expect(await ManualGate.prototype.admitLookup.call(gate, "ip")).toBe(true);
+  expect(await ManualGate.prototype.admitLookup.call(gate, "ip")).toBe(false);
+  expect(data.get("budget")).toBeUndefined();
+  expect(await ManualGate.prototype.admit.call(gate, "ip", "commit")).toBe(
+    true,
+  );
 });

@@ -195,6 +195,13 @@ export class Review extends DurableObject<Env> {
     }, ctx);
   }
 
+  async hasStarted(): Promise<boolean> {
+    const root = await this.#root();
+    return Boolean(
+      (await this.#harness.snapshot(ReviewDoc, root.id, ctx))?.target,
+    );
+  }
+
   async view(): Promise<ReviewView> {
     const root = await this.#root();
     const [state, live, page] = await Promise.all([

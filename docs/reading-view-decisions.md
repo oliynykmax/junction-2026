@@ -54,7 +54,9 @@ same agent and model as the review, since it has already read every patch.
   patch and cannot be shortened.
 - **Patch lines are not file lines.** The `N|` gutter appears only when the
   agent asks for it, and the tool descriptions say `report_finding` still
-  takes file lines at the PR head.
+  takes file lines at the PR head. The numbered form is always the stored
+  patch, so a push during the review cannot shift the coordinates (caught by
+  the bot review of PR #37).
 - Shortening is optional: `finish_review` does not require a plan per file.
 
 ## The viewer, 2026-11-14
@@ -68,7 +70,10 @@ same agent and model as the review, since it has already read every patch.
   directive hidden automatically". A fold shows as `...` at the code's indent.
   Both expand in place on click.
 - **A plan that no longer fits the findings is not used.** The file shows its
-  full diff with a note, instead of hiding cited evidence.
+  full diff with a note, instead of hiding cited evidence. Plans are checked
+  against every finding in the review, not only those a change's row lists:
+  a file can belong to two changes while each finding is listed under one
+  (caught by the bot review of PR #37).
 
 ## Trial on sample PRs, 2026-11-14
 

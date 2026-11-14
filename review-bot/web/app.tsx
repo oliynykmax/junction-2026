@@ -188,7 +188,11 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
                 owned={split.owned}
                 running={live}
                 lineUrl={lineUrl}
-                readings={r?.readings}
+                readings={
+                  r?.readings
+                    ? { plans: r.readings, findings: r.findings }
+                    : undefined
+                }
               />
             )}
             <Findings

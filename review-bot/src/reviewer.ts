@@ -486,10 +486,27 @@ export function reviewerExtension({
   const readPatch = defineTool({
     name: "read_patch",
     description:
-      "The unified diff of one changed file in the pull request. With numbered, each line starts with its patch line number and a bar (12|+code), the coordinates abridge_file takes. Patch line numbers are not file line numbers: report_finding still takes the line in the file at the PR head.",
+      "The unified diff of one changed file in the pull request. With numbered, it returns the diff stored when the review started, each line starting with its patch line number and a bar (12|+code): the coordinates abridge_file takes. Patch line numbers are not file line numbers: report_finding still takes the line in the file at the PR head.",
     parameters: obj({ path: str(), numbered: opt(bool()) }),
     replay: "safe",
     execute: async ({ path, numbered }, api, context) => {
+      if (numbered) {
+        // The patch stored when the review started, which abridge_file
+        // compiles plans against, so the numbers always match it.
+        const state = await api.snapshot(
+          ReviewDoc,
+          api.conversationId,
+          context,
+        );
+        const stored = (state?.files ?? []).find((f) => f.path === path);
+        if (!stored)
+          throw new Error(`${path} is not a changed file in this review`);
+        return text(
+          stored.patch
+            ? numberedPatch(stored.patch)
+            : "(no stored diff: binary or over the size cap, so abridge_file cannot shorten it)",
+        );
+      }
       const { t, tok } = await target(api, context);
       const file = (await prFiles(tok, t)).find((f) => f.filename === path);
       if (!file) throw new Error(`${path} is not changed in this pull request`);

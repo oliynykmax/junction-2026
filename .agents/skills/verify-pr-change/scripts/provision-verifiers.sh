@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Downloads the benchmark's pinned verification tools outside the worktree.
-# The caller owns the cache location and can remove it after the benchmark.
 set -euo pipefail
 
 tool_root="${J26_FORMAL_TOOLS_DIR:-/var/tmp/j26-formal-tools}"
@@ -20,10 +18,6 @@ if ! find "$tool_root/dafny" -path '*/dafny/dafny' -type f -print -quit | grep -
   unzip -q "$tool_root/downloads/dafny-4.11.0-x64-ubuntu-22.04.zip" -d "$tool_root/dafny"
 fi
 
-# The Viper IDE tools bundle supplies the pinned Z3 and Boogie executables.
-# It deliberately does not contain the Gobra verifier CLI, which Gobra builds
-# from source with sbt.  Keep the two artifacts separate so a stale IDE bundle
-# can never be mistaken for a verifier.
 download \
   "https://github.com/viperproject/gobra-ide/releases/download/v2.0.5/GobraToolsLinux.zip" \
   "$tool_root/downloads/GobraToolsLinux-v2.0.5.zip"
@@ -31,8 +25,6 @@ if [ ! -x "$tool_root/gobra-tools/z3/bin/z3" ]; then
   unzip -q "$tool_root/downloads/GobraToolsLinux-v2.0.5.zip" -d "$tool_root/gobra-tools"
 fi
 
-# Build the tagged Gobra verifier itself.  The Git tag is the versioned source
-# of truth; the resulting fat jar is self-contained and stays outside the PR.
 download \
   "https://github.com/sbt/sbt/releases/download/v1.10.11/sbt-1.10.11.tgz" \
   "$tool_root/downloads/sbt-1.10.11.tgz"

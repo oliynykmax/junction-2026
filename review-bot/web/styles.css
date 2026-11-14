@@ -1827,7 +1827,6 @@ pre {
   font-size: 14px;
 }
 
-/* Keep receipts legible independently of the surrounding page theme. */
 .verification,
 .verification-receipt {
   --verification-ink: #17213b;
@@ -2115,6 +2114,10 @@ pre {
   grid-template-columns: minmax(0, 1fr);
   margin-top: 16px;
   color: var(--verification-ink);
+}
+
+.inline-verification > .verification-limits {
+  grid-column: 1 / -1;
 }
 
 .verification-receipt > .verification-disclosure {

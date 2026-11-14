@@ -139,9 +139,9 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const { token } = await installationToken(env, target.installationId);
   const comment =
     `${MARKER}\n` +
-    `**Review session:** ${reviewLink(env, target)}\n\n` +
+    `🐝 **Bumble Bot review session:** ${reviewLink(env, target)}\n\n` +
     `<sub>For commit \`${target.headSha.slice(0, 7)}\`. Each push starts a new review and updates this comment to link it. ` +
-    `When a review has no findings, the bot approves the PR, and the next push withdraws that approval until its own review is clean. ` +
+    `When a review has no findings, Bumble Bot approves the PR, and the next push withdraws that approval until its own review is clean. ` +
     `The review is advice; merging needs a named human's sign-off on that page.</sub>`;
   await upsertComment(
     token,

@@ -13,7 +13,15 @@ import {
 } from "@earendil-works/pi-durable";
 import { CODEMODE_TOOL_NAME } from "@earendil-works/pi-durable/codemode";
 import { CODEMODE_OPTIONS_PREFIX } from "@earendil-works/pi-codemode/source";
-import { arr, int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import {
+  arr,
+  bool,
+  int,
+  obj,
+  oneOf,
+  opt,
+  str,
+} from "@earendil-works/pi-schema";
 import type { Context } from "@earendil-works/chord/context";
 import {
   CLASSES,
@@ -42,6 +50,13 @@ import {
   type ScanState,
   type ScanTool,
 } from "./scanners";
+import {
+  compileReadingPlan,
+  keptLine,
+  numberedPatch,
+  type ReadingPlan,
+  readingText,
+} from "./reading";
 import { assessRisk, renderRisk, type Risk, type RiskTier } from "./signals";
 
 export type Target = {
@@ -148,6 +163,14 @@ export type ReviewState = {
   summaryRefusals?: number;
   /** read_file and list_dir calls spent against the read budget. */
   reads?: number;
+  /**
+   * The agent's reading plan per changed file, keyed by path. Only the plan is
+   * stored: the viewer renders it against the patch and the current findings,
+   * and shows the full diff for a file without a valid plan.
+   */
+  readings?: Record<string, ReadingPlan>;
+  /** Times abridge_file refused a plan, per file. */
+  readingRefusals?: Record<string, number>;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -169,6 +192,8 @@ export const EMPTY_REVIEW: ReviewState = {
   starRefusals: 0,
   summaryRefusals: 0,
   reads: 0,
+  readings: {},
+  readingRefusals: {},
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -186,6 +211,9 @@ const MAX_DOCS_REFUSALS = 2;
 const MAX_CHANGE_REFUSALS = 2;
 const MAX_STAR_REFUSALS = 2;
 const MAX_SUMMARY_REFUSALS = 2;
+const MAX_READING_REFUSALS = 2;
+// The preview abridge_file returns to the agent is capped, like any tool output.
+const MAX_READING_PREVIEW_CHARS = 8_000;
 // Patches are stored in the review document, so their size is capped.
 const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
@@ -457,14 +485,33 @@ export function reviewerExtension({
 
   const readPatch = defineTool({
     name: "read_patch",
-    description: "The unified diff of one changed file in the pull request.",
-    parameters: obj({ path: str() }),
+    description:
+      "The unified diff of one changed file in the pull request. With numbered, it returns the diff stored when the review started, each line starting with its patch line number and a bar (12|+code): the coordinates abridge_file takes. Patch line numbers are not file line numbers: report_finding still takes the line in the file at the PR head.",
+    parameters: obj({ path: str(), numbered: opt(bool()) }),
     replay: "safe",
-    execute: async ({ path }, api, context) => {
+    execute: async ({ path, numbered }, api, context) => {
+      if (numbered) {
+        // The patch stored when the review started, which abridge_file
+        // compiles plans against, so the numbers always match it.
+        const state = await api.snapshot(
+          ReviewDoc,
+          api.conversationId,
+          context,
+        );
+        const stored = (state?.files ?? []).find((f) => f.path === path);
+        if (!stored)
+          throw new Error(`${path} is not a changed file in this review`);
+        return text(
+          stored.patch
+            ? numberedPatch(stored.patch)
+            : "(no stored diff: binary or over the size cap, so abridge_file cannot shorten it)",
+        );
+      }
       const { t, tok } = await target(api, context);
       const file = (await prFiles(tok, t)).find((f) => f.filename === path);
       if (!file) throw new Error(`${path} is not changed in this pull request`);
-      return text(file.patch ?? "(no textual diff: binary or too large)");
+      if (!file.patch) return text("(no textual diff: binary or too large)");
+      return text(numbered ? numberedPatch(file.patch) : file.patch);
     },
   });
 
@@ -609,6 +656,73 @@ export function reviewerExtension({
           isError: true,
         };
       return text("recorded");
+    },
+  });
+
+  const range = obj({ start_line: int(), end_line: int() });
+  const abridgeFile = defineTool({
+    name: "abridge_file",
+    description:
+      "Shorten one changed file's diff for the human owner by choosing what to hide: remove whole lines, fold a run of two or more lines of one kind (all added, all deleted or all context) into one ... row, or replace part of one line with ... while keeping every other character. Coordinates are patch line numbers from read_patch with numbered. You never write the shortened diff; it is rendered from the patch. Lines a finding cites cannot be hidden, and C# using directives are hidden automatically. Returns the rendered reading view. Calling again for the same path replaces its plan.",
+    parameters: obj({
+      path: str(),
+      remove: arr(range),
+      fold: arr(range),
+      replace: arr(obj({ line: int(), old: str(), new: str() })),
+    }),
+    execute: async ({ path, remove, fold, replace }, api, context) => {
+      const plan: ReadingPlan = { remove, fold, replace };
+      let reply = "";
+      let refused = false;
+      await api.commit(async (tx) => {
+        const state = await tx.doc(ReviewDoc, api.conversationId);
+        const file = (state.files ?? []).find((f) => f.path === path);
+        if (!file) {
+          refused = true;
+          reply = `Not recorded. ${path} is not a changed file in this review; use paths exactly as pr_overview lists them.`;
+          return;
+        }
+        if (!file.patch) {
+          refused = true;
+          reply = `Not recorded. ${path} has no stored diff (binary or over the size cap), so there is nothing to shorten.`;
+          return;
+        }
+        const refusals = state.readingRefusals ?? {};
+        const count = refusals[path] ?? 0;
+        // What the owner sees once no more plans are taken for this file.
+        const fallback = state.readings?.[path]
+          ? "the owner sees the last plan you recorded for it"
+          : "the owner sees its full diff";
+        if (count >= MAX_READING_REFUSALS) {
+          refused = true;
+          reply = `Not recorded: no more attempts for ${path}; ${fallback}. Move on.`;
+          return;
+        }
+        const cited = state.findings
+          .filter((f) => f.path === path && f.line !== null)
+          .map((f) => f.line!);
+        const result = compileReadingPlan(file.patch, plan, {
+          path,
+          protectedLines: cited,
+        });
+        if (!result.ok) {
+          refused = true;
+          state.readingRefusals = { ...refusals, [path]: count + 1 };
+          reply =
+            count + 1 < MAX_READING_REFUSALS
+              ? `Not recorded. Fix every problem and call abridge_file again with the complete plan:\n- ${result.problems.join("\n- ")}`
+              : `Not recorded, and no more attempts for ${path}; ${fallback}. Move on. Problems:\n- ${result.problems.join("\n- ")}`;
+          return;
+        }
+        state.readings = { ...state.readings, [path]: plan };
+        const preview = readingText(result.rows);
+        reply = `recorded: ${keptLine(result.stats)}\n\n${
+          preview.length > MAX_READING_PREVIEW_CHARS
+            ? `${preview.slice(0, MAX_READING_PREVIEW_CHARS)}\n... (preview truncated)`
+            : preview
+        }`;
+      }, context);
+      return refused ? { ...text(reply), isError: true } : text(reply);
     },
   });
 
@@ -791,6 +905,7 @@ export function reviewerExtension({
       listDir,
       reportFinding,
       describeChange,
+      abridgeFile,
       finishReview,
     ],
     sections: [
@@ -840,7 +955,8 @@ The review_evidence section contains a persisted CI snapshot and CODING_STANDARD
 6. risk_signals below holds deterministic checks that ran on the patches: a risk tier with the rules that set it, and every test file that lost tests or assertions, gained a skip marker or was deleted. You cannot change the tier. For each weakened test file, read its patch and the production code it covered, then either report a testing finding (severity by what the weakened test no longer protects, confidence verified once you have read both) or, when the requirement genuinely makes the old test wrong, say so with the reason in your summary. Never treat a weakened test as evidence that the change works.
 7. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. It is offered to the owner, never applied by you.
 8. Split the pull request into logical changes with describe_change, once per change (a fix, its tests, a docs update and an unrelated dependency bump are four changes), giving each a title, its tags, a summary and its files. Every changed file belongs to a change. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator". The title says what specifically changes, in a few words, not just its kind, which the tags already give: "Cover referenced-assembly generics", not "Tests" or "Docs and tests". The summary is one third-person sentence on what this change does in its files, naming what a reader would look for there (the cases a test adds, the section a doc changes, the version a dependency moves to).
-9. Finish with finish_review exactly once. Describe the whole pull request for the owner as Situation, Task, Action and Result: four plain sentences in the third person about the pull request, never about your review, written from what you read and not from the PR description alone.
+9. After all findings are recorded, shorten each changed file with a diff for the owner with abridge_file, using the patch line numbers from read_patch with numbered. The owner reviews concepts, data flow and control flow, not mechanics. Keep anything that changes behaviour: a changed argument, a new condition, a different call, a changed return or error path, a public signature. Hide what is obvious, forced or repetitive: repeated renames or call-site edits after one representative example, blank lines and unchanged context that does not orient the reader, formatting-only edits, and generated files (remove every line). Fold the repetitive inside of a block while keeping its opening and closing lines. Replace long error-message text and arguments with ... but keep the throw or return itself. Never hide a line you are unsure about. A line a later finding cites invalidates the file's plan and the owner sees the full diff, so report findings first.
+10. Finish with finish_review exactly once. Describe the whole pull request for the owner as Situation, Task, Action and Result: four plain sentences in the third person about the pull request, never about your review, written from what you read and not from the PR description alone.
    - situation: the problem, need or risk that existed before, and who or what it affected. Not a restatement of the change ("X was missing" when the PR adds X); if the pull request states no reason and the code shows none, say the motivation is not stated.
    - task: the goal the pull request sets out to reach, in terms of that situation.
    - action: what the code now does differently, across all its changes, naming the main mechanism.

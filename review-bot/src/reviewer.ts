@@ -137,12 +137,16 @@ export type ReviewerDeps = {
     token: string,
     checks: Check[],
   ) => Promise<ScanResult[]>;
-  approve: (target: Target, token: string) => Promise<void>;
+  publish: (
+    target: Target,
+    token: string,
+    findings: readonly Finding[],
+  ) => Promise<void>;
 };
 
 const MAX_FILE_LINES = 400;
 
-export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
+export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
     if (!state?.target) throw new Error("review has no target");
@@ -326,7 +330,7 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
     }),
     execute: async ({ summary, not_checked, dismissed }, api, context) => {
       let refused = false;
-      let clean = false;
+      let findings: Finding[] = [];
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
         const refusals = state.docsRefusals ?? 0;
@@ -347,9 +351,7 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
             : not_checked,
           dismissed: dismissed ?? [],
         };
-        clean =
-          state.verdict.decision === "no_blockers_found" &&
-          state.findings.length === 0;
+        findings = state.findings;
       }, context);
       if (refused)
         return {
@@ -358,13 +360,11 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
           ),
           isError: true,
         };
-      if (clean) {
-        const { t, tok } = await target(api, context);
-        if (t.mode !== "manual")
-          await approve(t, tok).catch((e) =>
-            console.error(`approval for ${t.headSha} failed`, e),
-          );
-      }
+      const { t, tok } = await target(api, context);
+      if (t.mode !== "manual")
+        await publish(t, tok, findings).catch((e) =>
+          console.error(`review publication for ${t.headSha} failed`, e),
+        );
       return { ...text("review finished"), control: { terminate: true } };
     },
   });

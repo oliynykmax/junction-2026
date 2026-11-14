@@ -224,10 +224,10 @@ for (const manual of [true, false])
     );
     state.lookups = [{ tool: "docs", args: "{}", at: Date.now() }];
     const token = mock(async () => "app-token"),
-      approve = mock(async () => {});
+      publish = mock(async () => {});
     const { extension } = reviewerExtension({
       token,
-      approve,
+      publish,
       scan: async () => [],
     });
     const finish = extension.tools.find((t) => t.name === "finish_review");
@@ -238,7 +238,7 @@ for (const manual of [true, false])
     };
     await finish.execute({ summary: "Checked", not_checked: [] }, api, {});
     expect(state.verdict.decision).toBe("no_blockers_found");
-    expect(approve).toHaveBeenCalledTimes(manual ? 0 : 1);
+    expect(publish).toHaveBeenCalledTimes(manual ? 0 : 1);
     expect(token).toHaveBeenCalledTimes(manual ? 0 : 1);
   });
 

@@ -19,7 +19,7 @@ import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { fromStored, heldBack, type Stored } from "./findings";
-import { type AppSecrets, approve, installationToken } from "./github";
+import { type AppSecrets, publishReview, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { ManualGate } from "./manual-gate";
 import type { Check, ScanResult } from "./scanners";
@@ -109,14 +109,10 @@ export class Review extends DurableObject<Env> {
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
-        approve: (target, token) =>
+        publish: (target, token, findings) =>
           target.mode === "manual"
             ? Promise.resolve()
-            : approve(
-                token,
-                target,
-                `The automated review of \`${target.headSha.slice(0, 7)}\` found nothing: ${reviewLink(env, target)}`,
-              ),
+            : publishReview(token, target, findings, reviewLink(env, target)),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);

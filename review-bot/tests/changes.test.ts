@@ -5,8 +5,11 @@ import {
   EMPTY_REVIEW,
   type ReviewState,
   reviewerExtension,
+  starProblems,
+  summaryProblems,
   uncoveredFiles,
 } from "../src/reviewer";
+import { changeSentence } from "../web/shared";
 
 const file = (filename: string, patch?: string) => ({
   filename,
@@ -16,15 +19,26 @@ const file = (filename: string, patch?: string) => ({
   patch,
 });
 
-const star = {
+const change = {
   title: "Guard type-argument lookup",
   tags: ["bug fix", "Source Generator"],
+  summary: "Resolves type arguments through the constructed type.",
+  files: ["src/TypeCollector.cs"],
+};
+
+const star = {
   situation: "The generator threw on closed generic structs.",
   task: "Stop indexing past the type's own parameters.",
   action: "Resolve arguments through the constructed type.",
   result: "Six new tests pass; NativeAOT is unverified.",
-  files: ["src/TypeCollector.cs"],
 };
+
+const finish = (rest: object = {}) => ({
+  ...star,
+  summary: "s",
+  not_checked: [],
+  ...rest,
+});
 
 function harness(state: ReviewState) {
   const { extension } = reviewerExtension({
@@ -83,34 +97,131 @@ test("captured files keep patches under the caps and drop the rest", () => {
   expect(many.filter((f) => f.patch).length).toBe(10);
 });
 
-test("change problems flag long STAR parts, tag limits and unknown files", () => {
-  expect(changeProblems(star, ["src/TypeCollector.cs"])).toEqual([]);
+test("change and summary problems flag the sentence, tag limits and unknown files", () => {
+  expect(changeProblems(change, ["src/TypeCollector.cs"])).toEqual([]);
   const problems = changeProblems(
-    {
-      ...star,
-      task: "x".repeat(300),
-      tags: ["a", "b", "c", "d"],
-      files: ["nope.cs"],
-    },
+    { ...change, tags: ["a", "b", "c", "d"], files: ["nope.cs"] },
     ["src/TypeCollector.cs"],
   );
-  expect(problems.join(" ")).toContain("task is 300 characters");
+  expect(summaryProblems("I added a guard.").join(" ")).toContain(
+    "summary speaks in the first person",
+  );
+  expect(summaryProblems(" ")).toEqual(["Write the summary sentence."]);
+  expect(summaryProblems(change.summary)).toEqual([]);
   expect(problems.join(" ")).toContain("Give 1 to 3 tags");
   expect(problems.join(" ")).toContain(
     "Not changed in this pull request: nope.cs",
   );
 });
 
+test("star problems flag empty and long parts", () => {
+  expect(starProblems(star)).toEqual([]);
+  const problems = starProblems({
+    ...star,
+    task: "x".repeat(401),
+    result: " ",
+  });
+  expect(problems.join(" ")).toContain("task is 401 characters");
+  expect(problems.join(" ")).toContain("Write the result sentence.");
+});
+
+test("changes from older reviews show their stored Action", () => {
+  const base = { id: "c", title: "t", tags: ["docs"], files: ["a.md"] };
+  expect(changeSentence({ ...base, summary: "Adds a section." })).toBe(
+    "Adds a section.",
+  );
+  expect(changeSentence({ ...base, action: "Fixes the typo." })).toBe(
+    "Fixes the typo.",
+  );
+  expect(changeSentence(base)).toBeNull();
+});
+
+test("star problems flag plural first person and mine", () => {
+  for (const result of [
+    "We updated the retry logic.",
+    "The retry logic is ours now.",
+    "Our tests cover it.",
+    "The fix is mine.",
+  ])
+    expect(starProblems({ ...star, result }).join(" ")).toContain(
+      "result speaks in the first person",
+    );
+  expect(
+    starProblems({
+      ...star,
+      result: "Users see fewer retries; the PR adds a USB test.",
+    }),
+  ).toEqual([]);
+  for (const action of [
+    "Retries failed I/O operations once.",
+    "Moves the bucket to us-east-1 and the cache to /var/our-cache.",
+  ])
+    expect(starProblems({ ...star, action })).toEqual([]);
+});
+
+test("star problems flag the reviewer speaking in the first person", () => {
+  const problems = starProblems({
+    ...star,
+    result: "The PR adds tests (I did not read or run them).",
+    situation: "My reading is that the generator threw.",
+  });
+  expect(problems.join(" ")).toContain("result speaks in the first person");
+  expect(problems.join(" ")).toContain("situation speaks in the first person");
+  expect(
+    starProblems({
+      ...star,
+      action:
+        "Updates README, Directory.Packages.props and IMessagePackFormatter.",
+    }),
+  ).toEqual([]);
+});
+
+test("finish_review stores the PR's STAR on the verdict", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  const { run } = harness(state);
+  await run("describe_change", change);
+  await run("finish_review", finish());
+  expect(state.verdict?.star).toEqual(star);
+});
+
+test("finish_review refuses an invalid STAR twice, then finishes without it", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  const { run } = harness(state);
+  await run("describe_change", change);
+  for (let i = 0; i < 2; i++) {
+    const res = await run("finish_review", finish({ result: "I checked it." }));
+    expect(res.isError).toBe(true);
+    expect(state.verdict).toBeNull();
+  }
+  const res = await run("finish_review", finish({ result: "I checked it." }));
+  expect(res.isError).toBeUndefined();
+  expect(state.verdict?.star).toBeUndefined();
+  expect(state.verdict?.notChecked.join(" ")).toContain(
+    "result speaks in the first person",
+  );
+});
+
+test("finish_review refuses an invalid STAR without finishing", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  const { run } = harness(state);
+  await run("describe_change", change);
+  const res = await run("finish_review", finish({ action: "" }));
+  expect(res.isError).toBe(true);
+  expect(res.output[0].text).toContain("Write the action sentence.");
+  expect(state.verdict).toBeNull();
+});
+
 test("describe_change records a change, lowercases tags and replaces by title", async () => {
   const state = reviewWith(["src/TypeCollector.cs", "tests/T.cs"]);
   const { run } = harness(state);
-  expect((await run("describe_change", star)).isError).toBeUndefined();
+  expect((await run("describe_change", change)).isError).toBeUndefined();
   await run("describe_change", {
-    ...star,
+    ...change,
     files: ["src/TypeCollector.cs", "tests/T.cs"],
   });
   expect(state.changes).toHaveLength(1);
   expect(state.changes?.[0].tags).toEqual(["bug fix", "source generator"]);
+  expect(state.changes?.[0].summary).toBe(change.summary);
   expect(state.changes?.[0].files).toEqual([
     "src/TypeCollector.cs",
     "tests/T.cs",
@@ -118,10 +229,30 @@ test("describe_change records a change, lowercases tags and replaces by title", 
   expect(uncoveredFiles(state)).toEqual([]);
 });
 
+test("describe_change refuses a bad summary twice, then records the change without it", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  const { run } = harness(state);
+  for (let i = 0; i < 2; i++) {
+    const res = await run("describe_change", {
+      ...change,
+      summary: "I fixed it.",
+    });
+    expect(res.isError).toBe(true);
+    expect(state.changes).toEqual([]);
+  }
+  const res = await run("describe_change", {
+    ...change,
+    summary: "I fixed it.",
+  });
+  expect(res.isError).toBeUndefined();
+  expect(state.changes?.[0].summary).toBeUndefined();
+  expect(uncoveredFiles(state)).toEqual([]);
+});
+
 test("describe_change refuses invalid input without recording it", async () => {
   const state = reviewWith(["src/TypeCollector.cs"]);
   const res = await harness(state).run("describe_change", {
-    ...star,
+    ...change,
     files: ["other.cs"],
   });
   expect(res.isError).toBe(true);
@@ -134,14 +265,14 @@ test("finish_review refuses twice while files are uncovered, then lists them as 
     "Directory.Packages.props",
   ]);
   const { run } = harness(state);
-  await run("describe_change", star);
+  await run("describe_change", change);
   for (let i = 0; i < 2; i++) {
-    const res = await run("finish_review", { summary: "s", not_checked: [] });
+    const res = await run("finish_review", finish());
     expect(res.isError).toBe(true);
     expect(res.output[0].text).toContain("Directory.Packages.props");
     expect(state.verdict).toBeNull();
   }
-  await run("finish_review", { summary: "s", not_checked: ["other"] });
+  await run("finish_review", finish({ not_checked: ["other"] }));
   expect(state.verdict?.notChecked).toEqual([
     "No CI or team standard evidence snapshot was captured for this review.",
     "These changed files are not part of any described change: Directory.Packages.props.",
@@ -155,7 +286,7 @@ test("reviews stored before changes existed finish without the gate", async () =
     files: undefined,
     changes: undefined,
   };
-  await harness(state).run("finish_review", { summary: "s", not_checked: [] });
+  await harness(state).run("finish_review", finish());
   expect(state.verdict?.notChecked).toEqual([
     "No CI or team standard evidence snapshot was captured for this review.",
   ]);

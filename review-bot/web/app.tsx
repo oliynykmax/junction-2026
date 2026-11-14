@@ -1,5 +1,6 @@
-// The review page: status and the AI's advice, the scanner band, the PR's
-// changes told as Situation/Task/Action/Result with their findings and diffs,
+// The review page: status, the AI's advice and its Situation/Task/Action/Result
+// description of the PR, the scanner band, the PR's changes with their
+// findings and diffs,
 // what the AI did not check, docs it consulted and the agent's activity. It
 // polls the review's JSON view while the review runs.
 
@@ -11,7 +12,7 @@ import { Changes, findingsByChange } from "./changes";
 import { FileDiffs } from "./diff";
 import { EvidencePanel } from "./evidence";
 import { Findings } from "./findings";
-import { BLOCKING_RULE, type Focus, plural } from "./shared";
+import { BLOCKING_RULE, type Focus, plural, type Star } from "./shared";
 import { blocks } from "../src/findings";
 import { RiskBand } from "./risk";
 
@@ -273,6 +274,7 @@ function Advice({ view }: { view: ReviewView }) {
       )}
       {finished ? (
         <>
+          {v.star && <PrStar star={v.star} />}
           <h2 class="summary-h">What the AI read and concluded</h2>
           <p class="summary">{v.summary}</p>
         </>
@@ -280,13 +282,36 @@ function Advice({ view }: { view: ReviewView }) {
         <p class="muted advice-wait">
           {view.status === "failed"
             ? "The review stopped before the AI wrote its summary."
-            : "The AI's summary appears here when the review finishes."}
+            : "The AI's description of this PR and its summary appear here when the review finishes."}
         </p>
       )}
       <p class="muted">
         The AI advises. A named human decides whether to merge.
       </p>
     </div>
+  );
+}
+
+const STAR_LABELS = [
+  ["situation", "Situation"],
+  ["task", "Task"],
+  ["action", "Action"],
+  ["result", "Result"],
+] as const;
+
+function PrStar({ star }: { star: Star }) {
+  return (
+    <dl
+      class="star"
+      aria-label="The pull request as Situation, Task, Action and Result"
+    >
+      {STAR_LABELS.map(([key, label]) => (
+        <div key={key}>
+          <dt>{label}</dt>
+          <dd>{star[key]}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

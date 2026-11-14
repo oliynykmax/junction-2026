@@ -65,3 +65,19 @@ export function fromStored<F extends { severity: string }>(f: F): Stored<F> {
   console.warn(`unknown stored severity ${JSON.stringify(f.severity)}`);
   return { ...f, severity: "info" };
 }
+
+export const EVIDENCE_KINDS = [
+  "code",
+  "docs",
+  "test",
+  "scanner",
+  "execution",
+  "hypothesis",
+] as const;
+
+export type FindingEvidence = {
+  kind: (typeof EVIDENCE_KINDS)[number];
+  detail: string;
+  verificationId?: string;
+  supporting?: string[];
+};

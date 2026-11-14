@@ -1,80 +1,87 @@
 ---
 name: verify-review-completion
-description: "Use when changing the Bumble Bot formal-review receipt, its finish gate, or its verification-result UI. It checks that an agent cannot settle a changed review without a bounded, explicit verification disposition."
+description: "Check mandatory changed-file verification coverage and finding reason/evidence/fix boundaries through the real review tools, including controlled broken variants."
 ---
 
-# Verify the formal-review completion gate
+# Verify review completion and finding evidence
 
-Run this skill before changing `review-bot/src/formal.ts`, the
-`record_verification` or `finish_review` tools in `review-bot/src/reviewer.ts`,
-or the verification receipt view in `review-bot/web/formal.tsx`.
+Run this skill when changing `review-bot/src/formal.ts`, `report_finding`,
+`record_verification`, `finish_review`, or their evidence UI.
 
-## The property and the harm
+## Properties and harm
 
-**Property:** a review with changed files cannot finish until every changed file
-is covered by a verification receipt.
+Every changed file must have a verification receipt or explicit unrun
+disposition before finish_review stores a verdict. There is no retry bypass.
+A review with zero findings still needs complete file coverage. Legacy reviews
+without a captured file list retain their existing behavior.
 
-**Harm if it breaks:** the named owner can mistake an uncovered agent change for
-checked evidence. This is the narrow completion promise behind the receipt UI;
-it does not prove that the changed code is correct.
+Every new finding must carry a concise concrete reason, evidence basis and
+proposed fix. Multiple supporting sources are allowed. A linked record must
+exist, cover the finding path and belong to no other finding. Records are
+immutable. Execution evidence needs a counterexample; linking passed or not_run
+records cannot promote an execution claim to verified. Hypotheses remain
+possible. A not_run link cannot substantiate verified confidence.
 
-## Coverage record
+These boundaries keep the named owner from mistaking missing or unrun evidence
+for checked work. The tool validates agent-reported structure, not authenticity.
+A code read, test, scanner result and documentation can also support findings.
+Formal-style checking remains mandatory alongside these sources.
 
-- **Covered code:** `recordVerification` and `finishReview` in
-  `review-bot/src/reviewer.ts`, and the validation/coverage helpers in
-  `review-bot/src/formal.ts`.
-- **Check:** `review-bot/tests/changes.test.ts`, especially “finish gate
-  rejects every incomplete receipt set in a two-file review”, calls the real
-  `finish_review` tool for all four receipt subsets of two changed files.
-- **Supporting checks:** `review-bot/tests/formal.test.ts` rejects a claimed
-  pass with no broken variant or limits, and requires counterexample/not-run
-  records to disclose their outcome.
-- **Tool choice:** the production code is TypeScript and the Worker has no
-  TypeScript deductive verifier. The lowest-cost truthful check is a bounded
-  property test of the real completion tool, not a hand-written state model.
-- **Reproducible command:** from `review-bot/`, run
-  `bun test tests/changes.test.ts tests/formal.test.ts`.
-- **Last confirmed sync commit:** `7ddd6854d6e817e9065d0f06df432aa9008e23cc`.
+## Run the checks
 
-## Scope, assumptions and limits
-
-The check exhausts the empty, each singleton, and complete receipt sets for two
-changed files. It assumes that `finish_review` is the only path that commits a
-verdict and that captured changed-file paths are trustworthy. It does **not**
-prove arbitrary-size set behavior, Durable Object storage behavior, checker
-honesty, or the correctness of code reviewed by the agent.
-
-Do not call the result a formal proof. A receipt marked `passed` is a claim
-about its named external checker, scope and mutation—not the whole PR.
-
-## Run and interpret
-
-1. Read the covered code and keep the receipt fields together: target,
-   property, harm, tool/checker, exact rerun command, outcome/result, scope,
-   broken variant for a pass, assumptions and limits.
-2. Run the reproducible command above. A passing run means the bounded
-   completion property still holds in the real tool path.
-3. Run `bun test`, `bun run lint`, `bunx tsc --noEmit`, and `bun run build`
-   before handing off a behavior or UI change.
-4. If a receipt is missing, invalid or says `not_run`, keep that visible to the
-   human owner. Do not silently promote it to `passed` or weaken the gate.
-
-## Required broken-variant validation
-
-On a scratch edit only, remove the `if (unverified.length)` refusal in
-`finishReview`, then run:
+From `review-bot/`, run:
 
 ```sh
-bun test tests/changes.test.ts -t "finish gate rejects every incomplete receipt set in a two-file review"
+bun test tests/changes.test.ts tests/formal.test.ts tests/verification-skill.test.ts
+bun scripts/verify-finding-evidence.mjs
+bun test
+bunx tsc --noEmit
+bun run lint
+bun fmt --check
+bun run build
 ```
 
-The test must fail because an incomplete receipt set can now settle. Restore the
-scratch edit, rerun the same command and confirm it passes. If it does not
-fail, strengthen the test or the completion gate; do not relax the property.
+`changes.test.ts` calls the actual report_finding, record_verification and
+finish_review tools with an in-memory transaction harness. The two-file coverage
+test exhausts the empty set, each singleton and complete receipt set. Repeated
+completion attempts prove no retry bypass within the tested attempts.
 
-## Keeping it in sync
+The finding boundary tests reject blank/oversized reason, evidence and fix,
+dangling/cross-finding/wrong-path links, and unrun or passing execution evidence.
+They accept code, docs, test and scanner evidence with supporting reasons.
+They preserve a possible hypothesis without changing the blocking rule.
+Additional tests distinguish immutable records and explicit unrun dispositions.
 
-After a covered-code change, repeat the normal and broken-variant checks. Move
-the “Last confirmed sync commit” forward only after confirming that this skill
-still describes the code at that commit. If the target changes materially,
-rewrite the property, scope, tool choice and limits here before moving it.
+`formal.test.ts` checks receipt outcome disclosures, checker fault sensitivity,
+fix_check field boundaries, and rendered legacy/current finding evidence.
+Fix checks retain the same command, fail-before, after result and explicit
+passed/failed fix outcome separately from a broken_variant used to test the
+checker itself. Untested or failing fixes stay proposed.
+
+## Validate controlled broken variants
+
+The script copies the current sources and tests into a temporary directory,
+links the installed dependencies, and invokes the same real-tool tests. It runs
+a passing baseline, disables one boundary, requires an assertion failure, then
+restores the source and reruns the passing check for each mutation:
+
+- Disable the mandatory changed-file coverage refusal.
+- Disable report_finding's reason/evidence/fix refusal.
+- Allow passed records to substantiate execution findings.
+
+The reviewed checkout is never edited and the scratch directory is removed in
+finally. A failure to load a test is not accepted as fault-sensitivity evidence.
+
+## Scope and limits
+
+This is bounded testing of the production tool path, not a formal proof.
+It assumes the captured file list is trustworthy and finish_review is the path
+that stores a verdict. It does not prove arbitrary-size inputs, concurrent
+Durable Object storage behavior, recovery, agent honesty, or the reviewed PR.
+
+The runtime still uses one reviewer agent. It records and reports its own
+checker claims. No independent verification agent or result-authentication
+boundary is implemented here. A human remains accountable for the merge.
+
+Last verified revision starts at `49b030bd03d28a80d07c3c2ca7e3382166dc02ca`.
+See `docs/formal-receipts-verification.md` for the measured revision checks.

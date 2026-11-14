@@ -24,6 +24,7 @@ export function VerificationReceipts({
   receipts: readonly VerificationReceipt[] | undefined;
   running: boolean;
 }) {
+  if (receipts?.length === 0 && !running) return null;
   if (receipts === undefined) return null;
   return (
     <section class="verification" aria-labelledby="verification-h">
@@ -43,28 +44,34 @@ export function VerificationReceipts({
       {receipts.length ? (
         <ol class="verification-list">
           {receipts.map((receipt) => (
-            <VerificationReceiptCard key={receipt.id} receipt={receipt} />
+            <li key={receipt.id}>
+              <VerificationReceiptCard receipt={receipt} />
+            </li>
           ))}
         </ol>
       ) : (
         <p class="verification-empty">
           {running
-            ? "The agent must record a bounded verification receipt for every changed file before it can finish."
-            : "No verification receipts were recorded."}
+            ? "Every changed file needs a verification receipt or explicit unrun disposition before the review can finish."
+            : "No additional verification receipts. Linked evidence appears with its finding."}
         </p>
       )}
     </section>
   );
 }
 
-function VerificationReceiptCard({
+export function VerificationReceiptCard({
   receipt,
+  embedded = false,
 }: {
   receipt: VerificationReceipt;
+  embedded?: boolean;
 }) {
   const outcome = OUTCOME[receipt.outcome];
   return (
-    <li class={`verification-receipt outcome-${receipt.outcome}`}>
+    <div
+      class={`verification-receipt outcome-${receipt.outcome}${embedded ? " inline-verification" : ""}`}
+    >
       <div class="verification-state">
         <p>{outcome.label}</p>
         <span>{outcome.note}</span>
@@ -102,6 +109,19 @@ function VerificationReceiptCard({
           <dt>Scope</dt>
           <dd>{receipt.scope}</dd>
         </div>
+        {receipt.fixCheck && (
+          <div>
+            <dt>
+              Fix check {receipt.fixCheck.outcome} on scratch copy, same
+              reproducer
+            </dt>
+            <dd>
+              <code>{receipt.fixCheck.command}</code>
+            </dd>
+            <dd>Before fix: {receipt.fixCheck.before}</dd>
+            <dd>After fix: {receipt.fixCheck.after}</dd>
+          </div>
+        )}
         {receipt.brokenVariant && (
           <div class="verification-mutation">
             <dt>Reported mutation result</dt>
@@ -109,6 +129,12 @@ function VerificationReceiptCard({
           </div>
         )}
       </dl>
+      {embedded && (
+        <p class="verification-disclosure">
+          Agent-reported evidence. The runtime checks structure, not checker
+          execution or result authenticity.
+        </p>
+      )}
       <details class="verification-limits">
         <summary>Assumptions &amp; limits</summary>
         <div>
@@ -123,7 +149,7 @@ function VerificationReceiptCard({
           </p>
         </div>
       </details>
-    </li>
+    </div>
   );
 }
 

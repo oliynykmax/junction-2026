@@ -40,13 +40,25 @@ export type VerificationReceipt = {
   brokenVariant: string | null;
   assumptions: string[];
   limits: string[];
+  fixCheck?: {
+    command: string;
+    before: string;
+    after: string;
+    outcome: "passed" | "failed";
+  };
 };
 
 export type VerificationInput = Omit<
   VerificationReceipt,
-  "id" | "brokenVariant"
+  "id" | "brokenVariant" | "fixCheck"
 > & {
   broken_variant?: string;
+  fix_check?: {
+    command: string;
+    before: string;
+    after: string;
+    outcome: "passed" | "failed";
+  };
 };
 
 const MAX_SHORT = 280;
@@ -137,6 +149,19 @@ export function verificationProblems(
     problems.push(
       "A not_run result must plainly say why no checker result exists.",
     );
+  if (input.fix_check) {
+    if (input.outcome !== "counterexample")
+      problems.push(
+        "A fix_check requires a counterexample on the reviewed head.",
+      );
+    if (
+      input.fix_check.outcome !== "passed" &&
+      input.fix_check.outcome !== "failed"
+    )
+      problems.push("State whether the proposed fix check passed or failed.");
+    for (const key of ["command", "before", "after"] as const)
+      required(`fix_check ${key}`, input.fix_check[key], problems);
+  }
   return problems;
 }
 
@@ -169,5 +194,15 @@ export function receiptFrom(
     brokenVariant: input.broken_variant?.trim() || null,
     assumptions: input.assumptions.map((item) => item.trim()),
     limits: input.limits.map((item) => item.trim()),
+    ...(input.fix_check
+      ? {
+          fixCheck: {
+            command: input.fix_check.command.trim(),
+            before: input.fix_check.before.trim(),
+            after: input.fix_check.after.trim(),
+            outcome: input.fix_check.outcome,
+          },
+        }
+      : {}),
   };
 }

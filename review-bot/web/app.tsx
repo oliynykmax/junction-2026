@@ -235,7 +235,13 @@ function LivePage({
           <>
             <Advice view={view} />
             <VerificationReceipts
-              receipts={view.review.verifications}
+              receipts={view.review.verifications?.filter(
+                (receipt) =>
+                  !view.review.findings.some(
+                    (finding) =>
+                      finding.evidence?.verificationId === receipt.id,
+                  ),
+              )}
               running={LIVE.has(view.status)}
             />
             <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />

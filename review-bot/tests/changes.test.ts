@@ -486,3 +486,240 @@ test("explicit unrun and counterexample receipts persist without becoming passes
     expect(state.verdict).not.toBeNull();
   }
 });
+
+const findingInput = {
+  path: "src/TypeCollector.cs",
+  line: 12,
+  severity: "high",
+  class: "correctness",
+  confidence: "verified",
+  title: "Closed generic arguments index outside the parameter list",
+  body: "The second argument indexes a one-element parameter list.",
+  reason: "A valid closed generic type crashes source generation.",
+  evidence: {
+    kind: "code",
+    detail:
+      "Lines 10-12 index arguments using an unchecked caller-supplied arity.",
+  },
+  fix: "Check the argument arity before indexing and resolve through the constructed type.",
+};
+
+test("finding evidence boundaries require reason evidence and fix without recording invalid claims", async () => {
+  for (const field of ["reason", "evidence", "fix"] as const) {
+    for (const value of ["", "   ", "x".repeat(901), undefined]) {
+      const state = reviewWith([findingInput.path]);
+      const input =
+        field === "evidence"
+          ? { ...findingInput, evidence: { kind: "code", detail: value } }
+          : { ...findingInput, [field]: value };
+      const result = await harness(state).run("report_finding", input);
+      expect(result.isError).toBe(true);
+      expect(state.findings).toHaveLength(0);
+      expect(result.output[0].text).toContain(field);
+    }
+  }
+});
+
+test("findings accept code docs tests scanners and several supporting reasons", async () => {
+  for (const kind of ["code", "docs", "test", "scanner"]) {
+    const state = reviewWith([findingInput.path]);
+    const { run } = harness(state);
+    const result = await run("report_finding", {
+      ...findingInput,
+      evidence: {
+        kind,
+        detail:
+          "Pinned source lines 10-12 and the relevant existing output establish the failure.",
+        supporting: [
+          "The arity test fails on the pinned head with IndexOutOfRange.",
+          "Pinned contract reference identifies the accepted input.",
+        ],
+      },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(state.findings[0].reason).toBe(findingInput.reason);
+    expect(state.findings[0].evidence?.kind).toBe(kind);
+    expect(state.findings[0].evidence?.supporting).toHaveLength(2);
+    await run("describe_change", change);
+    await run("finish_review", finish());
+    expect(state.verdict?.decision).toBe("changes_requested");
+  }
+});
+
+test("receipt links reject dangling cross-finding and wrong-path references", async () => {
+  const state = reviewWith([findingInput.path]);
+  const { run } = harness(state);
+  const linked = {
+    ...findingInput,
+    evidence: { ...findingInput.evidence, verification_id: "seed" },
+  };
+  expect(
+    (
+      await run("report_finding", {
+        ...linked,
+        evidence: { ...linked.evidence, verification_id: "missing" },
+      })
+    ).isError,
+  ).toBe(true);
+  expect(
+    (await run("report_finding", { ...linked, path: "other.cs" })).isError,
+  ).toBe(true);
+  expect(state.findings).toHaveLength(0);
+  expect((await run("report_finding", linked)).isError).toBeUndefined();
+  expect((await run("report_finding", linked)).isError).toBe(true);
+  expect(state.findings).toHaveLength(1);
+  expect(state.findings[0].evidence?.verificationId).toBe("seed");
+});
+
+test("unrun or passing receipts cannot promote execution claims to verified findings", async () => {
+  for (const outcome of ["not_run", "passed", "counterexample"] as const) {
+    const state = reviewWith([findingInput.path]);
+    state.verifications![0].outcome = outcome;
+    const { run } = harness(state);
+    const result = await run("report_finding", {
+      ...findingInput,
+      evidence: {
+        kind: "execution",
+        detail: "The targeted arity reproducer fails on the pinned head.",
+        verification_id: "seed",
+      },
+    });
+    expect(result.isError === true).toBe(outcome !== "counterexample");
+    expect(state.findings).toHaveLength(outcome === "counterexample" ? 1 : 0);
+  }
+  const state = reviewWith([findingInput.path]);
+  state.verifications![0].outcome = "not_run";
+  const { run } = harness(state);
+  const result = await run("report_finding", {
+    ...findingInput,
+    evidence: { ...findingInput.evidence, verification_id: "seed" },
+  });
+  expect(result.isError).toBe(true);
+  expect(state.findings).toHaveLength(0);
+});
+
+test("hypotheses stay possible and cannot become verified by linking a receipt", async () => {
+  const state = reviewWith([findingInput.path]);
+  const { run } = harness(state);
+  for (const confidence of ["verified", "likely", "possible"]) {
+    const result = await run("report_finding", {
+      ...findingInput,
+      confidence,
+      evidence: {
+        kind: "hypothesis",
+        detail: "Runtime input limits remain unknown.",
+        verification_id: "seed",
+      },
+    });
+    expect(result.isError === true).toBe(confidence !== "possible");
+  }
+  expect(state.findings).toHaveLength(1);
+  await run("describe_change", change);
+  await run("finish_review", finish());
+  expect(state.verdict?.decision).toBe("no_blockers_found");
+});
+
+test("recorded evidence stays immutable when another check has the same target", async () => {
+  const state = reviewWith([findingInput.path]);
+  const { run } = harness(state);
+  const { id: _id, brokenVariant, ...input } = state.verifications![0];
+  await run("report_finding", {
+    ...findingInput,
+    evidence: { ...findingInput.evidence, verification_id: "seed" },
+  });
+  const result = await run("record_verification", {
+    ...input,
+    broken_variant: brokenVariant,
+  });
+  expect(result.isError).toBeUndefined();
+  expect(state.verifications).toHaveLength(2);
+  expect(state.verifications![0].id).toBe("seed");
+  expect(state.findings[0].evidence?.verificationId).toBe("seed");
+});
+
+test("zero findings still require file dispositions and can finish with explicit unrun coverage", async () => {
+  const state = reviewWith([findingInput.path]);
+  state.verifications = [];
+  const { run } = harness(state);
+  await run("describe_change", change);
+  expect((await run("finish_review", finish())).isError).toBe(true);
+  const seed = reviewWith([findingInput.path]).verifications![0];
+  const { id: _id, brokenVariant: _broken, ...input } = seed;
+  expect(
+    (
+      await run("record_verification", {
+        ...input,
+        outcome: "not_run",
+        result:
+          "Not run: this documentation-only path has no runtime behavior.",
+      })
+    ).isError,
+  ).toBeUndefined();
+  expect((await run("finish_review", finish())).isError).toBeUndefined();
+  expect(state.findings).toHaveLength(0);
+  expect(state.verdict?.decision).toBe("no_blockers_found");
+  expect(state.verifications![0].outcome).toBe("not_run");
+});
+
+test("execution without a record and blank supporting evidence are refused", async () => {
+  for (const evidence of [
+    { kind: "execution", detail: "Failed at arity 2." },
+    { kind: "code", detail: "Indexing is unguarded.", supporting: [" "] },
+  ]) {
+    const state = reviewWith([findingInput.path]);
+    const result = await harness(state).run("report_finding", {
+      ...findingInput,
+      evidence,
+    });
+    expect(result.isError).toBe(true);
+    expect(state.findings).toHaveLength(0);
+  }
+});
+
+test("fix outcomes persist through record_verification and remain separate from the original failure", async () => {
+  for (const outcome of ["passed", "failed"] as const) {
+    const state = reviewWith([findingInput.path]);
+    const { run } = harness(state);
+    const {
+      id: _id,
+      brokenVariant: _broken,
+      ...seed
+    } = state.verifications![0];
+    const input = {
+      ...seed,
+      outcome: "counterexample",
+      result: "Failed at arity 2 on the reviewed head.",
+      fix_check: {
+        command: "bun test arity-repro.ts",
+        before: "Failed at arity 2.",
+        after:
+          outcome === "passed"
+            ? "Passed with the proposed guard."
+            : "Failed with the proposed guard.",
+        outcome,
+      },
+    };
+    expect((await run("record_verification", input)).isError).toBeUndefined();
+    const receipt = state.verifications!.at(-1)!;
+    expect(receipt.outcome).toBe("counterexample");
+    expect(receipt.fixCheck?.outcome).toBe(outcome);
+    expect(
+      (
+        await run("report_finding", {
+          ...findingInput,
+          evidence: {
+            kind: "execution",
+            detail: input.result,
+            verification_id: receipt.id,
+          },
+        })
+      ).isError,
+    ).toBeUndefined();
+    const invalid = await run("record_verification", {
+      ...input,
+      outcome: "not_run",
+      result: "Not run: setup failed.",
+    });
+    expect(invalid.isError).toBe(true);
+  }
+});

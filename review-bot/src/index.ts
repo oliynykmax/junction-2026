@@ -113,6 +113,11 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     repo: payload.repository.name,
     number: pr.number,
     headSha: pr.head.sha,
+    base: {
+      owner: pr.base.repo.owner.login,
+      repo: pr.base.repo.name,
+      sha: pr.base.sha,
+    },
     installationId: payload.installation.id,
   };
   await env.REVIEWS.getByName(reviewKey(target)).start(target);

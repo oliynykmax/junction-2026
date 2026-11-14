@@ -21,6 +21,7 @@ import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudfl
 import { fromStored, heldBack, type Stored } from "./findings";
 import { type AppSecrets, approve, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
+import type { ManualGate } from "./manual-gate";
 import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
@@ -44,6 +45,8 @@ export interface Env extends AppSecrets {
   MCP_SERVERS?: Record<string, unknown>;
   CONTEXT_DEV_API_KEY?: string;
   REVIEWS: DurableObjectNamespace<Review>;
+  MANUAL_GATE: DurableObjectNamespace<ManualGate>;
+  ASSETS: Fetcher;
 }
 
 export type Activity =
@@ -71,12 +74,13 @@ export function reviewKey(t: {
   repo: string;
   number: number;
   headSha: string;
+  mode?: "manual" | "webhook";
 }) {
-  return `${t.owner}/${t.repo}#${t.number}@${t.headSha}`;
+  return `${t.mode === "manual" ? "manual:" : ""}${t.owner}/${t.repo}#${t.number}@${t.headSha}`;
 }
 
 export function reviewLink(env: Env, t: Target) {
-  return `${env.REVIEW_BASE_URL}/r/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
+  return `${env.REVIEW_BASE_URL}/${t.mode === "manual" ? "m" : "r"}/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
 }
 
 export class Review extends DurableObject<Env> {
@@ -106,11 +110,13 @@ export class Review extends DurableObject<Env> {
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
         approve: (target, token) =>
-          approve(
-            token,
-            target,
-            `The automated review of \`${target.headSha.slice(0, 7)}\` found nothing: ${reviewLink(env, target)}`,
-          ),
+          target.mode === "manual"
+            ? Promise.resolve()
+            : approve(
+                token,
+                target,
+                `The automated review of \`${target.headSha.slice(0, 7)}\` found nothing: ${reviewLink(env, target)}`,
+              ),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);

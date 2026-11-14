@@ -11,10 +11,12 @@ import {
   upsertComment,
   validSignature,
 } from "./github";
+import { ManualError, manualKey, requirePublic, startManual } from "./manual";
 import { reviewPage } from "./page";
 import { type Env, reviewKey, reviewLink } from "./review";
 import type { Target } from "./reviewer";
 
+export { ManualGate } from "./manual-gate";
 export { Review } from "./review";
 
 const ICONS: Record<string, [BodyInit, string]> = {
@@ -31,12 +33,17 @@ const PR_ACTIONS = new Set([
   "ready_for_review",
 ]);
 const NAME = "[\\w.-]+";
-const PAGE = new RegExp(`^/r/(${NAME})/(${NAME})/(\\d+)/?$`);
-const VIEW = new RegExp(`^/api/r/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})$`);
+const PAGE = new RegExp(`^/(r|m)/(${NAME})/(${NAME})/(\\d+)/?$`);
+const VIEW = new RegExp(
+  `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})$`,
+);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (request.method === "POST" && url.pathname === "/api/reviews")
+      return startManual(request, env);
 
     if (request.method === "POST" && url.pathname === "/webhook") {
       return handleWebhook(request, env);
@@ -59,9 +66,9 @@ export default {
       const sha = url.searchParams.get("sha") ?? "";
       if (!/^[0-9a-f]{40}$/.test(sha))
         return new Response("sha query parameter required\n", { status: 400 });
-      const [, owner, repo, number] = m;
+      const [, mode, owner, repo, number] = m;
       return reviewPage(
-        `/api/r/${owner}/${repo}/${number}/${sha}`,
+        `/api/${mode}/${owner}/${repo}/${number}/${sha}`,
         `https://github.com/${owner}/${repo}/pull/${number}`,
         `${owner}/${repo}#${number}`,
       );
@@ -69,14 +76,38 @@ export default {
 
     m = url.pathname.match(VIEW);
     if (m) {
-      const [, owner, repo, number, headSha] = m;
+      const [, mode, owner, repo, number, headSha] = m;
+      if (mode === "m") {
+        try {
+          await requirePublic(owner, repo);
+        } catch (error) {
+          return Response.json(
+            {
+              error:
+                error instanceof ManualError
+                  ? error.message
+                  : "Report unavailable.",
+            },
+            { status: 404, headers: { "cache-control": "no-store" } },
+          );
+        }
+      }
       const view = await env.REVIEWS.getByName(
-        reviewKey({ owner, repo, number: Number(number), headSha }),
+        (mode === "m" ? manualKey : reviewKey)({
+          owner,
+          repo,
+          number: Number(number),
+          headSha,
+        }),
       ).view();
       return Response.json(view, { headers: { "cache-control": "no-store" } });
     }
 
-    if (url.pathname === "/") return new Response("review bot ok\n");
+    if (
+      url.pathname === "/" ||
+      /^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname)
+    )
+      return env.ASSETS.fetch(request);
     return new Response("not found\n", { status: 404 });
   },
 };

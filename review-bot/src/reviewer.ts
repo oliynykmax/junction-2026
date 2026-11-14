@@ -17,6 +17,7 @@ import {
   type Confidence,
   decisionFor,
   type FindingClass,
+  fromStored,
   SEVERITIES,
   type Severity,
 } from "./findings";
@@ -322,7 +323,7 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
           return;
         }
         state.verdict = {
-          decision: decisionFor(state.findings),
+          decision: decisionFor(state.findings.map(fromStored)),
           summary,
           notChecked: noDocs
             ? [

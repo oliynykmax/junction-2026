@@ -73,7 +73,7 @@ function render(v){
     +(r.prompt?'<span>rubric <a href="'+esc(r.prompt.url)+'">prompt</a> <code>sha256:'+r.prompt.sha256.slice(0,12)+'</code></span>':'')
     +'<span>cost $'+v.costUsd.toFixed(4)+'</span>'
     +(v.failure?'<span class="err">'+esc(v.failure)+'</span>':'');
-  $("verdict").innerHTML=r.verdict?'<div class="card verdict"><strong>AI advice: '+esc(r.verdict.decision.replaceAll("_"," "))+'</strong><p>'+esc(r.verdict.summary)+'</p>'+(v.heldBack?'<p><strong>'+v.heldBack+' critical or high '+(v.heldBack===1?'finding is':'findings are')+' rated possible.</strong> The agent could not confirm '+(v.heldBack===1?'it':'them')+', so '+(v.heldBack===1?'it does':'they do')+' not change this advice. Check '+(v.heldBack===1?'it':'them')+' yourself.</p>':'')+'<p class="empty">This is advice. A named human owns the merge decision.</p></div>':'';
+  $("verdict").innerHTML=r.verdict?'<div class="card verdict"><strong>AI advice: '+esc(r.verdict.decision.replaceAll("_"," "))+'</strong><p>'+esc(r.verdict.summary)+'</p>'+(v.heldBack?'<p><strong>Critical or high, rated possible: '+v.heldBack+'.</strong> The agent could not confirm these, so they do not count toward this advice. Check them yourself.</p>':'')+'<p class="empty">This is advice. A named human owns the merge decision.</p></div>':'';
   const fs=[...r.findings].sort((a,b)=>SEV.indexOf(a.severity)-SEV.indexOf(b.severity)||String(a.class||"").localeCompare(String(b.class||"")));
   $("counts").innerHTML=SEV.map((s)=>[s,fs.filter((f)=>f.severity===s).length]).filter(([,n])=>n).map(([s,n])=>'<span class="'+s+'">'+n+' '+s+'</span>').join("");
   $("findings").className=fs.length?"":"empty";

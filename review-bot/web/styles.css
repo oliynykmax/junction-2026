@@ -281,6 +281,64 @@ h1 .num {
 
 /* Scanner band */
 
+.tier {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+
+/* High risk asks for a full read but never blocks, so it is ink, not red. */
+.tier-high {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+.tier-medium {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.band-note {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.depth {
+  font-weight: 600;
+}
+
+.sub-h {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+
+.paths,
+.reasons {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.paths a,
+.reasons a {
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .band {
   border-top: 1px solid var(--rule-strong);
   border-bottom: 1px solid var(--rule-strong);

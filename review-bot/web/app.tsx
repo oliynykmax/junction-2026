@@ -12,6 +12,7 @@ import { FileDiffs } from "./diff";
 import { Findings } from "./findings";
 import { BLOCKING_RULE, type Focus, plural } from "./shared";
 import { blocks } from "../src/findings";
+import { RiskBand } from "./risk";
 
 export type PageConfig = {
   api: string;
@@ -161,6 +162,7 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
         )}
         {view && tab === "changes" && (
           <>
+            <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
             <Scanners
               scan={view.review.scan}
               dismissed={view.review.verdict?.dismissed ?? []}

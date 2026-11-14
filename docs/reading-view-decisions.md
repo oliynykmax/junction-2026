@@ -28,6 +28,28 @@ for at least one character, so `!allowed` cannot become `allowed`.
 - **Hunk headers belong to the compiler**: shown while any line of the hunk is,
   hidden with the whole hunk.
 
+## The agent's tool, 2026-11-14
+
+The reviewer agent submits one plan per file with `abridge_file`, after its
+findings, using patch line numbers from `read_patch` with `numbered`. It is the
+same agent and model as the review, since it has already read every patch.
+
+- **Only the plan is stored**, under `readings` in the review document. The
+  viewer renders it against the patch and the findings at display time. A
+  finding reported after the plan that cites a hidden line therefore makes the
+  plan invalid, and that file falls back to the full diff instead of hiding
+  the evidence.
+- **Two refusals per file**, then the tool stops accepting plans for that file
+  and the owner sees its full diff. This bounds wasted turns, like the other
+  refusal caps.
+- **The tool checks the patch stored with the review**, the one the owner
+  sees, not a fresh copy from GitHub. A file over the size cap has no stored
+  patch and cannot be shortened.
+- **Patch lines are not file lines.** The `N|` gutter appears only when the
+  agent asks for it, and the tool descriptions say `report_finding` still
+  takes file lines at the PR head.
+- Shortening is optional: `finish_review` does not require a plan per file.
+
 ## Left out of meat, and why
 
 Move detection, chunking, Python structure checks and result caching. GitHub

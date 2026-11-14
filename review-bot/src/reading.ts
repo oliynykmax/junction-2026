@@ -371,6 +371,29 @@ export function compileReadingPlan(
   return { ok: true, rows, stats };
 }
 
+const SIGN: Record<SourceKind, string> = { add: "+", del: "-", ctx: " " };
+
+/** The reading view as diff text, with each hidden run as one bracketed note. */
+export function readingText(rows: readonly ReadingRow[]): string {
+  return rows
+    .map((r) => {
+      switch (r.kind) {
+        case "hunk":
+        case "eof":
+          return r.text;
+        case "fold":
+          return `${SIGN[r.sign]}${r.indent}...`;
+        case "gap": {
+          const count = r.end_line - r.start_line + 1;
+          return `[${count} ${r.reason === "using" ? "using" : "removed"} line${count === 1 ? "" : "s"}: ${r.start_line}-${r.end_line}]`;
+        }
+        default:
+          return `${SIGN[r.kind]}${r.text}`;
+      }
+    })
+    .join("\n");
+}
+
 /** `kept 12/40 changed lines`, computed from the plan, never from the agent's claims. */
 export function keptLine(stats: ReadingStats): string {
   if (stats.changed === 0) return "no changed lines";

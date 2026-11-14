@@ -165,7 +165,12 @@ test("starts in isolated namespace and persists manual mode with pinned commits"
   const issuance = calls.find((c) => c.method === "POST");
   expect(issuance.url).toEndWith("/app/installations/7/access_tokens");
   expect(JSON.parse(issuance.body)).toEqual({
-    permissions: { contents: "read", pull_requests: "read" },
+    permissions: {
+      contents: "read",
+      pull_requests: "read",
+      checks: "read",
+      statuses: "read",
+    },
   });
   const reads = calls.filter((c) => c.method === "GET");
   expect(reads).toHaveLength(1);

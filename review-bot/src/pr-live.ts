@@ -56,10 +56,20 @@ export function parsePr(data: unknown): PrMeta | null {
 
 export async function prLive(
   app: AppSecrets,
-  t: { owner: string; repo: string; number: number; headSha: string },
+  t: {
+    owner: string;
+    repo: string;
+    number: number;
+    headSha: string;
+    mode: "manual" | "webhook";
+  },
 ): Promise<PrLive> {
-  // Public repos the app is not installed on are read anonymously.
-  const token = await repoToken(app, t.owner, t.repo).catch(() => "");
+  // Manual reviews never use app credentials. Public repos the app is not
+  // installed on are read anonymously too.
+  const token =
+    t.mode === "manual"
+      ? ""
+      : await repoToken(app, t.owner, t.repo).catch(() => "");
   const [pr, ci] = await Promise.all([
     gh(
       token,

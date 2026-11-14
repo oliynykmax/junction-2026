@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import * as github from "../src/github";
 import { parsePr, prLive } from "../src/pr-live";
 
 const headSha = "a".repeat(40);
@@ -71,7 +72,7 @@ test("reads a public repo anonymously when the app is not installed there", asyn
   });
   const live = await prLive(
     { APP_ID: "1", PRIVATE_KEY: "not a key" },
-    { owner: "team", repo: "demo", number: 7, headSha },
+    { owner: "team", repo: "demo", number: 7, headSha, mode: "webhook" },
   );
   expect(auth.every((a) => a === null)).toBe(true);
   expect(live.pr?.title).toBe(pull.title);
@@ -88,4 +89,32 @@ test("reads a public repo anonymously when the app is not installed there", asyn
       },
     ],
   });
+});
+
+test("a manual review reads anonymously even where the app is installed", async () => {
+  const repoToken = spyOn(github, "repoToken").mockResolvedValue("app-token");
+  const auth: (string | null)[] = [];
+  spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    auth.push(new Headers(init?.headers).get("authorization"));
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("/pulls/7")) return Response.json(pull);
+    if (path.endsWith("/check-runs")) return Response.json({ check_runs: [] });
+    return Response.json([]);
+  });
+  const target = { owner: "team", repo: "demo", number: 7, headSha };
+
+  await prLive(
+    { APP_ID: "1", PRIVATE_KEY: "k" },
+    { ...target, mode: "manual" },
+  );
+  expect(repoToken).not.toHaveBeenCalled();
+  expect(auth.length).toBeGreaterThan(0);
+  expect(auth.every((a) => a === null)).toBe(true);
+
+  auth.length = 0;
+  await prLive(
+    { APP_ID: "1", PRIVATE_KEY: "k" },
+    { ...target, mode: "webhook" },
+  );
+  expect(auth.every((a) => a?.includes("app-token"))).toBe(true);
 });

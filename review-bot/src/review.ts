@@ -80,7 +80,7 @@ export type Activity =
 export type ReviewView = {
   status: RunStatus;
   failure: string | null;
-  review: Omit<ReviewState, "prompt" | "findings"> & {
+  review: Omit<ReviewState, "prompt" | "findings" | "brief"> & {
     prompt: { url: string; sha256: string } | null;
     findings: Stored<Finding>[];
   };
@@ -322,7 +322,7 @@ export class Review extends DurableObject<Env> {
       }
     }
 
-    const { prompt, ...rest } = review;
+    const { prompt, brief: _brief, ...rest } = review;
     const findings = review.findings.map(fromStored);
     return {
       status,

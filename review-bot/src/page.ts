@@ -21,6 +21,10 @@ export function reviewPage(t: PageTarget): Response {
     owner: t.owner,
     repo: t.repo,
     number: t.number,
+    // Only reviews of installed repositories can be signed by an owner.
+    signOffApi: t.manual
+      ? null
+      : `/api/r/${t.owner}/${t.repo}/${t.number}/${t.headSha}/signoff`,
   };
   const esc = (s: string) =>
     s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);

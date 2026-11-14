@@ -16,6 +16,14 @@ import { reviewPage } from "./page";
 import { type Env, reviewLink } from "./review";
 import { reviewKey } from "./review-key";
 import type { Target } from "./reviewer";
+import {
+  callback,
+  login,
+  logout,
+  me,
+  setOwnerStatus,
+  signOff,
+} from "./signoff";
 
 export { ManualGate } from "./manual-gate";
 export { Review } from "./review";
@@ -38,6 +46,9 @@ const PAGE = new RegExp(`^/(r|m)/(${NAME})/(${NAME})/(\\d+)/?$`);
 const VIEW = new RegExp(
   `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})$`,
 );
+const SIGN = new RegExp(
+  `^/api/r/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})/signoff$`,
+);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -49,8 +60,23 @@ export default {
     if (request.method === "POST" && url.pathname === "/webhook") {
       return handleWebhook(request, env);
     }
+    const sign = request.method === "POST" && url.pathname.match(SIGN);
+    if (sign) {
+      const [, owner, repo, number, headSha] = sign;
+      return signOff(request, env, {
+        owner,
+        repo,
+        number: Number(number),
+        headSha,
+      });
+    }
     if (request.method !== "GET")
       return new Response("not found\n", { status: 404 });
+
+    if (url.pathname === "/auth/login") return login(request, env);
+    if (url.pathname === "/auth/callback") return callback(request, env);
+    if (url.pathname === "/auth/logout") return logout(request);
+    if (url.pathname === "/api/me") return me(request, env);
 
     const icon = ICONS[url.pathname];
     if (icon) {
@@ -131,5 +157,14 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     comment,
   );
   await dismissStaleApprovals(token, target);
+  // Each new head waits for a named owner. A failure here (for example the App
+  // lacking "Commit statuses: write") must not stop the review.
+  await setOwnerStatus(
+    token,
+    target,
+    "pending",
+    "Waiting for a named owner to sign off on the review page",
+    reviewLink(env, target),
+  ).catch((e) => console.error("owner sign-off status", e));
   return new Response("review started\n");
 }

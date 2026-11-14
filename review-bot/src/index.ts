@@ -68,11 +68,13 @@ export default {
       if (!/^[0-9a-f]{40}$/.test(sha))
         return new Response("sha query parameter required\n", { status: 400 });
       const [, mode, owner, repo, number] = m;
-      return reviewPage(
-        `/api/${mode}/${owner}/${repo}/${number}/${sha}`,
-        `https://github.com/${owner}/${repo}/pull/${number}`,
-        `${owner}/${repo}#${number}`,
-      );
+      return reviewPage({
+        manual: mode === "m",
+        owner,
+        repo,
+        number,
+        headSha: sha,
+      });
     }
 
     m = url.pathname.match(VIEW);
@@ -86,7 +88,8 @@ export default {
 
     if (
       url.pathname === "/" ||
-      /^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname)
+      /^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname) ||
+      /^\/review\/(assets\/)?[a-zA-Z0-9_.-]+$/.test(url.pathname)
     )
       return env.ASSETS.fetch(request);
     return new Response("not found\n", { status: 404 });

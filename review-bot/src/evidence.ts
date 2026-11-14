@@ -82,77 +82,88 @@ function reason(error: unknown): string {
     : "GitHub evidence could not be read";
 }
 
+type CiParser = (row: unknown) => { key: string; item: CiItem };
+
+function parseCheckRun(row: unknown, headSha: string): ReturnType<CiParser> {
+  if (!record(row)) throw new Error("Invalid GitHub check run");
+  if (sha(row.head_sha) !== headSha)
+    throw new Error("Check run belongs to another commit");
+  const id = integer(row.id);
+  const status = string(row.status);
+  const detail = row.conclusion === null ? status : string(row.conclusion);
+  const conclusions: Record<string, CiItem["state"]> = {
+    success: "success",
+    failure: "failed",
+    cancelled: "failed",
+    timed_out: "failed",
+    action_required: "failed",
+    startup_failure: "failed",
+    stale: "failed",
+  };
+  const running: Record<string, CiItem["state"]> = {
+    queued: "pending",
+    in_progress: "pending",
+    waiting: "pending",
+    requested: "pending",
+    pending: "pending",
+  };
+  const state =
+    (status === "completed" ? conclusions[detail] : running[status]) ??
+    "unavailable";
+  return {
+    key: String(id),
+    item: {
+      id,
+      name: string(row.name),
+      state,
+      detail,
+      url: safeUrl(row.details_url),
+    },
+  };
+}
+
+function parseStatus(row: unknown): ReturnType<CiParser> {
+  if (!record(row)) throw new Error("Invalid GitHub commit status");
+  const name = string(row.context);
+  const detail = string(row.state);
+  const states: Record<string, CiItem["state"]> = {
+    success: "success",
+    pending: "pending",
+    failure: "failed",
+    error: "failed",
+  };
+  return {
+    key: name.toLowerCase(),
+    item: {
+      id: integer(row.id),
+      name,
+      state: states[detail] ?? "unavailable",
+      detail,
+      url: safeUrl(row.target_url),
+    },
+  };
+}
+
 async function ciSource(
   token: string,
   path: string,
-  headSha: string,
-  checks: boolean,
+  rows: (payload: unknown) => unknown,
+  parse: CiParser,
 ): Promise<CiSource> {
   const items = new Map<string, CiItem>();
   try {
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const payload = await json(token, `${path}&per_page=100&page=${page}`);
-      const rows = checks && record(payload) ? payload.check_runs : payload;
-      if (!Array.isArray(rows)) throw new Error("Invalid GitHub CI response");
-      for (const row of rows) {
-        if (!record(row)) throw new Error("Invalid GitHub CI entry");
-        const id = integer(row.id);
-        const name = string(checks ? row.name : row.context);
-        let state: CiItem["state"];
-        let detail: string;
-        let key: string;
-        if (checks) {
-          if (sha(row.head_sha) !== headSha)
-            throw new Error("Check run belongs to another commit");
-          const status = string(row.status);
-          detail = row.conclusion === null ? status : string(row.conclusion);
-          state =
-            status !== "completed"
-              ? [
-                  "queued",
-                  "in_progress",
-                  "waiting",
-                  "requested",
-                  "pending",
-                ].includes(status)
-                ? "pending"
-                : "unavailable"
-              : detail === "success"
-                ? "success"
-                : [
-                      "failure",
-                      "cancelled",
-                      "timed_out",
-                      "action_required",
-                      "startup_failure",
-                      "stale",
-                    ].includes(detail)
-                  ? "failed"
-                  : "unavailable";
-          key = String(id);
-        } else {
-          detail = string(row.state);
-          state =
-            detail === "success"
-              ? "success"
-              : detail === "pending"
-                ? "pending"
-                : ["failure", "error"].includes(detail)
-                  ? "failed"
-                  : "unavailable";
-          key = name.toLowerCase();
-        }
+      const payload = rows(
+        await json(token, `${path}&per_page=100&page=${page}`),
+      );
+      if (!Array.isArray(payload))
+        throw new Error("Invalid GitHub CI response");
+      for (const row of payload) {
+        const { key, item } = parse(row);
         // Statuses are returned newest first; an older result cannot erase a rerun.
-        if (!items.has(key))
-          items.set(key, {
-            id,
-            name,
-            state,
-            detail,
-            url: safeUrl(checks ? row.details_url : row.target_url),
-          });
+        if (!items.has(key)) items.set(key, item);
       }
-      if (rows.length < 100)
+      if (payload.length < 100)
         return { kind: "available", items: [...items.values()] };
     }
     throw new Error("CI pagination limit reached; evidence is incomplete");
@@ -237,8 +248,13 @@ export async function collectEvidence(
   const head = sha(target.headSha);
   const root = `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/commits/${head}`;
   const [checks, statuses, policy] = await Promise.all([
-    ciSource(token, `${root}/check-runs?filter=latest`, head, true),
-    ciSource(token, `${root}/statuses?`, head, false),
+    ciSource(
+      token,
+      `${root}/check-runs?filter=latest`,
+      (payload) => (record(payload) ? payload.check_runs : undefined),
+      (row) => parseCheckRun(row, head),
+    ),
+    ciSource(token, `${root}/statuses?`, (payload) => payload, parseStatus),
     standard(token, target.base),
   ]);
   return {

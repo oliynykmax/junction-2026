@@ -280,16 +280,6 @@ export function ciState(evidence: Evidence): CiState {
   return items.length ? "success" : "none";
 }
 
-export function evidenceAllowsApproval(
-  evidence: Evidence | null | undefined,
-): boolean {
-  return (
-    !!evidence &&
-    ciState(evidence) === "success" &&
-    evidence.standard.kind !== "unavailable"
-  );
-}
-
 export function evidenceGaps(evidence: Evidence | null | undefined): string[] {
   if (!evidence)
     return [

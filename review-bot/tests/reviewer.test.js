@@ -66,7 +66,7 @@ const STAR = {
   action: "Wraps the client call in a single retry.",
   result: "Callers see fewer transient failures; the PR adds no tests.",
 };
-test("scan replay reuses persisted evidence; prompt, coverage and publication consume it", async () => {
+test("scan replay reuses persisted evidence; prompt and coverage consume it; publication carries the risk tier", async () => {
   let ciReads = 0;
   spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = new URL(String(input));
@@ -118,7 +118,7 @@ test("scan replay reuses persisted evidence; prompt, coverage and publication co
   expect(state.verdict.notChecked.join(" ")).toContain(
     "No CODING_STANDARDS.md",
   );
-  expect(publications[0][3]).toEqual(evidence);
+  expect(publications[0][3]).toBe(state.risk.tier);
 });
 
 test("read_file base uses pinned repository and commit without looking up current PR", async () => {
@@ -135,9 +135,10 @@ test("read_file base uses pinned repository and commit without looking up curren
   ]);
 });
 
-test("older review without evidence gains explicit coverage gap and publishes no evidence", async () => {
+test("older review without evidence or risk gains explicit coverage gap and publishes no tier", async () => {
   const { state, reviewer, api, publications } = review();
   delete state.evidence;
+  delete state.risk;
   const finish = reviewer.extension.tools.find(
     (t) => t.name === "finish_review",
   );
@@ -149,7 +150,7 @@ test("older review without evidence gains explicit coverage gap and publishes no
   expect(state.verdict.notChecked.join(" ")).toContain(
     "No CI or team standard evidence",
   );
-  expect(publications[0][3]).toBeNull();
+  expect(publications[0][3]).toBeUndefined();
 });
 
 test("report shell loads the Preact client with pinned API configuration", async () => {

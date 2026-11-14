@@ -6,7 +6,7 @@ import faviconSvg from "../assets/logo.svg";
 import faviconIco from "../assets/favicon.ico";
 import appleTouchIcon from "../assets/apple-touch-icon.png";
 import {
-  dismissStaleApprovals,
+  dismissBotApprovals,
   installationToken,
   upsertComment,
   validSignature,
@@ -145,6 +145,6 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     MARKER,
     comment,
   );
-  await dismissStaleApprovals(token, target);
+  await dismissBotApprovals(token, target);
   return new Response("review started\n");
 }

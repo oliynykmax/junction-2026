@@ -125,7 +125,7 @@ export class Review extends DurableObject<Env> {
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
-        publish: (target, token, findings, evidence) =>
+        publish: (target, token, findings, risk) =>
           target.mode === "manual"
             ? Promise.resolve()
             : publishReview(
@@ -133,7 +133,7 @@ export class Review extends DurableObject<Env> {
                 target,
                 findings,
                 reviewLink(env, target),
-                evidence,
+                risk,
               ),
         finished: (decision, findings) => {
           this.#lifecycle.finished(decision, findings);

@@ -36,15 +36,23 @@ const finding = (line: number) =>
     suggestedPatch: null,
   }) as unknown as Finding;
 
-const render = (readings?: object, findings: Finding[] = []) =>
+/**
+ * Renders the file with optional plans. `findings` are the review's findings;
+ * `shown` are the ones this view annotates (by default the same).
+ */
+const render = (
+  plans?: object,
+  findings: Finding[] = [],
+  shown: Finding[] = findings,
+) =>
   renderToString(
     h(FileDiffs, {
       files: [file],
-      findings,
+      findings: shown,
       focus: null,
       onFocus: () => {},
       lineUrl: () => "#",
-      readings: readings as never,
+      readings: plans ? { plans: plans as never, findings } : undefined,
     }),
   );
 
@@ -107,4 +115,14 @@ test("a cited line outside the plan's hidden lines keeps the reading view", () =
   const html = render({ "src/W.cs": plan }, [finding(6)]);
   expect(html).toContain("Reading view: kept 2/4 changed lines.");
   expect(html).toContain("Flush before dispose");
+});
+
+test("a finding listed under another change still protects its line", () => {
+  // The file belongs to two changes; this view annotates none of the
+  // review's findings, but the plan would hide the cited line (new line 4).
+  const html = render({ "src/W.cs": plan }, [finding(4)], []);
+  expect(html).toContain(
+    "no longer fits its findings, so the full diff is shown",
+  );
+  expect(html).toContain("writer.Write(v.Name);");
 });

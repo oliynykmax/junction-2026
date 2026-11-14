@@ -25,7 +25,15 @@ import {
   plural,
 } from "./shared";
 
-export type Readings = Readonly<Record<string, ReadingPlan>>;
+/**
+ * The agent's reading plans by path, with every finding in the review. Plans
+ * are checked against all of them, not just the findings a view annotates: a
+ * file can belong to several changes, while each finding is listed under one.
+ */
+export type Readings = {
+  plans: Readonly<Record<string, ReadingPlan>>;
+  findings: readonly Finding[];
+};
 
 const isSource = (
   l: PatchLine,
@@ -69,7 +77,10 @@ export function FileDiffs({
           dimmed={focus !== null && focus.path !== file.path}
           onFocus={onFocus}
           lineUrl={lineUrl}
-          plan={readings?.[file.path]}
+          plan={readings?.plans[file.path]}
+          cited={(readings?.findings ?? findings).flatMap((f) =>
+            f.path === file.path && f.line ? [f.line] : [],
+          )}
         />
       ))}
     </div>
@@ -84,6 +95,7 @@ function FileDiff({
   onFocus,
   lineUrl,
   plan,
+  cited,
 }: {
   file: ChangedFile;
   findings: readonly Finding[];
@@ -92,6 +104,8 @@ function FileDiff({
   onFocus: (f: Focus) => void;
   lineUrl: LineUrl;
   plan: ReadingPlan | undefined;
+  /** New-side lines cited by any finding in the review, for this file. */
+  cited: readonly number[];
 }) {
   const focusRef = useRef<HTMLTableRowElement>(null);
   useEffect(() => {
@@ -109,10 +123,11 @@ function FileDiff({
       plan && file.patch
         ? compileReadingPlan(file.patch, plan, {
             path: file.path,
-            protectedLines: findings.flatMap((f) => (f.line ? [f.line] : [])),
+            protectedLines: cited,
           })
         : null,
-    [plan, file.patch, file.path, findings],
+    // cited is rebuilt each render; its contents are what matter.
+    [plan, file.patch, file.path, cited.join(",")],
   );
   const usable = reading?.ok ? reading : null;
   const shortened = usable !== null && !full;

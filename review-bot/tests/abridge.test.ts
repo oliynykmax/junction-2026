@@ -6,6 +6,7 @@ import {
   type ReviewState,
   reviewerExtension,
 } from "../src/reviewer";
+import { numberedPatch } from "../src/reading";
 
 const PATCH = [
   "@@ -1,3 +1,6 @@", //                1
@@ -181,9 +182,13 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-test("read_patch numbers patch lines only when asked", async () => {
-  globalThis.fetch = (async () =>
-    Response.json([
+test("read_patch numbers the stored patch that abridge_file compiles", async () => {
+  // GitHub now returns a newer patch than the one stored at review start,
+  // as after a push during the review.
+  let fetches = 0;
+  globalThis.fetch = (async () => {
+    fetches++;
+    return Response.json([
       {
         filename: "src/W.cs",
         status: "modified",
@@ -191,12 +196,17 @@ test("read_patch numbers patch lines only when asked", async () => {
         deletions: 1,
         patch: "@@ -1 +1 @@\n-a\n+b",
       },
-    ])) as unknown as typeof fetch;
+    ]);
+  }) as unknown as typeof fetch;
   const run = harness(reviewWith({ "src/W.cs": PATCH }));
   expect((await run("read_patch", { path: "src/W.cs" })).text).toBe(
     "@@ -1 +1 @@\n-a\n+b",
   );
-  expect(
-    (await run("read_patch", { path: "src/W.cs", numbered: true })).text,
-  ).toBe("1|@@ -1 +1 @@\n2|-a\n3|+b");
+  expect(fetches).toBe(1);
+  const numbered = await run("read_patch", {
+    path: "src/W.cs",
+    numbered: true,
+  });
+  expect(numbered.text).toBe(numberedPatch(PATCH));
+  expect(fetches).toBe(1);
 });

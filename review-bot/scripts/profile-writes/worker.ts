@@ -580,6 +580,13 @@ async function offline(
         head: { ref: "feature", sha: currentHead },
       });
     }
+    if (rest.startsWith("git/commits/"))
+      return Response.json({ sha: rest.slice("git/commits/".length) });
+    if (rest === "contents/CODING_STANDARDS.md")
+      return new Response("not found", { status: 404 });
+    if (rest.endsWith("/check-runs"))
+      return Response.json({ total_count: 0, check_runs: [] });
+    if (rest.endsWith("/statuses")) return Response.json([]);
     if (rest.startsWith("contents/"))
       return new Response(
         "export const store: Record<string, unknown> = {};\n",

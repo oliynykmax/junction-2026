@@ -43,6 +43,7 @@ button{font:inherit;font-size:.85rem;padding:4px 12px;border-radius:6px;border:1
 <div id="verdict"></div>
 <h2>Findings</h2><div id="findings" class="empty">none yet</div>
 <h2>Scanners</h2><div id="scanners" class="empty">waiting for the scan</div>
+<h2>Docs consulted</h2><div id="docs" class="empty">no documentation looked up yet</div>
 <h2>Not checked</h2><div id="notchecked" class="empty">reported when the review finishes</div>
 <h2>Agent activity</h2><div id="feed" class="feed"></div>
 </main>
@@ -58,6 +59,7 @@ async function tick(){
   render(v);
   if(["running","scanning","not_started"].includes(v.status))timer=setTimeout(tick,2000);
 }
+function linkDocs(html){return html.replace(/Docs: (https?:\\/\\/[^\\s<]+)/g,(_,u)=>'Docs: <a href="'+u+'">'+u+'</a>')}
 function render(v){
   const r=v.review,t=r.target;
   $("meta").innerHTML='<span class="pill '+v.status+'">'+v.status.replace("_"," ")+'</span>'
@@ -73,9 +75,12 @@ function render(v){
   if(fs.length)$("findings").innerHTML=fs.map((f)=>{
     const loc=f.path+(f.line?":"+f.line:"");
     const href=t?BLOB+"/blob/"+t.headSha+"/"+f.path+(f.line?"#L"+f.line:""):"#";
-    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+f.severity+'</span><strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+esc(f.body)+'</p>'
+    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+f.severity+'</span><strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+linkDocs(esc(f.body))+'</p>'
       +(f.suggestedPatch?'<details><summary>Suggested fix</summary><pre>'+esc(f.suggestedPatch)+'</pre><button disabled title="Not wired up yet">Open fix PR (coming soon)</button></details>':'')+'</div>';
   }).join("");
+  const ls=r.lookups||[];
+  $("docs").className=ls.length?"":"empty";
+  $("docs").innerHTML=ls.length?'<ul>'+ls.map((l)=>'<li><code>'+esc(l.tool.replace(/^mcp__/,"").replace("__"," "))+'</code> <code>'+esc(l.args)+'</code></li>').join("")+'</ul>':(r.verdict?"none":"no documentation looked up yet");
   renderScan(r.scan,r.verdict,t);
   if(r.verdict){const n=r.verdict.notChecked;$("notchecked").className=n.length?"":"empty";$("notchecked").innerHTML=n.length?'<ul>'+n.map((x)=>'<li>'+esc(x)+'</li>').join("")+'</ul>':"nothing listed"}
   $("feed").innerHTML=v.activity.map((a)=>{

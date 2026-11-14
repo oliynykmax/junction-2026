@@ -23,6 +23,7 @@ import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
+  recordLookup,
   ReviewDoc,
   reviewerExtension,
   type ReviewState,
@@ -39,6 +40,7 @@ export interface Env extends AppSecrets {
   SCANNER_URL: string;
   SCANNER_TOKEN: string;
   MCP_SERVERS?: Record<string, unknown>;
+  CONTEXT_DEV_API_KEY?: string;
   REVIEWS: DurableObjectNamespace<Review>;
 }
 
@@ -98,8 +100,11 @@ export class Review extends DurableObject<Env> {
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);
-      const servers = mcpServers(env.MCP_SERVERS);
-      registry.install(await mcpExtension(servers));
+      const servers = mcpServers(
+        env.MCP_SERVERS,
+        env as unknown as Record<string, unknown>,
+      );
+      registry.install(await mcpExtension(servers, recordLookup));
       registry.install(
         createCodemodeExtension({
           sandbox: createInlineCodemodeSandbox(),

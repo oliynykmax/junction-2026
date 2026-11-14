@@ -133,6 +133,7 @@ async function checkout(input) {
   const owner = safeName(input.owner, "owner");
   const repo = safeName(input.repo, "repo");
   const commit = sha(input.sha, "sha");
+  const base = input.baseSha == null ? null : sha(input.baseSha, "baseSha");
   const githubToken = string(input.githubToken, "githubToken");
   const workspace = resolve(session, "repo");
   await rm(session, { recursive: true, force: true });
@@ -157,17 +158,20 @@ async function checkout(input) {
     "-c",
     `http.extraHeader=Authorization: Basic ${basic}`,
     "fetch",
-    "--depth=1",
+    // With a base, 50 commits on each side are enough for `git diff base...HEAD`
+    // and `git log base..HEAD` to find their merge base on a typical PR.
+    base ? "--depth=50" : "--depth=1",
     "origin",
     commit,
+    ...(base ? [base] : []),
   );
-  await git("-C", workspace, "checkout", "--detach", "FETCH_HEAD");
+  await git("-C", workspace, "checkout", "--detach", commit);
   await writeFile(
     resolve(workspace, ".bumble-checkout.json"),
-    JSON.stringify({ owner, repo, commit }, null, 2) + "\n",
+    JSON.stringify({ owner, repo, commit, base }, null, 2) + "\n",
     { mode: 0o600 },
   );
-  return { workspace, commit };
+  return base ? { workspace, commit, base } : { workspace, commit };
 }
 
 async function shell(input) {

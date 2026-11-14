@@ -7,12 +7,15 @@ export type CheckoutInput = {
   owner: string;
   repo: string;
   sha: string;
+  /** Also fetch this base commit, with 50 commits of history on each side. */
+  baseSha?: string;
   githubToken: string;
 };
 
 export type CheckoutResult = {
   workspace: string;
   commit: string;
+  base?: string;
 };
 
 export type ShellInput = {

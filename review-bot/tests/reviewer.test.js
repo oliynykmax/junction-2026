@@ -66,7 +66,11 @@ function review() {
     finished: () => {},
     checkout: async (args) => {
       checkouts.push(args);
-      return { workspace: "/tmp/review/repo", commit: args.sha };
+      return {
+        workspace: "/tmp/review/repo",
+        commit: args.sha,
+        ...(args.baseSha && { base: args.baseSha }),
+      };
     },
     shell: async (args) => {
       shells.push(args);
@@ -176,10 +180,12 @@ test("checkout_pr and shell expose the pinned writable workspace without returni
       owner: target.owner,
       repo: target.repo,
       sha: target.headSha,
+      baseSha: target.base.sha,
       githubToken: "token",
     },
   ]);
   expect(checkedOut.output[0].text).toContain("/tmp/review/repo");
+  expect(checkedOut.output[0].text).toContain(`Fetched base ${target.base.sha}`);
   expect(checkedOut.output[0].text).not.toContain("token");
   const ran = await shell.execute(
     { command: "go test ./...", cwd: "pkg", timeout_ms: 1234 },

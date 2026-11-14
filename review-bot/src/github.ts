@@ -67,6 +67,67 @@ export async function upsertComment(
   }
 }
 
+const APPROVAL_MARKER = "<!-- earned-trust-review-approval -->";
+
+type PrReview = {
+  id: number;
+  state: string;
+  commit_id: string;
+  body: string | null;
+};
+
+type Pr = { owner: string; repo: string; number: number };
+
+function botApprovals(token: string, pr: Pr) {
+  return ghJson<PrReview[]>(
+    token,
+    `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=100`,
+  ).then((all) =>
+    all.filter(
+      (r) => r.state === "APPROVED" && r.body?.startsWith(APPROVAL_MARKER),
+    ),
+  );
+}
+
+/** Approves the PR at `headSha`, unless a newer commit is already the head or the bot approved it before. */
+export async function approve(
+  token: string,
+  pr: Pr & { headSha: string },
+  body: string,
+) {
+  const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
+  const current = await ghJson<{ head: { sha: string } }>(token, base);
+  if (current.head.sha !== pr.headSha) return;
+  const approvals = await botApprovals(token, pr);
+  if (approvals.some((r) => r.commit_id === pr.headSha)) return;
+  await gh(token, `${base}/reviews`, {
+    method: "POST",
+    body: {
+      commit_id: pr.headSha,
+      event: "APPROVE",
+      body: `${APPROVAL_MARKER}\n${body}`,
+    },
+  });
+}
+
+/** Withdraws the bot's approvals of any commit other than `headSha`. */
+export async function dismissStaleApprovals(
+  token: string,
+  pr: Pr & { headSha: string },
+) {
+  const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
+  for (const r of await botApprovals(token, pr)) {
+    if (r.commit_id === pr.headSha) continue;
+    await gh(token, `${base}/reviews/${r.id}/dismissals`, {
+      method: "PUT",
+      body: {
+        message: `New commit \`${pr.headSha.slice(0, 7)}\` pushed. The approval returns if its review has no findings.`,
+        event: "DISMISS",
+      },
+    });
+  }
+}
+
 export async function installationToken(
   app: AppSecrets,
   installationId: number,

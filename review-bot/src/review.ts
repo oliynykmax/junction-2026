@@ -18,7 +18,7 @@ import {
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
-import { type AppSecrets, installationToken } from "./github";
+import { type AppSecrets, approve, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Check, ScanResult } from "./scanners";
 import {
@@ -71,6 +71,10 @@ export function reviewKey(t: {
   return `${t.owner}/${t.repo}#${t.number}@${t.headSha}`;
 }
 
+export function reviewLink(env: Env, t: Target) {
+  return `${env.REVIEW_BASE_URL}/r/${t.owner}/${t.repo}/${t.number}?sha=${t.headSha}`;
+}
+
 export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
@@ -97,6 +101,12 @@ export class Review extends DurableObject<Env> {
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
+        approve: (target, token) =>
+          approve(
+            token,
+            target,
+            `The automated review of \`${target.headSha.slice(0, 7)}\` found nothing: ${reviewLink(env, target)}`,
+          ),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);

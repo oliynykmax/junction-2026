@@ -5,9 +5,14 @@
 import faviconSvg from "../assets/logo.svg";
 import faviconIco from "../assets/favicon.ico";
 import appleTouchIcon from "../assets/apple-touch-icon.png";
-import { installationToken, upsertComment, validSignature } from "./github";
+import {
+  dismissStaleApprovals,
+  installationToken,
+  upsertComment,
+  validSignature,
+} from "./github";
 import { reviewPage } from "./page";
-import { type Env, reviewKey } from "./review";
+import { type Env, reviewKey, reviewLink } from "./review";
 import type { Target } from "./reviewer";
 
 export { Review } from "./review";
@@ -101,11 +106,12 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   await env.REVIEWS.getByName(reviewKey(target)).start(target);
 
   const { token } = await installationToken(env, target.installationId);
-  const link = `${env.REVIEW_BASE_URL}/r/${target.owner}/${target.repo}/${target.number}?sha=${target.headSha}`;
   const comment =
     `${MARKER}\n` +
-    `**Review session:** ${link}\n\n` +
-    `<sub>For commit \`${target.headSha.slice(0, 7)}\`. The review is advice; merging needs a named human's sign-off on that page.</sub>`;
+    `**Review session:** ${reviewLink(env, target)}\n\n` +
+    `<sub>For commit \`${target.headSha.slice(0, 7)}\`. Each push starts a new review and updates this comment to link it. ` +
+    `When a review has no findings, the bot approves the PR, and the next push withdraws that approval until its own review is clean. ` +
+    `The review is advice; merging needs a named human's sign-off on that page.</sub>`;
   await upsertComment(
     token,
     target.owner,
@@ -114,5 +120,6 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     MARKER,
     comment,
   );
+  await dismissStaleApprovals(token, target);
   return new Response("review started\n");
 }

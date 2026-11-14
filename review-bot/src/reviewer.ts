@@ -302,7 +302,7 @@ export async function recordLookup(
 }
 
 export type ReviewerDeps = {
-  token: (installationId: number) => Promise<string>;
+  token: (installationId: number | "public") => Promise<string>;
   scan: (
     target: Target,
     token: string,
@@ -330,10 +330,9 @@ export function reviewerExtension({
     if (!state?.target) throw new Error("review has no target");
     return {
       t: state.target,
-      tok:
-        state.target.mode === "manual"
-          ? ""
-          : await token(state.target.installationId),
+      tok: await token(
+        state.target.mode === "manual" ? "public" : state.target.installationId,
+      ),
     };
   }
 
@@ -641,7 +640,9 @@ export function reviewerExtension({
         const existing = await runtime.snapshot(ReviewDoc, id, context);
         const t = existing?.target;
         if (!t) throw new Error("review has no target");
-        const tok = t.mode === "manual" ? "" : await token(t.installationId);
+        const tok = await token(
+          t.mode === "manual" ? "public" : t.installationId,
+        );
 
         if (!existing?.evidence) {
           const evidence = await collectEvidence(tok, {

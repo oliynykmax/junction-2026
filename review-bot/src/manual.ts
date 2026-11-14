@@ -1,5 +1,5 @@
 import { reviewKey } from "./review-key";
-import { gh } from "./github";
+import { gh, publicInstallationToken } from "./github";
 import type { Env, ReviewView } from "./review";
 import type { Target } from "./reviewer";
 
@@ -32,11 +32,12 @@ export function parsePrUrl(value: unknown) {
 
 export async function resolveManual(
   value: unknown,
+  token: string,
 ): Promise<Target & { mode: "manual" }> {
   const pr = parsePrUrl(value);
   try {
     const data: unknown = await (
-      await gh("", `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`)
+      await gh(token, `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`)
     ).json();
     if (
       typeof data !== "object" ||
@@ -142,7 +143,8 @@ export async function startManual(
         "The demo review limit has been reached. Try again later. Shared hourly and daily limits apply.",
         429,
       );
-    const target = await resolveManual(data.url);
+    const { token } = await publicInstallationToken(env);
+    const target = await resolveManual(data.url, token);
     const key = reviewKey(target);
     const review = env.REVIEWS.getByName(key);
     if (!(await review.hasStarted()) && !(await gate.admit(client, key)))

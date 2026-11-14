@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import { gh, prFiles } from "../src/github";
 import {
   manualView,
@@ -11,6 +12,11 @@ import { EMPTY_REVIEW, reviewerExtension } from "../src/reviewer";
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
 const { consume, ManualGate } = await import("../src/manual-gate");
 const originalFetch = globalThis.fetch;
+const { privateKey } = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  publicKeyEncoding: { type: "spki", format: "pem" },
+});
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
@@ -35,6 +41,11 @@ function github(data = publicPr) {
   const calls = [];
   globalThis.fetch = mock(async (url, init) => {
     calls.push({ url, ...init });
+    if (url.endsWith("/access_tokens"))
+      return Response.json({
+        token: "public-read-token",
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+      });
     return Response.json(
       url.endsWith("/repos/team/demo")
         ? { private: false, visibility: "public" }
@@ -49,6 +60,9 @@ function env() {
   const admit = mock(async () => true);
   const admitLookup = mock(async () => true);
   return {
+    APP_ID: "123",
+    PRIVATE_KEY: privateKey,
+    PUBLIC_INSTALLATION_ID: "7",
     started,
     keys,
     admit,
@@ -123,7 +137,7 @@ test("rejects PRs whose base repository is private", async () => {
     }),
   );
   await expect(
-    resolveManual("https://github.com/team/demo/pull/12"),
+    resolveManual("https://github.com/team/demo/pull/12", "public-read-token"),
   ).rejects.toThrow("not publicly accessible");
   expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 });
@@ -131,7 +145,7 @@ test("rejects PRs whose base repository is private", async () => {
 test("rejects oversized changes", async () => {
   github({ ...publicPr, changed_files: 61 });
   await expect(
-    resolveManual("https://github.com/team/demo/pull/12"),
+    resolveManual("https://github.com/team/demo/pull/12", "public-read-token"),
   ).rejects.toThrow("60 files");
 });
 
@@ -148,7 +162,14 @@ test("starts in isolated namespace and persists manual mode with pinned commits"
   expect(bindings.keys[0]).toBe(`manual:team/demo#12@${sha}`);
   expect(bindings.started).toEqual([target]);
   expect(bindings.started[0].installationId).toBeUndefined();
-  expect(calls.every((c) => c.method === "GET")).toBe(true);
+  const issuance = calls.find((c) => c.method === "POST");
+  expect(issuance.url).toEndWith("/app/installations/7/access_tokens");
+  expect(JSON.parse(issuance.body)).toEqual({
+    permissions: { contents: "read", pull_requests: "read" },
+  });
+  const reads = calls.filter((c) => c.method === "GET");
+  expect(reads).toHaveLength(1);
+  expect(reads[0].headers.authorization).toBe("Bearer public-read-token");
 });
 
 test("rejects malformed, large and cross-origin requests without starting work", async () => {
@@ -190,14 +211,15 @@ test("safe errors do not expose upstream bodies", async () => {
     request({ url: "https://github.com/team/demo/pull/12" }),
     env(),
   );
-  expect(response.status).toBe(422);
+  expect(response.status).toBe(503);
   expect(await response.text()).not.toContain("secret");
 });
 
 test("manual patches use the pinned comparison, webhook patches retain PR endpoint", async () => {
   const calls = github({ files: [] });
-  await prFiles("", target);
+  await prFiles("public-read-token", target);
   expect(calls[0].url).toEndWith(`/compare/${baseSha}...${sha}`);
+  expect(calls[0].headers.authorization).toBe("Bearer public-read-token");
   globalThis.fetch = mock(async (url, init) => {
     calls.push({ url, ...init });
     return Response.json([]);
@@ -297,7 +319,8 @@ for (const manual of [true, false])
     expect(finished).toHaveBeenCalledWith("no_blockers_found", 1);
     expect(publish).toHaveBeenCalledTimes(manual ? 0 : 1);
     if (!manual) expect(publish.mock.calls[0][2]).toEqual([finding]);
-    expect(token).toHaveBeenCalledTimes(manual ? 0 : 1);
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(token).toHaveBeenCalledWith(manual ? "public" : 7);
   });
 
 test("durable admission enforces per-client, global hourly and daily budgets across restores", () => {

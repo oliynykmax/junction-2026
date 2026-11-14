@@ -203,7 +203,7 @@ test("Preact evidence panel renders the persisted snapshot and legacy fallback",
   );
 });
 
-test("manual evidence uses anonymous reads and never publishes to GitHub", async () => {
+test("manual evidence uses authenticated reads and never publishes to GitHub", async () => {
   const { state, reviewer, api, runtime, publications } = review();
   state.target = {
     owner: target.owner,
@@ -215,7 +215,7 @@ test("manual evidence uses anonymous reads and never publishes to GitHub", async
   };
   const calls = [];
   spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    expect(init.headers.authorization).toBeUndefined();
+    expect(init.headers.authorization).toBe("Bearer token");
     expect(init.method).toBe("GET");
     const url = new URL(String(input));
     calls.push(url);

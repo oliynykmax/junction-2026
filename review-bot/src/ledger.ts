@@ -35,12 +35,7 @@ type Detail = Record<string, string | number | boolean>;
 
 export type LedgerEvent = {
   kind:
-    | "modal"
-    | "mcp"
-    | "mcp_connect"
-    | "github_token"
-    | "shell"
-    | "lifecycle";
+    "modal" | "mcp" | "mcp_connect" | "github_token" | "shell" | "lifecycle";
   name: string;
   ok: boolean;
   ms: number | null;

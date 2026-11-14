@@ -174,7 +174,12 @@ function TimeFrame<T>({
                 y1={y(v)}
                 y2={y(v)}
               />
-              <text class="viz-tick" x={PAD.left - 6} y={y(v) + 4} text-anchor="end">
+              <text
+                class="viz-tick"
+                x={PAD.left - 6}
+                y={y(v) + 4}
+                text-anchor="end"
+              >
                 {fmtV(v)}
               </text>
             </g>
@@ -282,7 +287,13 @@ export function TimeLines<T>(props: TimeProps<T>) {
               ))}
               {dots.length <= 40 &&
                 dots.map(([cx, cy]) => (
-                  <circle class="viz-dot" cx={cx} cy={cy} r={3.5} fill={s.color} />
+                  <circle
+                    class="viz-dot"
+                    cx={cx}
+                    cy={cy}
+                    r={3.5}
+                    fill={s.color}
+                  />
                 ))}
             </g>
           );

@@ -468,7 +468,9 @@
 
 .dash-recent {
   display: grid;
-  grid-template-columns: 10px minmax(0, max-content) 7ch minmax(0, 1fr) max-content max-content max-content;
+  grid-template-columns:
+    10px minmax(0, max-content) 7ch minmax(0, 1fr)
+    max-content max-content max-content;
   column-gap: 12px;
   list-style: none;
   padding: 0;

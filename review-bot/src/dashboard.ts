@@ -180,6 +180,8 @@ export type DashboardView = {
   };
   recent: RunRow[];
   droppedEvents: number;
+  /** The run read hit its cap, so run figures cover only this many newest runs; null when complete. */
+  truncated: number | null;
 };
 
 // Row shapes as D1 returns them.
@@ -334,7 +336,9 @@ export function kpis(runs: readonly DbRun[], now: number): Kpis {
   return k;
 }
 
-export function durationBins(runs: readonly DbRun[]): DashboardView["durations"] {
+export function durationBins(
+  runs: readonly DbRun[],
+): DashboardView["durations"] {
   const bins = [
     ...DURATION_EDGES_MS.map((toMs) => ({ toMs, n: 0 })),
     { toMs: null, n: 0 },
@@ -567,6 +571,7 @@ export function shapeView(
     recoveries: recoveryCounts(rows.recoveries),
     recent: current.slice(0, RECENT).map((r) => runRow(r, now)),
     droppedEvents: rows.dropped[0]?.n ?? 0,
+    truncated: rows.runs.length >= RUN_LIMIT ? RUN_LIMIT : null,
   };
 }
 
@@ -587,10 +592,10 @@ export async function dashboardView(
     q.from - span,
   ];
   const repoOf = (alias: string) =>
-    `(?3 IS NULL OR (${alias}.owner = ?3 AND ${alias}.repo = ?4))`;
+    `(?3 IS NULL OR (lower(${alias}.owner) = ?3 AND lower(${alias}.repo) = ?4))`;
   const runWhere = `r.started_at >= ?1 AND r.started_at < ?2 AND ${repoOf("r")}`;
   const eventWhere = `e.at >= ?1 AND e.at < ?2 AND (?3 IS NULL OR EXISTS (
-    SELECT 1 FROM runs r WHERE r.object_id = e.object_id AND r.owner = ?3 AND r.repo = ?4))`;
+    SELECT 1 FROM runs r WHERE r.object_id = e.object_id AND lower(r.owner) = ?3 AND lower(r.repo) = ?4))`;
   const ofRunsInWindow = `e.object_id IN (SELECT r.object_id FROM runs r WHERE ${runWhere})`;
   // D1 refuses more bindings than a statement references.
   const stmt = (sql: string) => {
@@ -647,7 +652,7 @@ export async function dashboardView(
     stmt(
       `SELECT c.object_id, c.detected_at, c.outcome FROM recoveries c
        WHERE c.detected_at >= ?1 AND c.detected_at < ?2 AND (?3 IS NULL OR EXISTS (
-         SELECT 1 FROM runs r WHERE r.object_id = c.object_id AND r.owner = ?3 AND r.repo = ?4))
+         SELECT 1 FROM runs r WHERE r.object_id = c.object_id AND lower(r.owner) = ?3 AND lower(r.repo) = ?4))
        ORDER BY c.detected_at`,
     ),
     stmt(
@@ -704,7 +709,11 @@ export async function dashboardApi(
     throw error;
   }
   try {
-    const key = JSON.stringify([q.to - q.from, q.repo]);
+    const key = JSON.stringify([
+      Math.floor(q.from / CACHE_MS),
+      q.to - q.from,
+      q.repo,
+    ]);
     const hit = cache.get(key);
     if (hit && now - hit.at < CACHE_MS)
       return new Response(hit.body, { headers: JSON_NO_STORE });

@@ -12,13 +12,14 @@ import "./styles.css";
 import "./dashboard.css";
 import { type ComponentChildren, render } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import type {
-  Bucket,
-  CallKind,
-  DashboardView,
-  FunnelStep,
-  Kpis,
-  RunRow,
+import {
+  type Bucket,
+  CALL_KINDS,
+  type CallKind,
+  type DashboardView,
+  type FunnelStep,
+  type Kpis,
+  type RunRow,
 } from "../src/dashboard";
 import type { FailureClass } from "../src/status";
 import {
@@ -122,7 +123,9 @@ class ApiError extends Error {
 
 async function fetchView(url: string): Promise<DashboardView> {
   const res = await fetch(url, { cache: "no-store" });
-  const body = (await res.json().catch(() => ({}))) as Partial<DashboardView> & {
+  const body = (await res
+    .json()
+    .catch(() => ({}))) as Partial<DashboardView> & {
     error?: string;
   };
   if (!res.ok || !body.kpis)
@@ -168,15 +171,26 @@ function fmtAgo(t: number, now: number) {
 function timeFormats(bucketMs: number) {
   const day = bucketMs >= 86_400_000;
   const tick = (t: number) =>
-    new Date(t).toLocaleString("en-GB", day
-      ? { day: "numeric", month: "short" }
-      : bucketMs >= 3 * 3_600_000
-        ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
-        : { hour: "2-digit", minute: "2-digit" });
+    new Date(t).toLocaleString(
+      "en-GB",
+      day
+        ? { day: "numeric", month: "short" }
+        : bucketMs >= 3 * 3_600_000
+          ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
+          : { hour: "2-digit", minute: "2-digit" },
+    );
   const full = (t: number) =>
-    new Date(t).toLocaleString("en-GB", day
-      ? { weekday: "short", day: "numeric", month: "short" }
-      : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    new Date(t).toLocaleString(
+      "en-GB",
+      day
+        ? { weekday: "short", day: "numeric", month: "short" }
+        : {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          },
+    );
   return { tick, full };
 }
 
@@ -337,7 +351,10 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
     0,
   );
   const cacheRead = view.models.reduce((s, m) => s + m.cacheRead, 0);
-  const calls = view.tools.reduce((n, t) => n + t.calls, 0);
+  const calls = view.series.reduce(
+    (n, b) => n + CALL_KINDS.reduce((m, kind) => m + b.calls[kind].n, 0),
+    0,
+  );
 
   return (
     <>
@@ -350,8 +367,9 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
           spark={view.series.map((b) => b.done + b.failed + b.open)}
         />
         <Kpi
-          label="Reached a verdict"
+          label="Verdict rate"
           value={fmtPct(verdictRate(k))}
+          sub="of ended reviews"
           now={verdictRate(k)}
           before={p ? verdictRate(p) : undefined}
           spark={view.series.map((b) =>
@@ -449,7 +467,11 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
             fmt={fmtInt}
             label="Review outcomes"
             segments={[
-              { label: "No blockers", value: view.outcomes.noBlockers, color: GOOD },
+              {
+                label: "No blockers",
+                value: view.outcomes.noBlockers,
+                color: GOOD,
+              },
               {
                 label: "Changes requested",
                 value: view.outcomes.changesRequested,
@@ -460,7 +482,11 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
                 value: n ?? 0,
                 color: CRITICAL,
               })),
-              { label: "Running or stale", value: view.outcomes.open, color: MUTED },
+              {
+                label: "Running or stale",
+                value: view.outcomes.open,
+                color: MUTED,
+              },
             ]}
           />
           <h3 class="dash-sub">Verification receipts</h3>
@@ -473,13 +499,21 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
               fmt={fmtInt}
               label="Verification receipts by outcome"
               segments={[
-                { label: "Passed", value: view.verification.passed, color: SLOTS[0] },
+                {
+                  label: "Passed",
+                  value: view.verification.passed,
+                  color: SLOTS[0],
+                },
                 {
                   label: "Counterexample",
                   value: view.verification.counterexample,
                   color: SLOTS[1],
                 },
-                { label: "Not run", value: view.verification.not_run, color: MUTED },
+                {
+                  label: "Not run",
+                  value: view.verification.not_run,
+                  color: MUTED,
+                },
               ]}
             />
           )}
@@ -554,8 +588,16 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
                   fmt={fmtCompact}
                   label={`Prompt token sources for ${m.model}`}
                   segments={[
-                    { label: "Cache read", value: m.cacheRead, color: SLOTS[0] },
-                    { label: "Cache write", value: m.cacheWrite, color: SLOTS[2] },
+                    {
+                      label: "Cache read",
+                      value: m.cacheRead,
+                      color: SLOTS[0],
+                    },
+                    {
+                      label: "Cache write",
+                      value: m.cacheWrite,
+                      color: SLOTS[2],
+                    },
                     { label: "Uncached", value: m.input, color: SLOTS[1] },
                   ]}
                 />
@@ -573,7 +615,10 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
             <Stat
               label="GitHub token cache hits"
               value={fmtPct(
-                rate(view.connections.tokenCacheHits, view.connections.tokenCacheMisses),
+                rate(
+                  view.connections.tokenCacheHits,
+                  view.connections.tokenCacheMisses,
+                ),
               )}
             />
             <Stat
@@ -601,8 +646,10 @@ function Board({ view, now }: { view: DashboardView; now: number }) {
       <p class="dash-foot muted">
         Cost is pi's estimate from list prices and token usage, not an invoice.
         Call counts are best effort: events buffered in an evicted object are
-        lost. Shell calls and verification receipts are recorded only by
-        reviews that ran after they were added.
+        lost. Shell calls and verification receipts are recorded only by reviews
+        that ran after they were added.
+        {view.truncated &&
+          ` This window holds more reviews than the dashboard reads, so the figures cover only the newest ${fmtInt(view.truncated)} runs across it and the previous window.`}
         {view.droppedEvents > 0 &&
           ` ${fmtInt(view.droppedEvents)} events were dropped from full buffers in this window.`}
       </p>
@@ -620,7 +667,8 @@ function shortModel(m: string) {
 
 function bucketName(ms: number) {
   if (ms >= 86_400_000) return "day";
-  if (ms >= 3_600_000) return ms === 3_600_000 ? "hour" : `${ms / 3_600_000} hours`;
+  if (ms >= 3_600_000)
+    return ms === 3_600_000 ? "hour" : `${ms / 3_600_000} hours`;
   return `${ms / 60_000} minutes`;
 }
 
@@ -675,13 +723,18 @@ function Kpi({
 }) {
   let delta: { text: string; tone: string } | null = null;
   if (now !== null && before !== undefined && before !== null) {
-    const diff = points ? (now - before) * 100 : before ? ((now - before) / before) * 100 : null;
+    const diff = points
+      ? (now - before) * 100
+      : before
+        ? ((now - before) / before) * 100
+        : null;
     if (diff !== null && Number.isFinite(diff)) {
       const up = diff > 0;
       const good = lowerIsBetter ? !up : up;
       delta = {
         text: `${up ? "▲" : diff < 0 ? "▼" : ""} ${Math.abs(Math.round(diff))}${points ? " pts" : "%"}`,
-        tone: Math.round(diff) === 0 || neutral ? "flat" : good ? "good" : "bad",
+        tone:
+          Math.round(diff) === 0 || neutral ? "flat" : good ? "good" : "bad",
       };
     }
   }
@@ -691,7 +744,10 @@ function Kpi({
       <span class="dash-kpi-value">{value}</span>
       <span class="dash-kpi-meta">
         {delta ? (
-          <span class={`delta ${delta.tone}`} title="Against the previous window">
+          <span
+            class={`delta ${delta.tone}`}
+            title="Against the previous window"
+          >
             {delta.text}
           </span>
         ) : (
@@ -728,7 +784,9 @@ function Histogram({ bins }: { bins: DashboardView["durations"] }) {
     <div class="viz-hist" role="img" aria-label="Histogram of time to verdict">
       {bins.map((b) => {
         const range =
-          b.toMs === null ? `${from / 60_000}+` : `${from / 60_000}–${b.toMs / 60_000}`;
+          b.toMs === null
+            ? `${from / 60_000}+`
+            : `${from / 60_000}–${b.toMs / 60_000}`;
         const label = b.toMs === null ? range : String(from / 60_000);
         const title = `${range} min: ${plural(b.n, "review")}`;
         from = b.toMs ?? from;

@@ -8,10 +8,30 @@ const marker = "<!-- earned-trust-review-approval -->";
 const footer = `[Full report](${report}) · A named human owns the merge; this review is advice, never an approval.`;
 type Review = { id: number; state: string; commit_id: string; body: string };
 
-function github(head = pr.headSha, reviews: Review[] = []) {
+const reviewWrites = (writes: { path: string }[]) =>
+  writes.filter((w) => w.path.endsWith("/reviews"));
+
+function github(
+  head = pr.headSha,
+  reviews: Review[] = [],
+  labels: string[] = [],
+) {
   const writes: { path: string; body: unknown }[] = [];
   spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = String(input).replace("https://api.github.com", "");
+    if (path.startsWith("/repos/team/demo/issues/1/labels")) {
+      if (!init?.method || init.method === "GET")
+        return Response.json(labels.map((name) => ({ name })));
+      writes.push({
+        path: `${init.method} ${path}`,
+        body: init.body ? JSON.parse(String(init.body)) : null,
+      });
+      return Response.json({});
+    }
+    if (path === "/repos/team/demo/labels") {
+      writes.push({ path: `POST ${path}`, body: JSON.parse(String(init!.body)) });
+      return Response.json({});
+    }
     if (!path.startsWith("/repos/team/demo/pulls/1"))
       throw new Error(`Unexpected GitHub path ${path}`);
     if (init?.method === "POST" || init?.method === "PUT") {
@@ -80,17 +100,63 @@ for (const { severities, summary, event } of [
 test("never approves, even a clean review", async () => {
   const writes = github();
   await publishReview("token", pr, [], report, "low");
-  expect(writes.map((w) => (w.body as { event: string }).event)).toEqual([
-    "COMMENT",
-  ]);
+  expect(
+    reviewWrites(writes).map((w) => (w.body as { event: string }).event),
+  ).toEqual(["COMMENT"]);
 });
 
 test("states the risk tier and its review depth", async () => {
   const writes = github();
   await publishReview("token", pr, [{ severity: "low" }], report, "high");
-  expect((writes[0].body as { body: string }).body).toContain(
+  expect((reviewWrites(writes)[0].body as { body: string }).body).toContain(
     "Risk tier: **high**. Read the flagged files in full",
   );
+});
+
+for (const tier of ["low", "medium", "high"] as const) {
+  test(`labels the PR risk: ${tier}`, async () => {
+    const writes = github();
+    await publishReview("token", pr, [], report, tier);
+    expect(writes.map((w) => w.path)).toEqual([
+      "POST /repos/team/demo/labels",
+      "POST /repos/team/demo/issues/1/labels",
+      "/repos/team/demo/pulls/1/reviews",
+    ]);
+    expect(writes[1].body).toEqual({ labels: [`risk: ${tier}`] });
+  });
+}
+
+test("replaces a stale risk label and leaves other labels alone", async () => {
+  const writes = github(pr.headSha, [], ["risk: low", "bug", "risk: high"]);
+  await publishReview("token", pr, [], report, "high");
+  expect(writes.map((w) => w.path)).toEqual([
+    "DELETE /repos/team/demo/issues/1/labels/risk%3A%20low",
+    "/repos/team/demo/pulls/1/reviews",
+  ]);
+});
+
+test("does not touch labels without a risk tier or on a stale head", async () => {
+  const writes = github();
+  await publishReview("token", pr, [], report);
+  expect(writes.map((w) => w.path)).toEqual(["/repos/team/demo/pulls/1/reviews"]);
+  const stale = github("b".repeat(40));
+  await publishReview("token", pr, [], report, "high");
+  expect(stale).toEqual([]);
+});
+
+test("a failed label does not block the review", async () => {
+  const writes = github();
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof spyOn>;
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: any, init: any) => {
+    if (String(input).includes("/issues/1/labels"))
+      return new Response("forbidden", { status: 403 });
+    return original(input, init);
+  });
+  const log = spyOn(console, "error").mockImplementation(() => {});
+  await publishReview("token", pr, [], report, "high");
+  log.mockRestore();
+  expect(reviewWrites(writes)).toHaveLength(1);
 });
 
 test("skips a stale head", async () => {

@@ -103,10 +103,15 @@ input:focus-visible {
 .brand img {
   border-radius: 9px;
 }
+.brand-group {
+  display: inline-flex;
+  align-items: center;
+}
 .demo {
   font-size: 11px;
   font-weight: 400;
   letter-spacing: 0;
+  text-decoration: none;
   color: var(--muted);
   margin-left: 10px;
   padding: 3px 8px;
@@ -121,6 +126,10 @@ nav {
 }
 nav a {
   text-decoration: none;
+}
+.demo:hover {
+  color: var(--ink, inherit);
+  border-color: currentColor;
 }
 nav a:hover {
   text-decoration: underline;

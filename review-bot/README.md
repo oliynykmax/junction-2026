@@ -2,7 +2,7 @@
 
 Cloudflare Worker `j26-review-bot`, live at https://review.oliinyk.dev. GitHub App: https://github.com/apps/bumble-bot-review, installed only on our copy of the sample repo, `oliynykmax/junction26-messagepack-csharp`.
 
-When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
+When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR only when its CI snapshot shows explicit success and its team standard is available or genuinely absent. Missing, pending, failed, or unreadable evidence produces a comment review instead. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
 
 ## Review runtime
 
@@ -23,6 +23,18 @@ The `finish_review` call holds a summary for the human owner, the dismissed scan
 - **Model.** `MODEL_ID` (`claude-sonnet-5-5`) with `THINKING_LEVEL` `medium`, through the Anthropic API.
 - **Page.** `/r/<owner>/<repo>/<pr>?sha=<head>` (and `/m/...` for manual reviews) is a Preact + Vite client in `web/`, built into `../landing/review/` and served from the Worker's assets. It shows the status, the advisory decision and a scanner band with each scanner's diagnostics and the agent's dismissals. The **Changes** view lists each described change with its tags, line counts, STAR sentences and the findings in its files; "Show diff" opens the change's patches inline, and selecting a finding's location dims every other line. The **Full diff** view shows every file with finding lines marked. Findings outside any change, what was not checked, docs consulted, cost and the agent's tool calls follow. Reviews stored before changes existed keep a plain findings list. It polls `/api/r/<owner>/<repo>/<pr>/<sha>` every 2 s (manual reviews every 15 s) while the review runs.
 
+## CI and team standards
+
+Before the agent starts, the review stores one evidence snapshot alongside the scanner workflow. Both the prompt and report use that same snapshot. Replays keep the committed snapshot.
+
+CI evidence includes check runs and legacy commit statuses for the exact reviewed head SHA. The collector follows pagination and keeps the newest legacy status per context. Permission errors, timeouts, malformed responses, and incomplete pagination remain visible alongside any usable results. Empty, pending, failed, unavailable, and successful evidence stay distinct. Skipped and neutral checks do not count as explicit success. The report shows the capture time and links to the original results. A snapshot does not track later CI changes or establish that branch-protection requirements are satisfied.
+
+The GitHub App needs **Checks: read** and **Commit statuses: read**, in addition to its existing contents permission. Installations must accept those permissions. Actions access is not required. Until access is granted, reviews still run and disclose the evidence gap, but they cannot approve.
+
+The collector reads root `CODING_STANDARDS.md` from the base repository at the base SHA captured in the signed PR webhook. A PR that edits, removes, or introduces the file cannot change its own review criteria. The report records the base repository, commit, Git blob SHA, SHA-256 digest, and exact text. Standards must be UTF-8 and no larger than 32 KiB. An inaccessible, invalid, or oversized standard is disclosed and prevents approval. A confirmed absent file falls back to the existing rubric. Standard text supplies review criteria and cannot override the review protocol or grant tool permissions.
+
+Older reviews retain their original findings. Their report shows that no evidence snapshot was captured. New publication attempts without complete evidence produce comments.
+
 ## Develop
 
 ```sh
@@ -30,7 +42,7 @@ bun install
 bun fmt        # format
 bun lint
 bun check      # type check
-bun test       # GitHub publication behavior
+bun test       # evidence, review flow, report rendering, and publication
 bunx wrangler dev   # local run; secrets go in .dev.vars (gitignored)
 ```
 

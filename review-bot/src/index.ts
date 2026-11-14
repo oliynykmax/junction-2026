@@ -6,11 +6,12 @@ import faviconSvg from "../assets/logo.svg";
 import faviconIco from "../assets/favicon.ico";
 import appleTouchIcon from "../assets/apple-touch-icon.png";
 import {
-  dismissStaleApprovals,
+  dismissBotApprovals,
   installationToken,
   upsertComment,
   validSignature,
 } from "./github";
+import { dashboardApi, dashboardPage, pruneLedger } from "./dashboard";
 import { manualView, startManual } from "./manual";
 import { reviewPage } from "./page";
 import { type Env, reviewLink } from "./review";
@@ -45,7 +46,7 @@ const SIGN = new RegExp(
 );
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/api/reviews")
@@ -82,6 +83,11 @@ export default {
       });
     }
 
+    if (url.pathname === "/dashbaord" || url.pathname === "/dashboard/")
+      return Response.redirect(new URL("/dashboard" + url.search, url), 301);
+    if (url.pathname === "/dashboard") return dashboardPage();
+    if (url.pathname === "/api/dashboard") return dashboardApi(env.LEDGER, url);
+
     let m = url.pathname.match(PAGE);
     if (m) {
       const sha = url.searchParams.get("sha") ?? "";
@@ -114,7 +120,11 @@ export default {
       return env.ASSETS.fetch(request);
     return new Response("not found\n", { status: 404 });
   },
-};
+
+  async scheduled(_controller, env, ctx): Promise<void> {
+    if (env.LEDGER) ctx.waitUntil(pruneLedger(env.LEDGER, Date.now()));
+  },
+} satisfies ExportedHandler<Env>;
 
 async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const body = await request.text();
@@ -136,6 +146,11 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     repo: payload.repository.name,
     number: pr.number,
     headSha: pr.head.sha,
+    base: {
+      owner: pr.base.repo.owner.login,
+      repo: pr.base.repo.name,
+      sha: pr.base.sha,
+    },
     installationId: payload.installation.id,
   };
   const review = env.REVIEWS.getByName(reviewKey(target));
@@ -151,7 +166,7 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     MARKER,
     comment,
   );
-  await dismissStaleApprovals(token, target);
+  await dismissBotApprovals(token, target);
   // Each new head waits for a named owner. "reopened" and "ready_for_review"
   // (and webhook redeliveries) can arrive for a commit that is already signed,
   // so leave its success status alone. A failure here (for example the App

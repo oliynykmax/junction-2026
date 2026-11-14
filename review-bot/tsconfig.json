@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["src", "web", "vite.config.ts"]
+  "include": ["src", "web", "vite.config.ts", "vite.landing.config.ts"]
 }

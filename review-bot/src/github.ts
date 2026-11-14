@@ -3,6 +3,7 @@ import type { Target } from "./reviewer";
 // GitHub App auth and the REST calls the bot and the reviewer make.
 
 import { fromStored, SEVERITIES, type Severity } from "./findings";
+import { riskLine, type RiskTier } from "./signals";
 
 export interface AppSecrets {
   APP_ID: string;
@@ -16,14 +17,29 @@ const HEADERS = {
   "x-github-api-version": "2022-11-28",
 };
 
+export class GitHubError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function gh(
   token: string,
   path: string,
-  init: { method?: string; body?: unknown; accept?: string } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    accept?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Response> {
   const method = init.method ?? "GET";
   const res = await fetch(path.startsWith("https://") ? path : API + path, {
     method,
+    signal: init.signal,
     headers: {
       ...HEADERS,
       ...(init.accept ? { accept: init.accept } : {}),
@@ -32,7 +48,7 @@ export async function gh(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
   if (!res.ok)
-    throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+    throw new GitHubError(res.status, `${method} ${path} -> ${res.status}`);
   return res;
 }
 
@@ -71,6 +87,8 @@ export async function upsertComment(
   }
 }
 
+// The value predates the bot's switch to comment-only reviews and is kept so
+// retries and dismissals still recognise reviews posted before it.
 const REVIEW_MARKER = "<!-- earned-trust-review-approval -->";
 
 type PrReview = {
@@ -82,19 +100,30 @@ type PrReview = {
 
 type Pr = { owner: string; repo: string; number: number };
 
-function botReviews(token: string, pr: Pr) {
-  return ghJson<PrReview[]>(
-    token,
-    `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=100`,
-  ).then((all) => all.filter((r) => r.body?.startsWith(REVIEW_MARKER)));
+/** The bot's marked reviews, across every page of the PR's reviews. */
+async function botReviews(token: string, pr: Pr): Promise<PrReview[]> {
+  const all: PrReview[] = [];
+  for (let page = 1; page <= 30; page++) {
+    const batch = await ghJson<PrReview[]>(
+      token,
+      `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews?per_page=100&page=${page}`,
+    );
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all.filter((r) => r.body?.startsWith(REVIEW_MARKER));
 }
 
-/** Publishes a compact result only while the reviewed commit is still the head. */
+/**
+ * Publishes a compact result only while the reviewed commit is still the head.
+ * It is always a comment review: the bot never approves, a named human does.
+ */
 export async function publishReview(
   token: string,
   pr: Pr & { headSha: string },
   findings: readonly { severity: Severity }[],
   reportUrl: string,
+  risk?: RiskTier,
 ) {
   const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
   const current = await ghJson<{ head: { sha: string } }>(token, base);
@@ -116,28 +145,27 @@ export async function publishReview(
       return count ? [`${count} ${severity}`] : [];
     }),
   ].join(" · ");
+  const depth = risk ? `\n\n${riskLine(risk)}` : "";
   await gh(token, `${base}/reviews`, {
     method: "POST",
     body: {
       commit_id: pr.headSha,
-      event: findings.length === 0 ? "APPROVE" : "COMMENT",
-      body: `${REVIEW_MARKER}\n${summary}\n\n[Full report](${reportUrl})`,
+      event: "COMMENT",
+      body: `${REVIEW_MARKER}\n${summary}${depth}\n\n[Full report](${reportUrl}) · A named human owns the merge; this review is advice, never an approval.`,
     },
   });
 }
 
-/** Withdraws the bot's approvals of any commit other than `headSha`. */
-export async function dismissStaleApprovals(
-  token: string,
-  pr: Pr & { headSha: string },
-) {
+/** Withdraws every approval the bot posted before it stopped approving. */
+export async function dismissBotApprovals(token: string, pr: Pr) {
   const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
   for (const r of await botReviews(token, pr)) {
-    if (r.state !== "APPROVED" || r.commit_id === pr.headSha) continue;
+    if (r.state !== "APPROVED") continue;
     await gh(token, `${base}/reviews/${r.id}/dismissals`, {
       method: "PUT",
       body: {
-        message: `New commit \`${pr.headSha.slice(0, 7)}\` pushed. The approval returns if its review has no findings.`,
+        message:
+          "The review bot no longer approves pull requests. Its review is advice; a named human approves the merge.",
         event: "DISMISS",
       },
     });

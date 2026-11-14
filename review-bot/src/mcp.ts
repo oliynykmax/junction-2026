@@ -22,13 +22,27 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
 
-/** Called before each MCP tool call, with the tool's durable name. */
-export type OnMcpCall = (
-  tool: string,
-  args: unknown,
-  api: ToolExecutionApi,
-  context: Context,
-) => Promise<void>;
+export type McpCall = {
+  server: string;
+  tool: string;
+  ok: boolean;
+  ms: number;
+  aborted: boolean;
+};
+
+export type McpHooks = {
+  /** Called before each MCP tool call, with the tool's durable name. */
+  before: (
+    tool: string,
+    args: unknown,
+    api: ToolExecutionApi,
+    context: Context,
+  ) => Promise<void>;
+  /** Called once each call settles, with no arguments or output. */
+  after: (call: McpCall) => void;
+  /** Called once each client connect settles. */
+  connected: (server: string, ok: boolean, ms: number) => void;
+};
 
 const CONNECT_TIMEOUT_MS = 8_000;
 const CALL_TIMEOUT_S = 60;
@@ -105,10 +119,14 @@ export function mcpNamespaces(servers: Server[]): CodemodeNamespace[] {
   }));
 }
 
-function connector({ config }: Server): () => Promise<McpClient> {
+function connector(
+  { name, config }: Server,
+  connected: McpHooks["connected"],
+): () => Promise<McpClient> {
   let client: Promise<McpClient> | null = null;
   return () => {
     if (!client) {
+      const started = Date.now();
       const mcp = new McpClient({
         name: "j26-review-bot",
         version: "1.0.0",
@@ -126,8 +144,12 @@ function connector({ config }: Server): () => Promise<McpClient> {
           }),
         )
         .then(
-          () => mcp,
+          () => {
+            connected(name, true, Date.now() - started);
+            return mcp;
+          },
           (error) => {
+            connected(name, false, Date.now() - started);
             client = null;
             throw error;
           },
@@ -152,12 +174,12 @@ function within<T>(ms: number, work: Promise<T>): Promise<T> {
  */
 export async function mcpExtension(
   servers: Server[],
-  onCall: OnMcpCall,
+  hooks: McpHooks,
 ): Promise<Extension> {
   const taken = new Set<string>();
   const listed = await Promise.all(
     servers.map(async (server) => {
-      const client = connector(server);
+      const client = connector(server, hooks.connected);
       try {
         const tools = await within(
           CONNECT_TIMEOUT_MS,
@@ -188,15 +210,28 @@ export async function mcpExtension(
         callers: ["tools"],
         replay: tool.annotations?.readOnlyHint ? "safe" : "unsafe",
         execute: async (args, api, context) => {
-          await onCall(name, args, api, context);
-          const mcp = await client();
-          const result = await mcp.callTool(
-            tool.name,
-            args as Record<string, unknown>,
-            { signal: context.abortSignal },
-          );
-          const { content } = await limitMcpContent(toLlmContent(result));
-          return { output: content, isError: result.isError === true };
+          await hooks.before(name, args, api, context);
+          const started = Date.now();
+          let ok = false;
+          try {
+            const mcp = await client();
+            const result = await mcp.callTool(
+              tool.name,
+              args as Record<string, unknown>,
+              { signal: context.abortSignal },
+            );
+            ok = result.isError !== true;
+            const { content } = await limitMcpContent(toLlmContent(result));
+            return { output: content, isError: !ok };
+          } finally {
+            hooks.after({
+              server: server.name,
+              tool: tool.name,
+              ok,
+              ms: Date.now() - started,
+              aborted: context.abortSignal?.aborted === true,
+            });
+          }
         },
       });
     }),

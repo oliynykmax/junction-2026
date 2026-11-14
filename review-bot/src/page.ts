@@ -2,6 +2,8 @@
 // to dist/review/ and served as static assets; this shell hands it the
 // review's API path and PR identity.
 
+import { PREPAINT_SCRIPT } from "./theme";
+
 export type PageTarget = {
   /** A manual review started from the landing page (/m/), not a webhook one. */
   manual: boolean;
@@ -35,6 +37,7 @@ export function reviewPage(t: PageTarget): Response {
 <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot">
+<script>${PREPAINT_SCRIPT}</script>
 <link rel="stylesheet" href="/review/app.css">
 <script type="module" src="/review/app.js"></script>
 </head>

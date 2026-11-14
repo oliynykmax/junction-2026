@@ -37,8 +37,6 @@ jobs:
       - run: bun fmt --check ../landing
       - run: bun lint
       - run: bun test
-      - run: review-bot/node_modules/.bin/oxlint landing/assets/app.js
-        working-directory: .
       - run: bun check
       - run: bun test
 

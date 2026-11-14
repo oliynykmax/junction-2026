@@ -171,6 +171,7 @@ test("login and logout only return to review pages", async () => {
     GITHUB_CLIENT_ID: "Iv1",
     GITHUB_CLIENT_SECRET: "s",
     SESSION_SECRET: SECRET,
+    REVIEW_BASE_URL: origin,
   } as Env;
   const bad = await login(
     new Request(`${origin}/auth/login?return=https://evil.example`),
@@ -193,6 +194,24 @@ test("login and logout only return to review pages", async () => {
       new Request(`${origin}/auth/logout?return=//evil.example`),
     ).headers.get("location"),
   ).toBe("/");
+});
+
+test("sign-in uses the public origin when a proxy forwards to another host", async () => {
+  const env = {
+    GITHUB_CLIENT_ID: "Iv1",
+    GITHUB_CLIENT_SECRET: "s",
+    SESSION_SECRET: SECRET,
+    REVIEW_BASE_URL: origin,
+  } as Env;
+  const res = await login(
+    new Request(
+      `https://celld.internal/auth/login?return=${encodeURIComponent(`/r/team/demo/1?sha=${sha}`)}`,
+    ),
+    env,
+  );
+  expect(res.status).toBe(302);
+  const to = new URL(res.headers.get("location")!);
+  expect(to.searchParams.get("redirect_uri")).toBe(`${origin}/auth/callback`);
 });
 
 // The endpoint, against a fake review object and a fake GitHub.

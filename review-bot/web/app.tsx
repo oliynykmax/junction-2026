@@ -101,6 +101,15 @@ export function App({ prUrl, owner, repo, number }: PageConfig) {
             </div>
           </section>
           <CiChecks />
+          <section class="agent-wait" role="status" aria-live="polite">
+            <div class="agent-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <p class="agent-wait-title">The agent is reviewing this commit</p>
+            <p class="agent-wait-note">Findings appear here when it returns.</p>
+          </section>
         </main>
       )}
     </>

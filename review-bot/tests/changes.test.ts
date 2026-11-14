@@ -6,6 +6,7 @@ import {
   type ReviewState,
   reviewerExtension,
   starProblems,
+  summaryProblems,
   uncoveredFiles,
 } from "../src/reviewer";
 import { changeSentence } from "../web/shared";
@@ -96,21 +97,17 @@ test("captured files keep patches under the caps and drop the rest", () => {
   expect(many.filter((f) => f.patch).length).toBe(10);
 });
 
-test("change problems flag the summary, tag limits and unknown files", () => {
+test("change and summary problems flag the sentence, tag limits and unknown files", () => {
   expect(changeProblems(change, ["src/TypeCollector.cs"])).toEqual([]);
   const problems = changeProblems(
-    {
-      ...change,
-      tags: ["a", "b", "c", "d"],
-      summary: "I added a guard.",
-      files: ["nope.cs"],
-    },
+    { ...change, tags: ["a", "b", "c", "d"], files: ["nope.cs"] },
     ["src/TypeCollector.cs"],
   );
-  expect(problems.join(" ")).toContain("summary speaks in the first person");
-  expect(
-    changeProblems({ ...change, summary: " " }, ["src/TypeCollector.cs"]),
-  ).toEqual(["Write the summary sentence."]);
+  expect(summaryProblems("I added a guard.").join(" ")).toContain(
+    "summary speaks in the first person",
+  );
+  expect(summaryProblems(" ")).toEqual(["Write the summary sentence."]);
+  expect(summaryProblems(change.summary)).toEqual([]);
   expect(problems.join(" ")).toContain("Give 1 to 3 tags");
   expect(problems.join(" ")).toContain(
     "Not changed in this pull request: nope.cs",
@@ -229,6 +226,26 @@ test("describe_change records a change, lowercases tags and replaces by title", 
     "src/TypeCollector.cs",
     "tests/T.cs",
   ]);
+  expect(uncoveredFiles(state)).toEqual([]);
+});
+
+test("describe_change refuses a bad summary twice, then records the change without it", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  const { run } = harness(state);
+  for (let i = 0; i < 2; i++) {
+    const res = await run("describe_change", {
+      ...change,
+      summary: "I fixed it.",
+    });
+    expect(res.isError).toBe(true);
+    expect(state.changes).toEqual([]);
+  }
+  const res = await run("describe_change", {
+    ...change,
+    summary: "I fixed it.",
+  });
+  expect(res.isError).toBeUndefined();
+  expect(state.changes?.[0].summary).toBeUndefined();
   expect(uncoveredFiles(state)).toEqual([]);
 });
 

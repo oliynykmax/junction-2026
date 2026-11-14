@@ -1,5 +1,5 @@
 import { gh } from "./github";
-import type { Env } from "./review";
+import type { Env, ReviewView } from "./review";
 import type { Target } from "./reviewer";
 
 export class ManualError extends Error {
@@ -148,13 +148,21 @@ export async function startManual(
     const client = Array.from(new Uint8Array(digest), (b) =>
       b.toString(16).padStart(2, "0"),
     ).join("");
-    if (!(await env.MANUAL_GATE.getByName("public-starts").admit(client)))
+    const gate = env.MANUAL_GATE.getByName("public-starts");
+    if (!(await gate.admitLookup(client)))
       throw new ManualError(
         "The demo review limit has been reached. Try again later. Shared hourly and daily limits apply.",
         429,
       );
     const target = await resolveManual(data.url);
-    await env.REVIEWS.getByName(manualKey(target)).start(target);
+    const key = manualKey(target);
+    const review = env.REVIEWS.getByName(key);
+    if (!(await review.hasStarted()) && !(await gate.admit(client, key)))
+      throw new ManualError(
+        "The demo review limit has been reached. Try again later. Shared hourly and daily limits apply.",
+        429,
+      );
+    await review.start(target);
     return Response.json(
       {
         url: `/m/${target.owner}/${target.repo}/${target.number}?sha=${target.headSha}`,
@@ -177,4 +185,19 @@ export async function startManual(
       },
     );
   }
+}
+
+export async function manualView(
+  env: Env,
+  target: Pick<Target, "owner" | "repo" | "number" | "headSha">,
+): Promise<Response> {
+  const view: ReviewView = await env.REVIEWS.getByName(
+    manualKey(target),
+  ).view();
+  if (view.review.target?.mode !== "manual")
+    return Response.json(
+      { error: "Report unavailable." },
+      { status: 404, headers: { "cache-control": "no-store" } },
+    );
+  return Response.json(view, { headers: { "cache-control": "no-store" } });
 }

@@ -47,10 +47,14 @@ Only publicly readable repositories are accepted. Manual reviews use anonymous G
 reads and never obtain app tokens, post comments, or approve PRs. Their persisted targets,
 Durable Object keys, and report API paths are separate from webhook reviews.
 
-`MANUAL_GATE` limits public start attempts to two per IP per hour, ten globally per
+`MANUAL_GATE` limits new public reviews to two per IP per hour, ten globally per
 hour, and fifty per day. The demo accepts at most 60 files and 4,000 changed lines.
-Anonymous GitHub API quotas can interrupt reviews. Manual report reads recheck repository
-visibility before returning stored evidence. See [the decision log](../landing/DECISIONS.md)
+Failed resolutions and stored reviews do not spend review slots. Duplicate concurrent
+admissions are charged once per pinned review key. A separate lookup budget limits
+resolution attempts to ten per IP per hour, thirty globally per hour and one hundred
+per day before any GitHub calls. Anonymous GitHub API quotas can still interrupt reviews.
+Manual report reads use only the stored manual target verified public at admission;
+historical public evidence remains readable if a repository later becomes private. See [the decision log](../landing/DECISIONS.md)
 for the integration choice and limits. Deploy the scanner's anonymous-read header change
 through its separate deployment process as well; no scanner credential is sent to GitHub.
 

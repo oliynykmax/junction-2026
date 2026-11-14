@@ -11,15 +11,15 @@ We chose the same Worker. `POST /api/reviews` accepts `{url}` and resolves a pub
 
 ## Safety and cost
 
-Public resolution and report reads check repository visibility through unauthenticated GitHub API requests. A private or inaccessible repository is rejected even if the app is installed there. Manual reports cannot address webhook objects. GitHub's anonymous quota can stop reviews; errors explain this without exposing upstream bodies or credentials.
+Public resolution checks repository visibility through unauthenticated GitHub API requests. Report reads rely on stored manual state verified public at admission. A private or inaccessible repository is rejected even if the app is installed there. Manual reports cannot address webhook objects. GitHub's anonymous quota can stop reviews; errors explain this without exposing upstream bodies or credentials.
 
-A separate durable admission object serializes starts, with two attempts per IP per hour, ten globally per hour and fifty per day. IPs are hashed before storage. Failed resolution consumes a slot. Requests have a 2 KiB body limit, same-origin enforcement when Origin is present, and PRs above 60 files or 4,000 changed lines are rejected. These are demo safeguards, not a production abuse service or a hard dollar ceiling. Distributed clients can exhaust the shared budget. Report polling also consumes anonymous GitHub reads.
+A separate durable admission object serializes starts, with two attempts per IP per hour, ten globally per hour and fifty per day. IPs are hashed before storage. Failed resolution consumes only a separate lookup attempt, not a review slot. Requests have a 2 KiB body limit, same-origin enforcement when Origin is present, and PRs above 60 files or 4,000 changed lines are rejected. These are demo safeguards, not a production abuse service or a hard dollar ceiling. Distributed clients can exhaust the shared budget. Report polling does not call GitHub.
 
 Manual diffs use pinned base and head comparisons. The original PR metadata can change while work runs; head changes cause review tools to fail rather than mislabel a newer patch. Scanners download only the pinned head, with no GitHub credential for manual reviews.
 
 ## Design
 
-The physical reference is a bright engineering review desk: clear white sheets, orange annotation marks, and an accountable reviewer. Voice: direct, precise, assured. Public Sans comes from the USWDS tradition of readable public information. The existing orange robot mark preserves identity. A clearly labeled report anatomy illustration explains evidence and unknowns without inventing findings, scores, customers, or approval claims.
+The physical reference is a bright engineering review desk: clear white sheets, orange annotation marks, and an accountable reviewer. Voice: direct, precise, assured. Public Sans comes from the USWDS tradition of readable public information. The shared Bumble Bot bee icon preserves identity. A clearly labeled report anatomy illustration explains evidence and unknowns without inventing findings, scores, customers, or approval claims.
 
 ## Verification checkpoint
 
@@ -40,3 +40,11 @@ A live model review remains unverified because this checkout has no deployment s
 ## Branding synchronization
 
 The landing branch originally forked before Bumble Bot branding landed on main. Pulled that update into this branch and replaced the landing's copied logo with the Worker's shared favicon route. The title, home link label, header, and footer now use Bumble Bot. Icon URLs carry a branding version to avoid the older cached robot icon. Tieto's challenge retains its proper name.
+
+## Bot review fixes
+
+The bot identified repeated anonymous GitHub visibility checks during report polling and review slots charged for failed or duplicate submissions. Regression tests reproduced both. Report reads now require stored manual-mode state from a public admission and make no GitHub calls. This preserves historical public evidence even if the repository later becomes private; anonymous review tools cannot fetch subsequent private content.
+
+Resolution attempts have a separate durable budget of ten per client per hour, thirty globally per hour, and one hundred per day. Missing, private, and oversized PRs spend only lookup attempts. Existing reports bypass the model budget. New review admissions record the pinned key in the same transaction as the budget so concurrent retries cannot double-charge it.
+
+The low-severity context-abstraction suggestion is deferred. The target union and completion tests enforce anonymous reads and no manual approvals; a broader refactor is not needed to fix either quota bug. Explicit approval guards remain intentional safety checks. The bot's two medium reliability and correctness findings are fixed, with regression coverage.

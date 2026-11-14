@@ -11,6 +11,15 @@ import {
 } from "@earendil-works/pi-durable";
 import { arr, int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Context } from "@earendil-works/chord/context";
+import {
+  CLASSES,
+  CONFIDENCES,
+  type Confidence,
+  decisionFor,
+  type FindingClass,
+  SEVERITIES,
+  type Severity,
+} from "./findings";
 import { gh, ghJson, prFiles } from "./github";
 import {
   type Check,
@@ -29,34 +38,6 @@ export type Target = {
   headSha: string;
   installationId: number;
 };
-
-export const SEVERITIES = [
-  "critical",
-  "high",
-  "medium",
-  "low",
-  "info",
-] as const;
-export type Severity = (typeof SEVERITIES)[number];
-
-export const CLASSES = [
-  "correctness",
-  "security",
-  "reliability",
-  "performance",
-  "breaking-change",
-  "maintainability",
-  "testing",
-  "docs",
-] as const;
-export type FindingClass = (typeof CLASSES)[number];
-
-export const CONFIDENCES = ["verified", "likely", "possible"] as const;
-export type Confidence = (typeof CONFIDENCES)[number];
-
-const BLOCKING: ReadonlySet<Severity> = new Set(["critical", "high"]);
-const blocks = (f: Finding) =>
-  BLOCKING.has(f.severity) && f.confidence !== "possible";
 
 export type Finding = {
   id: string;
@@ -341,9 +322,7 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
           return;
         }
         state.verdict = {
-          decision: state.findings.some(blocks)
-            ? "changes_requested"
-            : "no_blockers_found",
+          decision: decisionFor(state.findings),
           summary,
           notChecked: noDocs
             ? [

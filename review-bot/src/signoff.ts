@@ -152,7 +152,9 @@ export async function signOff(
   try {
     // Same-origin only. SameSite=Lax already keeps the cookie off cross-site
     // POSTs; this also refuses requests from other pages on other origins.
-    if (request.headers.get("origin") !== new URL(request.url).origin)
+    // Compared with the public origin, which request.url may not carry behind
+    // the CellD proxy.
+    if (request.headers.get("origin") !== new URL(env.REVIEW_BASE_URL).origin)
       throw new SignOffError("Sign off from the review page.", 403);
     const session = await readSession(request, env);
     if (!session) throw new SignOffError("Sign in with GitHub first.", 401);

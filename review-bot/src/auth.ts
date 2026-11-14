@@ -28,8 +28,11 @@ const plain = (body: string, status: number) =>
 
 const NOT_CONFIGURED = "GitHub sign-in is not configured here.";
 
-const callbackUrl = (request: Request) =>
-  `${new URL(request.url).origin}/auth/callback`;
+// The configured public origin, not request.url: behind the CellD proxy the
+// request arrives on the origin host, and GitHub only accepts the registered
+// callback URL.
+const callbackUrl = (env: Env) =>
+  `${new URL(env.REVIEW_BASE_URL).origin}/auth/callback`;
 
 export async function login(request: Request, env: Env): Promise<Response> {
   if (!configured(env)) return plain(NOT_CONFIGURED, 503);
@@ -39,7 +42,7 @@ export async function login(request: Request, env: Env): Promise<Response> {
   const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
   const authorize = new URL("https://github.com/login/oauth/authorize");
   authorize.searchParams.set("client_id", env.GITHUB_CLIENT_ID!);
-  authorize.searchParams.set("redirect_uri", callbackUrl(request));
+  authorize.searchParams.set("redirect_uri", callbackUrl(env));
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("allow_signup", "false");
   return new Response(null, {
@@ -91,7 +94,7 @@ export async function callback(request: Request, env: Env): Promise<Response> {
         client_id: env.GITHUB_CLIENT_ID,
         client_secret: env.GITHUB_CLIENT_SECRET,
         code,
-        redirect_uri: callbackUrl(request),
+        redirect_uri: callbackUrl(env),
       }),
     });
     const grant = (await res.json().catch(() => ({}))) as {

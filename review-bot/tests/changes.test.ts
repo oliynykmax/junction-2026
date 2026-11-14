@@ -8,6 +8,7 @@ import {
   starProblems,
   uncoveredFiles,
 } from "../src/reviewer";
+import { changeSentence } from "../web/shared";
 
 const file = (filename: string, patch?: string) => ({
   filename,
@@ -125,6 +126,35 @@ test("star problems flag empty and long parts", () => {
   });
   expect(problems.join(" ")).toContain("task is 401 characters");
   expect(problems.join(" ")).toContain("Write the result sentence.");
+});
+
+test("changes from older reviews show their stored Action", () => {
+  const base = { id: "c", title: "t", tags: ["docs"], files: ["a.md"] };
+  expect(changeSentence({ ...base, summary: "Adds a section." })).toBe(
+    "Adds a section.",
+  );
+  expect(changeSentence({ ...base, action: "Fixes the typo." })).toBe(
+    "Fixes the typo.",
+  );
+  expect(changeSentence(base)).toBeNull();
+});
+
+test("star problems flag plural first person and mine", () => {
+  for (const result of [
+    "We updated the retry logic.",
+    "The retry logic is ours now.",
+    "Our tests cover it.",
+    "The fix is mine.",
+  ])
+    expect(starProblems({ ...star, result }).join(" ")).toContain(
+      "result speaks in the first person",
+    );
+  expect(
+    starProblems({
+      ...star,
+      result: "Users see fewer retries; the PR adds a USB test.",
+    }),
+  ).toEqual([]);
 });
 
 test("star problems flag the reviewer speaking in the first person", () => {

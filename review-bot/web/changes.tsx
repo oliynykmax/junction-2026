@@ -8,6 +8,7 @@ import { FindingNote } from "./findings";
 import {
   type Change,
   type ChangedFile,
+  changeSentence,
   type Finding,
   type Focus,
   type LineUrl,
@@ -126,6 +127,7 @@ function ChangeRow({
   const removed = files.reduce((n, f) => n + f.deletions, 0);
   const quiet = findings.every((f) => QUIET.has(f.severity));
   const diffId = `diff-${change.id}`;
+  const sentence = changeSentence(change);
 
   const locate = (f: Finding) => {
     if (!f.line) return;
@@ -168,9 +170,9 @@ function ChangeRow({
           </button>
         )}
       </div>
-      {(change.summary || findings.length > 0) && (
+      {(sentence || findings.length > 0) && (
         <div class="row-body">
-          {change.summary && <p class="change-summary">{change.summary}</p>}
+          {sentence && <p class="change-summary">{sentence}</p>}
           {findings.length > 0 && (
             <ul class="notes-findings" aria-label="Findings in this change">
               {findings.map((f) => (

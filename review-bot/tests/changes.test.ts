@@ -30,6 +30,7 @@ function harness(state: ReviewState) {
   const { extension } = reviewerExtension({
     token: async () => "token",
     publish: async () => {},
+    finished: () => {},
     scan: async () => [],
   });
   const tool = (name: string) => {
@@ -142,6 +143,7 @@ test("finish_review refuses twice while files are uncovered, then lists them as 
   }
   await run("finish_review", { summary: "s", not_checked: ["other"] });
   expect(state.verdict?.notChecked).toEqual([
+    "No CI or team standard evidence snapshot was captured for this review.",
     "These changed files are not part of any described change: Directory.Packages.props.",
     "other",
   ]);
@@ -154,5 +156,7 @@ test("reviews stored before changes existed finish without the gate", async () =
     changes: undefined,
   };
   await harness(state).run("finish_review", { summary: "s", not_checked: [] });
-  expect(state.verdict?.notChecked).toEqual([]);
+  expect(state.verdict?.notChecked).toEqual([
+    "No CI or team standard evidence snapshot was captured for this review.",
+  ]);
 });

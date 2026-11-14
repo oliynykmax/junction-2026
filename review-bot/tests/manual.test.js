@@ -212,8 +212,40 @@ test("anonymous gh reads omit Bearer while authenticated webhook calls retain it
   expect(calls[1].headers.authorization).toBe("Bearer app-token");
 });
 
+function settlingCommit(state) {
+  return async (callback) => {
+    const revokers = [];
+    const draft = (value) => {
+      if (typeof value !== "object" || value === null) return value;
+      const { proxy, revoke } = Proxy.revocable(value, {
+        get: (target, key) => draft(Reflect.get(target, key)),
+      });
+      revokers.push(revoke);
+      return proxy;
+    };
+    try {
+      return await callback({ doc: async () => draft(state) });
+    } finally {
+      for (const revoke of revokers) revoke();
+    }
+  };
+}
+
+const finding = {
+  id: "call-1",
+  path: "src/a.ts",
+  line: 1,
+  severity: "low",
+  class: "maintainability",
+  confidence: "likely",
+  title: "Name",
+  body: "Body",
+  source: "agent",
+  suggestedPatch: null,
+};
+
 for (const manual of [true, false])
-  test(`clean completion ${manual ? "never publishes a manual review after restore" : "publishes the webhook review"}`, async () => {
+  test(`completion ${manual ? "never publishes a manual review after restore" : "publishes the webhook review"}, after the commit settles`, async () => {
     const state = structuredClone(EMPTY_REVIEW);
     state.target = JSON.parse(
       JSON.stringify(
@@ -229,22 +261,32 @@ for (const manual of [true, false])
       ),
     );
     state.lookups = [{ tool: "docs", args: "{}", at: Date.now() }];
+    state.findings = [finding];
     const token = mock(async () => "app-token"),
-      publish = mock(async () => {});
+      publish = mock(async () => {}),
+      finished = mock(() => {});
     const { extension } = reviewerExtension({
       token,
       publish,
+      finished,
       scan: async () => [],
     });
     const finish = extension.tools.find((t) => t.name === "finish_review");
     const api = {
       conversationId: "root",
       snapshot: async () => state,
-      commit: async (callback) => callback({ doc: async () => state }),
+      commit: settlingCommit(state),
     };
-    await finish.execute({ summary: "Checked", not_checked: [] }, api, {});
+    const result = await finish.execute(
+      { summary: "Checked", not_checked: [] },
+      api,
+      {},
+    );
+    expect(result.isError).toBeUndefined();
     expect(state.verdict.decision).toBe("no_blockers_found");
+    expect(finished).toHaveBeenCalledWith("no_blockers_found", 1);
     expect(publish).toHaveBeenCalledTimes(manual ? 0 : 1);
+    if (!manual) expect(publish.mock.calls[0][2]).toEqual([finding]);
     expect(token).toHaveBeenCalledTimes(manual ? 0 : 1);
   });
 

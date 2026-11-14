@@ -1,0 +1,29 @@
+{
+  "name": "j26-review-bot-write-profile",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "rules": [
+    { "type": "Text", "globs": ["**/*.svg"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.ico", "**/*.png"], "fallthrough": true },
+  ],
+  "vars": {
+    "REVIEW_BASE_URL": "https://review.invalid",
+    "REVIEW_PROMPT_URL": "https://rubric.invalid/prompt.md",
+    "MODELS": [{ "provider": "anthropic", "id": "claude-sonnet-5-5" }],
+    "THINKING_LEVEL": "medium",
+    "ANTHROPIC_API_KEY": "offline-fixture",
+    "SCANNER_URL": "https://scanner.invalid",
+    "SCANNER_TOKEN": "offline-fixture",
+    "MCP_SERVERS": {
+      "docs": {
+        "url": "https://docs.invalid/mcp",
+        "description": "Offline documentation fixture.",
+      },
+    },
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "REVIEWS", "class_name": "ProfiledReview" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProfiledReview"] }],
+}

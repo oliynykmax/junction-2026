@@ -59,7 +59,7 @@ test("scan replay reuses persisted evidence; prompt, coverage and publication co
     }
     if (url.pathname.includes("/git/commits/"))
       return Response.json({ sha: target.base.sha });
-    if (url.pathname.endsWith("code-standard.md"))
+    if (url.pathname.endsWith("CODING_STANDARDS.md"))
       return Response.json({}, { status: 404 });
     throw new Error(`Unexpected request ${url}`);
   });
@@ -92,7 +92,9 @@ test("scan replay reuses persisted evidence; prompt, coverage and publication co
   expect(state.verdict.notChecked.join(" ")).toContain(
     "Check runs unavailable",
   );
-  expect(state.verdict.notChecked.join(" ")).toContain("No code-standard.md");
+  expect(state.verdict.notChecked.join(" ")).toContain(
+    "No CODING_STANDARDS.md",
+  );
   expect(publications[0][3]).toEqual(evidence);
 });
 
@@ -104,9 +106,9 @@ test("read_file base uses pinned repository and commit without looking up curren
     return new Response("base content");
   });
   const read = reviewer.extension.tools.find((t) => t.name === "read_file");
-  await read.execute({ path: "code-standard.md", ref: "base" }, api, {});
+  await read.execute({ path: "CODING_STANDARDS.md", ref: "base" }, api, {});
   expect(urls).toEqual([
-    `https://api.github.com/repos/team/demo/contents/code-standard.md?ref=${target.base.sha}`,
+    `https://api.github.com/repos/team/demo/contents/CODING_STANDARDS.md?ref=${target.base.sha}`,
   ]);
 });
 
@@ -155,7 +157,7 @@ test("Preact evidence panel renders the persisted snapshot and legacy fallback",
       blobSha: "c".repeat(40),
       sha256: "digest",
       text: "</pre><script>bad()</script>",
-      url: `https://github.com/team/demo/blob/${target.base.sha}/code-standard.md`,
+      url: `https://github.com/team/demo/blob/${target.base.sha}/CODING_STANDARDS.md`,
     },
   };
   state.evidence = snapshot;
@@ -196,7 +198,7 @@ test("manual evidence uses anonymous reads and never publishes to GitHub", async
     if (url.pathname.endsWith("/statuses")) return Response.json([]);
     if (url.pathname.includes("/git/commits/"))
       return Response.json({ sha: target.base.sha });
-    if (url.pathname.endsWith("code-standard.md"))
+    if (url.pathname.endsWith("CODING_STANDARDS.md"))
       return Response.json({}, { status: 404 });
     throw new Error("Unexpected request");
   });
@@ -211,5 +213,7 @@ test("manual evidence uses anonymous reads and never publishes to GitHub", async
     {},
   );
   expect(publications).toEqual([]);
-  expect(calls.some((u) => u.pathname.endsWith("code-standard.md"))).toBe(true);
+  expect(calls.some((u) => u.pathname.endsWith("CODING_STANDARDS.md"))).toBe(
+    true,
+  );
 });

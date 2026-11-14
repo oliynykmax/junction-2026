@@ -54,7 +54,7 @@ function github(handler: Handler = () => undefined) {
     if (url.pathname.endsWith("/statuses")) return Response.json([status()]);
     if (url.pathname.includes("/git/commits/"))
       return Response.json({ sha: target.base.sha });
-    if (url.pathname.endsWith("/contents/code-standard.md"))
+    if (url.pathname.endsWith("/contents/CODING_STANDARDS.md"))
       return Response.json(file());
     throw new Error(`Unexpected path ${url}`);
   });
@@ -76,7 +76,7 @@ test("pins both CI APIs and standard reads, stores provenance and identical poli
   ).toBe(true);
   expect(
     requests
-      .find((u) => u.pathname.endsWith("code-standard.md"))
+      .find((u) => u.pathname.endsWith("CODING_STANDARDS.md"))
       ?.searchParams.get("ref"),
   ).toBe(target.base.sha);
   expect(evidence.standard).toMatchObject({
@@ -213,7 +213,7 @@ test("marks pagination cap incomplete", async () => {
 for (const code of [403, 404, 500]) {
   test(`standard HTTP ${code} cannot be mistaken for an empty policy`, async () => {
     github((url) =>
-      url.pathname.endsWith("/contents/code-standard.md")
+      url.pathname.endsWith("/contents/CODING_STANDARDS.md")
         ? Response.json({}, { status: code })
         : undefined,
     );
@@ -233,14 +233,14 @@ test("base inaccessible remains unavailable even if GitHub would return 404 for 
   );
   const evidence = await collectEvidence("token", target);
   expect(evidence.standard.kind).toBe("unavailable");
-  expect(requests.some((u) => u.pathname.endsWith("code-standard.md"))).toBe(
+  expect(requests.some((u) => u.pathname.endsWith("CODING_STANDARDS.md"))).toBe(
     false,
   );
 });
 
 test("PR additions, weakening and deletion do not replace the pinned base policy", async () => {
   github((url) => {
-    if (url.pathname.endsWith("code-standard.md")) {
+    if (url.pathname.endsWith("CODING_STANDARDS.md")) {
       return Response.json(
         url.searchParams.get("ref") === target.base.sha
           ? file("Base rule: no explicit any.")
@@ -270,7 +270,7 @@ for (const policy of [
 ]) {
   test("rejects oversized, incomplete, invalid UTF8 or non-file standards", async () => {
     github((url) =>
-      url.pathname.endsWith("code-standard.md")
+      url.pathname.endsWith("CODING_STANDARDS.md")
         ? Response.json(policy)
         : undefined,
     );
@@ -282,7 +282,7 @@ for (const policy of [
 
 test("accepts policy at the exact byte limit", async () => {
   github((url) =>
-    url.pathname.endsWith("code-standard.md")
+    url.pathname.endsWith("CODING_STANDARDS.md")
       ? Response.json(file("é".repeat(MAX_STANDARD_BYTES / 2)))
       : undefined,
   );
@@ -312,7 +312,7 @@ test("HTML escapes CI names and standard content and drops unsafe URLs", async (
             }),
           ],
         })
-      : url.pathname.endsWith("code-standard.md")
+      : url.pathname.endsWith("CODING_STANDARDS.md")
         ? Response.json(file("</pre><script>bad()</script>"))
         : undefined,
   );

@@ -3,9 +3,9 @@ name: review-bot
 on:
   push:
     branches: [main]
-    paths: ["review-bot/**", ".github/workflows/review-bot.yml"]
+    paths: ["review-bot/**", "landing/**", ".github/workflows/review-bot.yml"]
   pull_request:
-    paths: ["review-bot/**", ".github/workflows/review-bot.yml"]
+    paths: ["review-bot/**", "landing/**", ".github/workflows/review-bot.yml"]
   workflow_dispatch:
 
 permissions: {}
@@ -34,8 +34,12 @@ jobs:
       - run: bun --revision
       - run: bun install --frozen-lockfile
       - run: bun fmt --check
+      - run: bun fmt --check ../landing
       - run: bun lint
+      - run: review-bot/node_modules/.bin/oxlint landing/assets/app.js
+        working-directory: .
       - run: bun check
+      - run: bun test
 
   deploy:
     needs: check

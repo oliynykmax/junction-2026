@@ -37,3 +37,21 @@ CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint` and `
 ## Secrets
 
 `APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY` and `SCANNER_TOKEN` are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
+
+## Public landing and manual reviews
+
+The Worker serves the static landing from `../landing` through `ASSETS`.
+`POST /api/reviews` accepts JSON `{ "url": "https://github.com/owner/repo/pull/123" }`
+and returns `{ "url": "/m/owner/repo/123?sha=<head>" }`.
+Only publicly readable repositories are accepted. Manual reviews use anonymous GitHub
+reads and never obtain app tokens, post comments, or approve PRs. Their persisted targets,
+Durable Object keys, and report API paths are separate from webhook reviews.
+
+`MANUAL_GATE` limits public start attempts to two per IP per hour, ten globally per
+hour, and fifty per day. The demo accepts at most 60 files and 4,000 changed lines.
+Anonymous GitHub API quotas can interrupt reviews. Manual report reads recheck repository
+visibility before returning stored evidence. See [the decision log](../landing/DECISIONS.md)
+for the integration choice and limits. Deploy the scanner's anonymous-read header change
+through its separate deployment process as well; no scanner credential is sent to GitHub.
+
+Run `bun test`, `bun lint`, `bun check`, and `bun fmt --check` from `review-bot/`.

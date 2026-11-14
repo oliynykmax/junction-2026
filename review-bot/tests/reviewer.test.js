@@ -18,6 +18,7 @@ afterEach(() => {
   if (globalThis.fetch.mockRestore) globalThis.fetch.mockRestore();
 });
 
+// Like pi-durable, documents read in a commit are unusable once it settles.
 function review() {
   const state = {
     ...structuredClone(EMPTY_REVIEW),
@@ -29,7 +30,22 @@ function review() {
   const runtime = {
     conversationId: "test",
     snapshot: async () => structuredClone(state),
-    commit: async (change) => change({ doc: async () => state }),
+    commit: async (change) => {
+      const proxies = [];
+      const wrap = (value) => {
+        if (value === null || typeof value !== "object") return value;
+        const p = Proxy.revocable(value, {
+          get: (o, k) => wrap(Reflect.get(o, k)),
+        });
+        proxies.push(p);
+        return p.proxy;
+      };
+      try {
+        return await change({ doc: async () => wrap(state) });
+      } finally {
+        for (const p of proxies) p.revoke();
+      }
+    },
     conversation: async () => ({
       submit: async (_tx, input) => submissions.push(input),
     }),

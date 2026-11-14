@@ -10,6 +10,7 @@ const BASE_URL = "https://inference.verda.com/v1";
 
 export function verdaProvider() {
   const kimi = MOONSHOTAI_MODELS["kimi-k3.1-pro"];
+  if (!kimi) throw new Error("pi-ai no longer lists moonshotai/kimi-k3.1-pro");
   return createProvider({
     id: "verda",
     name: "Verda",
@@ -31,6 +32,10 @@ export function verdaProvider() {
         id: "kimi-k3-1-pro",
         provider: "verda",
         baseUrl: BASE_URL,
+        // pi-ai lists the whole 1M context as max output. Without the model's
+        // real limit a turn asks for nearly all of it, and Verda rejects any
+        // input that pi-ai's token estimate undercounts.
+        maxTokens: 131_072,
         // Verda's list price, USD per 1M tokens.
         cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 0 },
       },

@@ -58,23 +58,29 @@ if (process.argv[2] === "rm") {
   try {
     let ready = false;
     for (let attempt = 0; attempt < 100 && !ready; attempt++) {
-      ready = await fetch(url).then(() => true, () => false);
+      ready = await fetch(url).then(
+        () => true,
+        () => false,
+      );
       if (!ready) await Bun.sleep(20);
     }
     expect(ready).toBe(true);
     expect(
-      (await call("checkout", {
-        owner: "test",
-        repo: "repo",
-        sha: "a".repeat(40),
-        githubToken: "synthetic-token",
-      })).status,
+      (
+        await call("checkout", {
+          owner: "test",
+          repo: "repo",
+          sha: "a".repeat(40),
+          githubToken: "synthetic-token",
+        })
+      ).status,
     ).toBe(200);
     const failed = await call("release");
     expect(failed.status).toBe(400);
     expect((await failed.json()).error).toBe("worker cleanup failed");
-    expect((await (await call("shell", { command: "true" })).json()).error)
-      .toBe("checkout required");
+    expect(
+      (await (await call("shell", { command: "true" })).json()).error,
+    ).toBe("checkout required");
     const retried = await Promise.all([call("release"), call("release")]);
     expect(retried.map((response) => response.status)).toEqual([200, 200]);
     expect(await readFile(count, "utf8")).toBe("2");

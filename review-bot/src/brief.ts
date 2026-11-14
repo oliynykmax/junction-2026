@@ -7,7 +7,13 @@ import { numberedPatch } from "./reading";
 import type { ChangedFile, Target } from "./reviewer";
 
 export type Part<T> =
-  | { kind: "available"; value: T; omitted: number }
+  | {
+      kind: "available";
+      value: T;
+      omitted: number;
+      /** GitHub had more than MAX_PAGES pages, so the newest may be missing. */
+      incomplete?: boolean;
+    }
   | { kind: "unavailable"; reason: string };
 
 export type PrFacts = {
@@ -42,11 +48,17 @@ export const MAX_COMMIT_CHARS = 1_000;
 export const MAX_COMMITS_CHARS = 12_000;
 export const MAX_COMMENT_CHARS = 1_500;
 export const MAX_COMMENTS_CHARS = 24_000;
+export const MAX_LISTED_FILES = 300;
+export const MAX_PAGES = 10;
 /** Numbered patches inlined in the prompt; the rest are read with read_patch. */
 export const MAX_BRIEF_DIFF_CHARS = 60_000;
 
-const clip = (s: string, n: number) =>
-  s.length <= n ? s : `${s.slice(0, n)}\n[… ${s.length - n} characters cut]`;
+function clip(s: string, n: number): string {
+  if (s.length <= n) return s;
+  const note = (cut: number) => `\n[… ${cut} characters cut]`;
+  const keep = n - note(s.length).length;
+  return s.slice(0, keep) + note(s.length - keep);
+}
 
 /** The longest suffix of items whose rendered size fits the budget. */
 function newestWithin<T>(items: T[], size: (t: T) => number, budget: number) {
@@ -62,7 +74,7 @@ function newestWithin<T>(items: T[], size: (t: T) => number, budget: number) {
 }
 
 async function part<T>(
-  read: () => Promise<{ value: T; omitted: number }>,
+  read: () => Promise<{ value: T; omitted: number; incomplete?: boolean }>,
 ): Promise<Part<T>> {
   try {
     return { kind: "available", ...(await read()) };
@@ -80,6 +92,17 @@ async function part<T>(
 }
 
 type User = { login: string } | null;
+
+/** Every page of a GitHub list endpoint, up to MAX_PAGES of 100. */
+async function pages<T>(token: string, path: string) {
+  const rows: T[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const batch = await ghJson<T[]>(token, `${path}?per_page=100&page=${page}`);
+    rows.push(...batch);
+    if (batch.length < 100) return { rows, incomplete: false };
+  }
+  return { rows, incomplete: true };
+}
 const login = (u: User) => u?.login ?? "ghost";
 
 export async function collectBrief(token: string, t: Target): Promise<Brief> {
@@ -103,9 +126,11 @@ export async function collectBrief(token: string, t: Target): Promise<Brief> {
       };
     }),
     part(async () => {
-      const rows = await ghJson<
-        { sha: string; commit: { message: string }; parents: unknown[] }[]
-      >(token, `${pull}/commits?per_page=100`);
+      const { rows, incomplete } = await pages<{
+        sha: string;
+        commit: { message: string };
+        parents: unknown[];
+      }>(token, `${pull}/commits`);
       const all = rows
         .filter((c) => c.parents.length < 2)
         .map((c) => ({
@@ -117,34 +142,30 @@ export async function collectBrief(token: string, t: Target): Promise<Brief> {
         (c) => c.message.length + 16,
         MAX_COMMITS_CHARS,
       );
-      return { value: kept, omitted };
+      return { value: kept, omitted, incomplete };
     }),
     part(async () => {
       const [reviews, inline, conversation] = await Promise.all([
-        ghJson<
-          {
-            user: User;
-            state: string;
-            body: string | null;
-            submitted_at: string | null;
-          }[]
-        >(token, `${pull}/reviews?per_page=100`),
-        ghJson<
-          {
-            user: User;
-            path: string;
-            line: number | null;
-            body: string;
-            created_at: string;
-          }[]
-        >(token, `${pull}/comments?per_page=100`),
-        ghJson<{ user: User; body: string | null; created_at: string }[]>(
+        pages<{
+          user: User;
+          state: string;
+          body: string | null;
+          submitted_at: string | null;
+        }>(token, `${pull}/reviews`),
+        pages<{
+          user: User;
+          path: string;
+          line: number | null;
+          body: string;
+          created_at: string;
+        }>(token, `${pull}/comments`),
+        pages<{ user: User; body: string | null; created_at: string }>(
           token,
-          `/repos/${t.owner}/${t.repo}/issues/${t.number}/comments?per_page=100`,
+          `/repos/${t.owner}/${t.repo}/issues/${t.number}/comments`,
         ),
       ]);
       const all: Comment[] = [
-        ...reviews
+        ...reviews.rows
           .filter((r) => r.body || r.state !== "COMMENTED")
           .map((r) => ({
             kind: "review" as const,
@@ -153,7 +174,7 @@ export async function collectBrief(token: string, t: Target): Promise<Brief> {
             state: r.state,
             body: r.body ?? "",
           })),
-        ...inline.map((c) => ({
+        ...inline.rows.map((c) => ({
           kind: "inline" as const,
           author: login(c.user),
           at: c.created_at,
@@ -161,7 +182,7 @@ export async function collectBrief(token: string, t: Target): Promise<Brief> {
           line: c.line,
           body: c.body,
         })),
-        ...conversation.map((c) => ({
+        ...conversation.rows.map((c) => ({
           kind: "conversation" as const,
           author: login(c.user),
           at: c.created_at,
@@ -175,7 +196,12 @@ export async function collectBrief(token: string, t: Target): Promise<Brief> {
         (c) => c.body.length + 80,
         MAX_COMMENTS_CHARS,
       );
-      return { value: kept, omitted };
+      return {
+        value: kept,
+        omitted,
+        incomplete:
+          reviews.incomplete || inline.incomplete || conversation.incomplete,
+      };
     }),
   ]);
   return { facts, commits, comments };
@@ -185,8 +211,18 @@ function unavailable(what: string, p: { reason: string }) {
   return `(${what} could not be read when the review started: ${p.reason}. Fetch it with pr_overview, or list it in not_checked.)`;
 }
 
-function omittedNote(n: number, what: string) {
-  return n ? `\n(${n} older ${what} left out to fit the prompt.)` : "";
+function omittedNote(
+  p: { omitted: number; incomplete?: boolean },
+  what: string,
+) {
+  return (
+    (p.omitted
+      ? `\n(${p.omitted} older ${what} left out to fit the prompt.)`
+      : "") +
+    (p.incomplete
+      ? `\n(GitHub listed more than ${MAX_PAGES * 100} ${what}, so the newest may be missing. Check the pull request page before you rely on their absence.)`
+      : "")
+  );
 }
 
 function renderComment(c: Comment): string {
@@ -261,29 +297,42 @@ export function renderBrief({ target: t, brief, files, rubric }: BriefInput) {
     brief?.commits.kind === "available"
       ? brief.commits.value.length
         ? brief.commits.value.map((c) => `${c.sha} ${c.message}`).join("\n\n") +
-          omittedNote(brief.commits.omitted, "commits")
+          omittedNote(brief.commits, "commits")
         : "(no commits other than merges)"
       : unavailable(
           "The commit messages",
           brief?.commits ?? { reason: "no brief" },
         );
 
-  const list = files
-    .map(
-      (f) => `${f.status.padEnd(9)} +${f.additions} -${f.deletions}  ${f.path}`,
-    )
-    .join("\n");
+  const list =
+    files
+      .slice(0, MAX_LISTED_FILES)
+      .map(
+        (f) =>
+          `${f.status.padEnd(9)} +${f.additions} -${f.deletions}  ${f.path}`,
+      )
+      .join("\n") +
+    (files.length > MAX_LISTED_FILES
+      ? `\n(${files.length - MAX_LISTED_FILES} more files not listed. pr_overview lists them all.)`
+      : "");
 
   const diff = briefDiff(files);
   const leftOut = diff.leftOut.length
-    ? `\n\nLeft out of the diff above, read each with read_patch (numbered) before you report on it:\n${diff.leftOut.map((p) => `- ${p}`).join("\n")}`
+    ? `\n\nLeft out of the diff above, read each with read_patch (numbered) before you report on it:\n${diff.leftOut
+        .slice(0, MAX_LISTED_FILES)
+        .map((p) => `- ${p}`)
+        .join("\n")}${
+        diff.leftOut.length > MAX_LISTED_FILES
+          ? `\n- and ${diff.leftOut.length - MAX_LISTED_FILES} more: pr_overview lists them all.`
+          : ""
+      }`
     : "";
 
   const comments =
     brief?.comments.kind === "available"
       ? brief.comments.value.length
         ? brief.comments.value.map(renderComment).join("\n\n") +
-          omittedNote(brief.comments.omitted, "comments")
+          omittedNote(brief.comments, "comments")
         : "(no reviews or comments yet)"
       : unavailable(
           "The reviews and comments",

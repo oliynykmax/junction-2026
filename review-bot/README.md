@@ -31,7 +31,7 @@ CI evidence includes check runs and legacy commit statuses for the exact reviewe
 
 The GitHub App needs **Checks: read** and **Commit statuses: read**, in addition to its existing contents permission. Installations must accept those permissions. Actions access is not required. Until access is granted, reviews still run and disclose the evidence gap, but they cannot approve.
 
-The collector reads root `code-standard.md` from the base repository at the base SHA captured in the signed PR webhook. A PR that edits, removes, or introduces the file cannot change its own review criteria. The report records the base repository, commit, Git blob SHA, SHA-256 digest, and exact text. Standards must be UTF-8 and no larger than 32 KiB. An inaccessible, invalid, or oversized standard is disclosed and prevents approval. A confirmed absent file falls back to the existing rubric. Standard text supplies review criteria and cannot override the review protocol or grant tool permissions.
+The collector reads root `CODING_STANDARDS.md` from the base repository at the base SHA captured in the signed PR webhook. A PR that edits, removes, or introduces the file cannot change its own review criteria. The report records the base repository, commit, Git blob SHA, SHA-256 digest, and exact text. Standards must be UTF-8 and no larger than 32 KiB. An inaccessible, invalid, or oversized standard is disclosed and prevents approval. A confirmed absent file falls back to the existing rubric. Standard text supplies review criteria and cannot override the review protocol or grant tool permissions.
 
 Older reviews retain their original findings. Their report shows that no evidence snapshot was captured. New publication attempts without complete evidence produce comments.
 

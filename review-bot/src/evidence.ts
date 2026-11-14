@@ -195,7 +195,7 @@ async function standard(
     try {
       content = await json(
         token,
-        `${root}/contents/code-standard.md?ref=${base.sha}`,
+        `${root}/contents/CODING_STANDARDS.md?ref=${base.sha}`,
       );
     } catch (error) {
       if (error instanceof GitHubError && error.status === 404)
@@ -207,19 +207,19 @@ async function standard(
       content.type !== "file" ||
       content.encoding !== "base64"
     )
-      throw new Error("code-standard.md is not an inline UTF-8 file");
+      throw new Error("CODING_STANDARDS.md is not an inline UTF-8 file");
     const size = integer(content.size);
     if (size > MAX_STANDARD_BYTES)
-      throw new Error("code-standard.md exceeds the 32 KiB limit");
+      throw new Error("CODING_STANDARDS.md exceeds the 32 KiB limit");
     const encoded = string(content.content);
     if (encoded.length > MAX_STANDARD_BYTES * 2)
-      throw new Error("code-standard.md encoding exceeds its limit");
+      throw new Error("CODING_STANDARDS.md encoding exceeds its limit");
     const bytes = Uint8Array.from(atob(encoded.replace(/\s/g, "")), (c) =>
       c.charCodeAt(0),
     );
     if (bytes.length !== size || bytes.length > MAX_STANDARD_BYTES)
       throw new Error(
-        "code-standard.md is incomplete or exceeds the 32 KiB limit",
+        "CODING_STANDARDS.md is incomplete or exceeds the 32 KiB limit",
       );
     const text = new TextDecoder("utf-8", {
       fatal: true,
@@ -234,7 +234,7 @@ async function standard(
       blobSha: sha(content.sha),
       sha256,
       text,
-      url: `https://github.com/${encodeURIComponent(base.owner)}/${encodeURIComponent(base.repo)}/blob/${base.sha}/code-standard.md`,
+      url: `https://github.com/${encodeURIComponent(base.owner)}/${encodeURIComponent(base.repo)}/blob/${base.sha}/CODING_STANDARDS.md`,
     };
   } catch (error) {
     return { kind: "unavailable", reason: reason(error) };
@@ -311,7 +311,7 @@ export function evidenceGaps(evidence: Evidence | null | undefined): string[] {
     gaps.push(`Team standard unavailable: ${evidence.standard.reason}.`);
   if (evidence.standard.kind === "absent")
     gaps.push(
-      "No code-standard.md exists at the pinned base commit; only the review rubric applies.",
+      "No CODING_STANDARDS.md exists at the pinned base commit; only the review rubric applies.",
     );
   return gaps;
 }
@@ -325,7 +325,7 @@ export function renderEvidence(evidence: Evidence | null | undefined): string {
       ["Check runs", evidence.checks],
       ["Commit statuses", evidence.statuses],
     ].map(([name, source]) => `${name}: ${JSON.stringify(source)}`),
-    `Team standard at ${base ? `${base.owner}/${base.repo}@${base.sha}/code-standard.md` : "unknown base"}:`,
+    `Team standard at ${base ? `${base.owner}/${base.repo}@${base.sha}/CODING_STANDARDS.md` : "unknown base"}:`,
     JSON.stringify(evidence.standard),
     ...evidenceGaps(evidence),
   ].join("\n");
@@ -349,7 +349,7 @@ export function evidenceHtml(evidence: Evidence | null | undefined): string {
   const policy = evidence.standard;
   const base = evidence.base;
   const provenance = base
-    ? `${base.owner}/${base.repo}@${base.sha}/code-standard.md`
+    ? `${base.owner}/${base.repo}@${base.sha}/CODING_STANDARDS.md`
     : "Unknown base commit";
   const standardBody =
     policy.kind === "available"

@@ -205,3 +205,11 @@ export function receiptFrom(
       : {}),
   };
 }
+
+export function verificationCounts(
+  receipts: readonly Pick<VerificationReceipt, "outcome">[],
+): Record<VerificationOutcome, number> {
+  const counts = { passed: 0, counterexample: 0, not_run: 0 };
+  for (const r of receipts) counts[r.outcome]++;
+  return counts;
+}

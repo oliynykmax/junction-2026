@@ -1,6 +1,6 @@
 // The operations dashboard client. Polls /api/dashboard every 15 s while the
-// tab is visible and renders the ledger: runs, model usage and prompt cache,
-// Modal and MCP calls, recoveries and the event log.
+// tab is visible and charts the ledger: review volume and outcomes, model
+// cost, the review pipeline, time to verdict, and tool calls and latency.
 
 import "@fontsource/hanken-grotesk/latin-400.css";
 import "@fontsource/hanken-grotesk/latin-600.css";
@@ -10,15 +10,27 @@ import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-500.css";
 import "./styles.css";
 import "./dashboard.css";
-import { render } from "preact";
+import { type ComponentChildren, render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
+  Bucket,
+  CallKind,
   DashboardView,
-  LogRow,
+  FunnelStep,
+  Kpis,
   RunRow,
-  ShownStatus,
 } from "../src/dashboard";
 import type { FailureClass } from "../src/status";
+import {
+  HBars,
+  Legend,
+  SegmentBar,
+  type Series,
+  Sparkline,
+  TimeBars,
+  TimeLines,
+  useNow,
+} from "./charts";
 import { plural } from "./shared";
 
 const POLL_MS = 15_000;
@@ -32,43 +44,51 @@ const WINDOWS = {
 };
 type WindowKey = keyof typeof WINDOWS;
 
-const STATUSES: ShownStatus[] = ["running", "done", "failed", "stale"];
-const STATUS_LABEL: Record<ShownStatus, string> = {
-  running: "Running",
-  done: "Done",
-  failed: "Failed",
-  stale: "Stale",
+// Categorical slots in fixed order; status colours are reserved for outcomes.
+const SLOTS = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"];
+const GOOD = "var(--good)";
+const SERIOUS = "var(--serious)";
+const CRITICAL = "var(--critical)";
+const MUTED = "var(--muted)";
+
+const KIND_SERIES: Series[] = [
+  { key: "shell", label: "Shell", color: SLOTS[0] },
+  { key: "mcp", label: "MCP", color: SLOTS[1] },
+  { key: "modal", label: "Modal scan", color: SLOTS[2] },
+];
+const KIND_LABEL: Record<CallKind, string> = {
+  shell: "shell",
+  mcp: "mcp",
+  modal: "modal",
 };
-const STATUS_MEANING: Record<ShownStatus, string> = {
-  running:
-    "Work is active and the object wrote to the ledger in the last 15 minutes.",
-  done: "The agent committed a verdict.",
-  failed: "The run ended without a verdict.",
-  stale:
-    "Last seen running more than 15 minutes ago. The outcome is unknown, not failed.",
+const OUTCOME_SERIES: Series[] = [
+  { key: "done", label: "Verdict", color: GOOD },
+  { key: "failed", label: "Failed", color: CRITICAL },
+  { key: "open", label: "Running or stale", color: MUTED },
+];
+const FUNNEL_LABEL: Record<FunnelStep, string> = {
+  started: "Started",
+  scanned: "Scanned",
+  checked_out: "Checked out",
+  verdict: "Verdict",
+  no_blockers: "No blockers",
 };
 const FAILURE_LABEL: Record<FailureClass, string> = {
-  model_error: "model error",
-  no_finish: "no finish_review",
-  scanner: "scanner",
+  model_error: "Model error",
+  no_finish: "No finish",
+  scanner: "Scanner",
   github: "GitHub",
-  aborted: "aborted",
-  other: "other",
-};
-const DECISION_LABEL: Record<string, string> = {
-  no_blockers_found: "no blockers",
-  changes_requested: "changes requested",
+  aborted: "Aborted",
+  other: "Other",
 };
 
-type Filters = { window: WindowKey; status: ShownStatus | null; repo: string };
+type Filters = { window: WindowKey; repo: string };
 
 function readFilters(): Filters {
   const p = new URLSearchParams(location.search);
   const w = p.get("window");
-  const s = p.get("status");
   return {
     window: w && w in WINDOWS ? (w as WindowKey) : "24h",
-    status: STATUSES.includes(s as ShownStatus) ? (s as ShownStatus) : null,
     repo: p.get("repo") ?? "",
   };
 }
@@ -76,34 +96,19 @@ function readFilters(): Filters {
 function writeFilters(f: Filters) {
   const p = new URLSearchParams();
   if (f.window !== "24h") p.set("window", f.window);
-  if (f.status) p.set("status", f.status);
   if (f.repo) p.set("repo", f.repo);
   const qs = p.toString();
   history.replaceState(null, "", qs ? `?${qs}` : location.pathname);
 }
 
-function apiUrl(f: Filters, cursor: string | null) {
+function apiUrl(f: Filters) {
   const to = Date.now();
   const p = new URLSearchParams({
     from: String(to - WINDOWS[f.window]),
     to: String(to),
   });
-  if (f.status) p.set("status", f.status);
   if (f.repo) p.set("repo", f.repo);
-  if (cursor) p.set("cursor", cursor);
   return `/api/dashboard?${p}`;
-}
-
-async function fetchView(url: string): Promise<DashboardView> {
-  const res = await fetch(url, { cache: "no-store" });
-  const body = (await res.json().catch(() => ({}))) as
-    DashboardView | { error?: string };
-  if (!res.ok || !("runs" in body))
-    throw new ApiError(
-      ("error" in body && body.error) || `HTTP ${res.status}`,
-      res.status,
-    );
-  return body;
 }
 
 class ApiError extends Error {
@@ -115,23 +120,36 @@ class ApiError extends Error {
   }
 }
 
+async function fetchView(url: string): Promise<DashboardView> {
+  const res = await fetch(url, { cache: "no-store" });
+  const body = (await res.json().catch(() => ({}))) as Partial<DashboardView> & {
+    error?: string;
+  };
+  if (!res.ok || !body.kpis)
+    throw new ApiError(body.error || `HTTP ${res.status}`, res.status);
+  return body as DashboardView;
+}
+
 const num = new Intl.NumberFormat("en");
-const fmtInt = (n: number) => num.format(n);
-const fmtTokens = (n: number) =>
+const fmtInt = (n: number) => num.format(Math.round(n));
+const fmtCompact = (n: number) =>
   n >= 1e6
-    ? `${(n / 1e6).toFixed(2)}M`
-    : n >= 1e4
-      ? `${(n / 1e3).toFixed(1)}k`
+    ? `${(n / 1e6).toFixed(1)}M`
+    : n >= 1e3
+      ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k`
       : fmtInt(n);
-const fmtUsd = (n: number) => `$${n < 1 ? n.toFixed(3) : n.toFixed(2)}`;
+const fmtUsd = (n: number) =>
+  `$${n === 0 ? "0" : n < 1 ? n.toFixed(2) : n < 100 ? n.toFixed(2) : fmtInt(n)}`;
 const fmtMs = (ms: number | null) =>
   ms === null
     ? "–"
     : ms < 1000
-      ? `${ms} ms`
-      : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+      ? `${Math.round(ms)} ms`
+      : ms < 60_000
+        ? `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`
+        : `${(ms / 60_000).toFixed(1)} min`;
 const fmtPct = (r: number | null) =>
-  r === null ? "no data" : `${(r * 100).toFixed(1)}%`;
+  r === null ? "–" : `${Math.round(r * 100)}%`;
 const fmtAbs = (t: number) =>
   new Date(t).toLocaleString("en-GB", {
     dateStyle: "medium",
@@ -146,21 +164,20 @@ function fmtAgo(t: number, now: number) {
   return `${Math.round(s / 86_400)}d ago`;
 }
 
-function fmtDuration(ms: number) {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
-}
-
-function useNow(ms: number) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(id);
-  }, [ms]);
-  return now;
+/** Tick and tooltip formats that match the bucket size. */
+function timeFormats(bucketMs: number) {
+  const day = bucketMs >= 86_400_000;
+  const tick = (t: number) =>
+    new Date(t).toLocaleString("en-GB", day
+      ? { day: "numeric", month: "short" }
+      : bucketMs >= 3 * 3_600_000
+        ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
+        : { hour: "2-digit", minute: "2-digit" });
+  const full = (t: number) =>
+    new Date(t).toLocaleString("en-GB", day
+      ? { weekday: "short", day: "numeric", month: "short" }
+      : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return { tick, full };
 }
 
 type Load =
@@ -171,17 +188,11 @@ type Load =
 function Dashboard() {
   const [filters, setFilters] = useState(readFilters);
   const [load, setLoad] = useState<Load>({ kind: "loading" });
-  const [older, setOlder] = useState<{
-    rows: RunRow[];
-    next: string | null;
-  } | null>(null);
-  const [loadingOlder, setLoadingOlder] = useState(false);
   const [repoDraft, setRepoDraft] = useState(filters.repo);
   const now = useNow(1000);
 
   useEffect(() => {
     writeFilters(filters);
-    setOlder(null);
     setLoad((l) => (l.kind === "ready" ? l : { kind: "loading" }));
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
@@ -190,7 +201,7 @@ function Dashboard() {
       timer = undefined;
       if (document.hidden) return;
       try {
-        const view = await fetchView(apiUrl(filters, null));
+        const view = await fetchView(apiUrl(filters));
         if (stopped) return;
         delay = POLL_MS;
         setLoad({ kind: "ready", view, at: Date.now(), error: null });
@@ -224,21 +235,7 @@ function Dashboard() {
     setFilters((f) => ({ ...f, ...patch }));
   const view = load.kind === "ready" ? load.view : null;
   const error = load.kind === "loading" ? null : load.error;
-
-  const loadOlder = async (cursor: string) => {
-    setLoadingOlder(true);
-    try {
-      const v = await fetchView(apiUrl(filters, cursor));
-      setOlder((o) => ({
-        rows: [...(o?.rows ?? []), ...v.runs.rows],
-        next: v.runs.next,
-      }));
-    } catch {
-      // The button stays; the next click retries.
-    } finally {
-      setLoadingOlder(false);
-    }
-  };
+  const repoValid = repoDraft === "" || /^[\w.-]+\/[\w.-]+$/.test(repoDraft);
 
   return (
     <>
@@ -257,35 +254,49 @@ function Dashboard() {
         </div>
       </header>
       <main class="page dash">
-        <section class="grid title">
-          <div class="lede">
+        <section class="dash-head">
+          <div>
             <h1>Operations</h1>
-            <p class="advice">
-              Every review the bot ran, what it cost, and the calls it made.
-              Collected from the review objects at a few boundaries.{" "}
-              {view?.collectionStartedAt ? (
-                <>
-                  Runs before{" "}
-                  <strong>{fmtAbs(view.collectionStartedAt)}</strong> were not
-                  collected.
-                </>
-              ) : view ? (
-                <>
-                  The collection start is unknown, so earlier runs may be
-                  missing.
-                </>
-              ) : null}
+            <p class="muted">
+              Every review the bot ran, what it cost and the calls it made.
+              {view?.collectionStartedAt
+                ? ` Collected since ${fmtAbs(view.collectionStartedAt)}.`
+                : ""}
             </p>
           </div>
+          <div class="dash-controls">
+            <div class="filter" role="group" aria-label="Time window">
+              {(Object.keys(WINDOWS) as WindowKey[]).map((w) => (
+                <button
+                  type="button"
+                  aria-pressed={filters.window === w}
+                  onClick={() => set({ window: w })}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+            <form
+              class="dash-repo"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (repoValid) set({ repo: repoDraft.trim() });
+              }}
+            >
+              <input
+                aria-label="Repository"
+                type="search"
+                placeholder="All repositories (owner/name)"
+                value={repoDraft}
+                aria-invalid={!repoValid}
+                onInput={(e) => setRepoDraft(e.currentTarget.value.trim())}
+                onSearch={(e) => {
+                  if (!e.currentTarget.value) set({ repo: "" });
+                }}
+              />
+            </form>
+          </div>
         </section>
-
-        <Controls
-          filters={filters}
-          set={set}
-          repoDraft={repoDraft}
-          setRepoDraft={setRepoDraft}
-          counts={view?.runs.counts ?? null}
-        />
 
         {load.kind === "loading" && (
           <p class="dash-state">Loading the ledger…</p>
@@ -295,36 +306,488 @@ function Dashboard() {
             The dashboard could not load: {error}. It retries on its own.
           </p>
         )}
-
-        {view && (
-          <>
-            <Strip view={view} />
-            <Runs
-              view={view}
-              older={older}
-              now={now}
-              filtered={Boolean(filters.status || filters.repo)}
-              loadingOlder={loadingOlder}
-              onOlder={loadOlder}
-            />
-            <div class="dash-cols">
-              <Models view={view} />
-              <Calls view={view} />
-            </div>
-            <Recoveries view={view} />
-            <Log rows={view.log} now={now} />
-            <p class="dash-foot muted">
-              Model cost is pi's estimate from list prices and token usage, not
-              an invoice. Cloudflare, Modal and MCP billing are unavailable
-              here. Call counts are best effort: events buffered in an object
-              that is evicted are lost.
-              {view.droppedEvents > 0 &&
-                ` ${fmtInt(view.droppedEvents)} events were dropped from full buffers in this window.`}
-            </p>
-          </>
-        )}
+        {view && <Board view={view} now={now} />}
       </main>
     </>
+  );
+}
+
+function Board({ view, now }: { view: DashboardView; now: number }) {
+  const fmt = timeFormats(view.window.bucketMs);
+  const time = {
+    points: view.series,
+    t: (b: Bucket) => b.t,
+    fmtT: fmt.full,
+    fmtTick: fmt.tick,
+  };
+  const models = view.models.map((m) => m.model).sort();
+  const modelSeries: Series[] = models.map((m, i) => ({
+    key: m,
+    label: shortModel(m),
+    color: SLOTS[i % SLOTS.length],
+  }));
+  const k = view.kpis;
+  const p = view.previous;
+  const verdictRate = (x: Kpis) =>
+    x.done + x.failed > 0 ? x.done / (x.done + x.failed) : null;
+  const cost = (x: Kpis) => (x.reviews ? x.costUsd / x.reviews : null);
+  const perReview = (x: Kpis) => (x.done ? x.findings / x.done : null);
+  const prompt = view.models.reduce(
+    (s, m) => s + m.input + m.cacheRead + m.cacheWrite,
+    0,
+  );
+  const cacheRead = view.models.reduce((s, m) => s + m.cacheRead, 0);
+  const calls = view.tools.reduce((n, t) => n + t.calls, 0);
+
+  return (
+    <>
+      <section class="dash-kpis" aria-label="Key figures">
+        <Kpi
+          label="Reviews"
+          value={fmtInt(k.reviews)}
+          now={k.reviews}
+          before={p?.reviews}
+          spark={view.series.map((b) => b.done + b.failed + b.open)}
+        />
+        <Kpi
+          label="Reached a verdict"
+          value={fmtPct(verdictRate(k))}
+          now={verdictRate(k)}
+          before={p ? verdictRate(p) : undefined}
+          spark={view.series.map((b) =>
+            b.done + b.failed ? b.done / (b.done + b.failed) : 0,
+          )}
+          points
+        />
+        <Kpi
+          label="Median time to verdict"
+          value={fmtMs(k.medianMs)}
+          now={k.medianMs}
+          before={p?.medianMs}
+          lowerIsBetter
+        />
+        <Kpi
+          label="Model cost"
+          value={fmtUsd(k.costUsd)}
+          sub={cost(k) === null ? undefined : `${fmtUsd(cost(k)!)} per review`}
+          now={k.costUsd}
+          before={p?.costUsd}
+          spark={view.series.map((b) =>
+            Object.values(b.cost).reduce((a, c) => a + c, 0),
+          )}
+          lowerIsBetter
+        />
+        <Kpi
+          label="Findings per verdict"
+          value={perReview(k) === null ? "–" : perReview(k)!.toFixed(1)}
+          now={perReview(k)}
+          before={p ? perReview(p) : undefined}
+          neutral
+          spark={view.series.map((b) => b.findings)}
+        />
+      </section>
+
+      <div class="dash-grid">
+        <Card
+          wide
+          title="Reviews"
+          sub={`Started per ${bucketName(view.window.bucketMs)}, by how they ended`}
+          legend={OUTCOME_SERIES}
+        >
+          <TimeBars
+            {...time}
+            series={OUTCOME_SERIES}
+            value={(b, key) => b[key as "done" | "failed" | "open"]}
+            fmtV={fmtInt}
+            label="Reviews started per time bucket, stacked by outcome"
+          />
+        </Card>
+
+        <Card
+          title="Review pipeline"
+          sub="Runs in this window that reached each step"
+        >
+          <HBars
+            color="var(--s1)"
+            fmt={fmtInt}
+            label="Review pipeline funnel"
+            bars={view.funnel.map((f) => ({
+              label: FUNNEL_LABEL[f.step],
+              value: f.n,
+              note: k.reviews ? fmtPct(f.n / k.reviews) : undefined,
+            }))}
+          />
+        </Card>
+
+        <Card
+          title="Model cost"
+          sub="Estimated from token usage at list prices"
+          legend={modelSeries}
+        >
+          <TimeBars
+            {...time}
+            series={modelSeries}
+            value={(b, key) => b.cost[key] ?? 0}
+            fmtV={fmtUsd}
+            height={180}
+            label="Estimated model cost per time bucket, stacked by model"
+          />
+        </Card>
+
+        <Card
+          title="Time to verdict"
+          sub={`Done reviews by duration in minutes · median ${fmtMs(k.medianMs)}`}
+        >
+          <Histogram bins={view.durations} />
+        </Card>
+
+        <Card
+          title="Outcomes"
+          sub="What the finished reviews decided, and why the rest failed"
+        >
+          <SegmentBar
+            fmt={fmtInt}
+            label="Review outcomes"
+            segments={[
+              { label: "No blockers", value: view.outcomes.noBlockers, color: GOOD },
+              {
+                label: "Changes requested",
+                value: view.outcomes.changesRequested,
+                color: SERIOUS,
+              },
+              ...Object.entries(view.outcomes.failed).map(([f, n]) => ({
+                label: `Failed: ${FAILURE_LABEL[f as FailureClass] ?? f}`,
+                value: n ?? 0,
+                color: CRITICAL,
+              })),
+              { label: "Running or stale", value: view.outcomes.open, color: MUTED },
+            ]}
+          />
+          <h3 class="dash-sub">Verification receipts</h3>
+          {view.verification.runs === 0 ? (
+            <p class="muted dash-note">
+              No finished review in this window logged its receipts yet.
+            </p>
+          ) : (
+            <SegmentBar
+              fmt={fmtInt}
+              label="Verification receipts by outcome"
+              segments={[
+                { label: "Passed", value: view.verification.passed, color: SLOTS[0] },
+                {
+                  label: "Counterexample",
+                  value: view.verification.counterexample,
+                  color: SLOTS[1],
+                },
+                { label: "Not run", value: view.verification.not_run, color: MUTED },
+              ]}
+            />
+          )}
+        </Card>
+
+        <Card
+          title="Tool latency"
+          sub="p95 per bucket, from sampled calls"
+          legend={KIND_SERIES}
+        >
+          <TimeLines
+            {...time}
+            series={KIND_SERIES}
+            value={(b, key) => b.p95[key as CallKind]}
+            fmtV={(v) => fmtMs(v)}
+            height={180}
+            label="p95 latency per time bucket for shell, MCP and Modal calls"
+          />
+        </Card>
+
+        <Card
+          title="Tool calls"
+          sub={`${fmtCompact(calls)} calls · errors in red · p50 latency`}
+        >
+          {view.tools.length === 0 ? (
+            <p class="muted dash-note">No tool calls in this window.</p>
+          ) : (
+            <HBars
+              color="var(--s1)"
+              partColor={CRITICAL}
+              fmt={fmtCompact}
+              label="Busiest tools by call count"
+              bars={view.tools.map((t) => ({
+                label: `${KIND_LABEL[t.kind]} · ${t.name}`,
+                value: t.calls,
+                part: t.errors,
+                note: fmtMs(t.p50Ms),
+                title: `${t.errors} errors · p50 ${fmtMs(t.p50Ms)} · p95 ${fmtMs(t.p95Ms)}`,
+              }))}
+            />
+          )}
+        </Card>
+
+        <Card
+          title="Calls over time"
+          sub={`Per ${bucketName(view.window.bucketMs)}, by kind`}
+          legend={KIND_SERIES}
+        >
+          <TimeBars
+            {...time}
+            series={KIND_SERIES}
+            value={(b, key) => b.calls[key as CallKind].n}
+            fmtV={fmtCompact}
+            height={180}
+            label="Tool calls per time bucket, stacked by kind"
+          />
+        </Card>
+
+        <Card title="Prompt tokens" sub="Where each model's prompt came from">
+          {view.models.length === 0 ? (
+            <p class="muted dash-note">No model usage in this window.</p>
+          ) : (
+            view.models.map((m) => (
+              <div class="dash-model">
+                <h3 class="dash-sub">
+                  {shortModel(m.model)}
+                  <span class="muted">
+                    {fmtInt(m.runs)} runs · {fmtUsd(m.costUsd)}
+                  </span>
+                </h3>
+                <SegmentBar
+                  fmt={fmtCompact}
+                  label={`Prompt token sources for ${m.model}`}
+                  segments={[
+                    { label: "Cache read", value: m.cacheRead, color: SLOTS[0] },
+                    { label: "Cache write", value: m.cacheWrite, color: SLOTS[2] },
+                    { label: "Uncached", value: m.input, color: SLOTS[1] },
+                  ]}
+                />
+              </div>
+            ))
+          )}
+        </Card>
+
+        <Card title="Health" sub="Connections, caches and crash recovery">
+          <dl class="dash-health">
+            <Stat
+              label="Prompt cache share"
+              value={prompt ? fmtPct(cacheRead / prompt) : "–"}
+            />
+            <Stat
+              label="GitHub token cache hits"
+              value={fmtPct(
+                rate(view.connections.tokenCacheHits, view.connections.tokenCacheMisses),
+              )}
+            />
+            <Stat
+              label="MCP connect failures"
+              value={`${fmtInt(view.connections.mcpConnectFailures)} of ${fmtInt(view.connections.mcpConnects)}`}
+              alert={view.connections.mcpConnectFailures > 0}
+            />
+            <Stat
+              label="Interrupted boots recovered"
+              value={
+                view.recoveries.detected
+                  ? `${fmtInt(view.recoveries.recovered)} of ${fmtInt(view.recoveries.detected)}`
+                  : "none needed"
+              }
+              alert={view.recoveries.failed > 0}
+            />
+          </dl>
+        </Card>
+
+        <Card title="Latest reviews" sub="Newest first">
+          <Recent rows={view.recent} now={now} />
+        </Card>
+      </div>
+
+      <p class="dash-foot muted">
+        Cost is pi's estimate from list prices and token usage, not an invoice.
+        Call counts are best effort: events buffered in an evicted object are
+        lost. Shell calls and verification receipts are recorded only by
+        reviews that ran after they were added.
+        {view.droppedEvents > 0 &&
+          ` ${fmtInt(view.droppedEvents)} events were dropped from full buffers in this window.`}
+      </p>
+    </>
+  );
+}
+
+function rate(hit: number, miss: number) {
+  return hit + miss > 0 ? hit / (hit + miss) : null;
+}
+
+function shortModel(m: string) {
+  return m.replace(/^[^/]+\//, "");
+}
+
+function bucketName(ms: number) {
+  if (ms >= 86_400_000) return "day";
+  if (ms >= 3_600_000) return ms === 3_600_000 ? "hour" : `${ms / 3_600_000} hours`;
+  return `${ms / 60_000} minutes`;
+}
+
+function Card({
+  title,
+  sub,
+  legend,
+  wide,
+  children,
+}: {
+  title: string;
+  sub?: string;
+  legend?: Series[];
+  wide?: boolean;
+  children: ComponentChildren;
+}) {
+  return (
+    <section class={`dash-card${wide ? " wide" : ""}`}>
+      <header>
+        <div>
+          <h2>{title}</h2>
+          {sub && <p class="muted">{sub}</p>}
+        </div>
+        {legend && legend.length > 1 && <Legend series={legend} />}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  now,
+  before,
+  spark,
+  lowerIsBetter,
+  neutral,
+  points,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  now: number | null;
+  before?: number | null;
+  spark?: number[];
+  lowerIsBetter?: boolean;
+  neutral?: boolean;
+  /** The figure is a ratio, so compare in points, not percent. */
+  points?: boolean;
+}) {
+  let delta: { text: string; tone: string } | null = null;
+  if (now !== null && before !== undefined && before !== null) {
+    const diff = points ? (now - before) * 100 : before ? ((now - before) / before) * 100 : null;
+    if (diff !== null && Number.isFinite(diff)) {
+      const up = diff > 0;
+      const good = lowerIsBetter ? !up : up;
+      delta = {
+        text: `${up ? "▲" : diff < 0 ? "▼" : ""} ${Math.abs(Math.round(diff))}${points ? " pts" : "%"}`,
+        tone: Math.round(diff) === 0 || neutral ? "flat" : good ? "good" : "bad",
+      };
+    }
+  }
+  return (
+    <div class="dash-kpi">
+      <span class="dash-kpi-label">{label}</span>
+      <span class="dash-kpi-value">{value}</span>
+      <span class="dash-kpi-meta">
+        {delta ? (
+          <span class={`delta ${delta.tone}`} title="Against the previous window">
+            {delta.text}
+          </span>
+        ) : (
+          <span class="muted">no earlier window</span>
+        )}
+        {sub && <span class="muted">{sub}</span>}
+      </span>
+      {spark && <Sparkline values={spark} />}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  alert,
+}: {
+  label: string;
+  value: string;
+  alert?: boolean;
+}) {
+  return (
+    <div class={alert ? "alert" : undefined}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+function Histogram({ bins }: { bins: DashboardView["durations"] }) {
+  const max = Math.max(1, ...bins.map((b) => b.n));
+  let from = 0;
+  return (
+    <div class="viz-hist" role="img" aria-label="Histogram of time to verdict">
+      {bins.map((b) => {
+        const range =
+          b.toMs === null ? `${from / 60_000}+` : `${from / 60_000}–${b.toMs / 60_000}`;
+        const label = b.toMs === null ? range : String(from / 60_000);
+        const title = `${range} min: ${plural(b.n, "review")}`;
+        from = b.toMs ?? from;
+        return (
+          <div class="viz-hist-col" title={title}>
+            <span class="viz-hist-n">{b.n || ""}</span>
+            <span
+              class="viz-hist-bar"
+              style={{ height: `${(b.n / max) * 100}%` }}
+            />
+            <span class="viz-hist-x">{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Recent({ rows, now }: { rows: RunRow[]; now: number }) {
+  if (!rows.length)
+    return <p class="muted dash-note">No reviews in this window.</p>;
+  return (
+    <ul class="dash-recent">
+      {rows.map((r) => {
+        const tone =
+          r.status === "failed"
+            ? CRITICAL
+            : r.status === "done"
+              ? r.decision === "changes_requested"
+                ? SERIOUS
+                : GOOD
+              : MUTED;
+        const outcome =
+          r.status === "done"
+            ? r.decision === "changes_requested"
+              ? `changes requested · ${plural(r.findings ?? 0, "finding")}`
+              : `no blockers · ${plural(r.findings ?? 0, "finding")}`
+            : r.status === "failed"
+              ? `failed: ${FAILURE_LABEL[r.failure ?? "other"]}`
+              : r.status;
+        return (
+          <li>
+            <i style={{ background: tone }} aria-hidden="true" />
+            <a href={r.link}>
+              {r.repo}#{r.number}
+            </a>
+            <span class="loc muted">{r.headSha.slice(0, 7)}</span>
+            <span>{outcome}</span>
+            <span class="muted">
+              {r.endedAt ? fmtMs(r.endedAt - r.startedAt) : ""}
+            </span>
+            <span class="muted">{r.costUsd > 0 ? fmtUsd(r.costUsd) : ""}</span>
+            <time class="muted" title={fmtAbs(r.startedAt)}>
+              {fmtAgo(r.startedAt, now)}
+            </time>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -357,420 +820,6 @@ function Freshness({ load, now }: { load: Load; now: number }) {
       <span class="pulse" aria-hidden="true" />
       Updated {fmtAgo(load.at, now)}
     </span>
-  );
-}
-
-function Controls({
-  filters,
-  set,
-  repoDraft,
-  setRepoDraft,
-  counts,
-}: {
-  filters: Filters;
-  set: (p: Partial<Filters>) => void;
-  repoDraft: string;
-  setRepoDraft: (s: string) => void;
-  counts: Record<ShownStatus, number> | null;
-}) {
-  const repoValid = repoDraft === "" || /^[\w.-]+\/[\w.-]+$/.test(repoDraft);
-  return (
-    <section class="dash-controls" aria-label="Filters">
-      <div class="filter" role="group" aria-label="Time window">
-        {(Object.keys(WINDOWS) as WindowKey[]).map((w) => (
-          <button
-            type="button"
-            aria-pressed={filters.window === w}
-            onClick={() => set({ window: w })}
-          >
-            {w}
-          </button>
-        ))}
-      </div>
-      <div class="filter" role="group" aria-label="Status">
-        <button
-          type="button"
-          aria-pressed={filters.status === null}
-          onClick={() => set({ status: null })}
-        >
-          All
-        </button>
-        {STATUSES.map((s) => (
-          <button
-            type="button"
-            aria-pressed={filters.status === s}
-            title={STATUS_MEANING[s]}
-            onClick={() => set({ status: filters.status === s ? null : s })}
-          >
-            {STATUS_LABEL[s]}
-            {counts && <span>{counts[s]}</span>}
-          </button>
-        ))}
-      </div>
-      <form
-        class="dash-repo"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (repoValid) set({ repo: repoDraft.trim() });
-        }}
-      >
-        <label for="repo">Repository</label>
-        <input
-          id="repo"
-          type="search"
-          placeholder="owner/name"
-          value={repoDraft}
-          aria-invalid={!repoValid}
-          onInput={(e) => setRepoDraft(e.currentTarget.value.trim())}
-          onSearch={(e) => {
-            if (!e.currentTarget.value) set({ repo: "" });
-          }}
-        />
-        <button type="submit" disabled={!repoValid}>
-          Filter
-        </button>
-      </form>
-    </section>
-  );
-}
-
-function Strip({ view }: { view: DashboardView }) {
-  const c = view.runs.counts;
-  const cost = view.models.reduce((s, m) => s + m.costUsd, 0);
-  const prompt = view.models.reduce(
-    (s, m) => s + m.input + m.cacheRead + m.cacheWrite,
-    0,
-  );
-  const read = view.models.reduce((s, m) => s + m.cacheRead, 0);
-  const cells: [string, string, string?, boolean?][] = [
-    ["Running", fmtInt(c.running), STATUS_MEANING.running],
-    ["Done", fmtInt(c.done), STATUS_MEANING.done],
-    ["Failed", fmtInt(c.failed), STATUS_MEANING.failed, c.failed > 0],
-    ["Stale", fmtInt(c.stale), STATUS_MEANING.stale],
-    ["Model cost, estimate", fmtUsd(cost), "pi usage at list prices"],
-    [
-      "Prompt cache reads",
-      prompt ? fmtPct(read / prompt) : "no data",
-      "cache read ÷ all prompt tokens",
-    ],
-  ];
-  return (
-    <dl class="dash-strip">
-      {cells.map(([label, value, title, alert]) => (
-        <div class={alert ? "alert" : undefined} title={title}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function Runs({
-  view,
-  older,
-  now,
-  filtered,
-  loadingOlder,
-  onOlder,
-}: {
-  view: DashboardView;
-  older: { rows: RunRow[]; next: string | null } | null;
-  now: number;
-  filtered: boolean;
-  loadingOlder: boolean;
-  onOlder: (cursor: string) => void;
-}) {
-  const rows = [...view.runs.rows, ...(older?.rows ?? [])];
-  const next = older ? older.next : view.runs.next;
-  return (
-    <section class="section" aria-labelledby="runs-h">
-      <div class="section-head">
-        <h2 id="runs-h">Reviews</h2>
-        <span class="counts">{rows.length} shown, newest first</span>
-      </div>
-      {rows.length === 0 ? (
-        <p class="empty">
-          {filtered
-            ? "No reviews match these filters in this window."
-            : view.collectionStartedAt
-              ? `No reviews since ${fmtAbs(Math.max(view.window.from, view.collectionStartedAt))}.`
-              : "No reviews in this window."}
-        </p>
-      ) : (
-        <div class="dash-scroll">
-          <table class="diags dash-table dash-runs">
-            <thead>
-              <tr>
-                <th>Started</th>
-                <th>Pull request</th>
-                <th>Commit</th>
-                <th>Status</th>
-                <th>Outcome</th>
-                <th class="num">Duration</th>
-                <th class="num">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <RunTr r={r} now={now} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {next && (
-        <button
-          type="button"
-          class="toggle dash-more"
-          disabled={loadingOlder}
-          onClick={() => onOlder(next)}
-        >
-          {loadingOlder ? "Loading…" : "Load older reviews"}
-        </button>
-      )}
-    </section>
-  );
-}
-
-function RunTr({ r, now }: { r: RunRow; now: number }) {
-  const end = r.endedAt ?? (r.status === "running" ? now : r.lastSeenAt);
-  const outcome =
-    r.status === "done"
-      ? `${DECISION_LABEL[r.decision ?? ""] ?? r.decision ?? "–"} · ${r.findings ?? 0} findings`
-      : r.status === "failed"
-        ? (FAILURE_LABEL[r.failure ?? "other"] ?? "unknown")
-        : r.status === "stale"
-          ? `last seen ${fmtAgo(r.lastSeenAt, now)}`
-          : "in progress";
-  return (
-    <tr class={`run-${r.status}`}>
-      <td title={fmtAbs(r.startedAt)}>{fmtAgo(r.startedAt, now)}</td>
-      <td>
-        <a href={r.link}>
-          {r.owner}/{r.repo}#{r.number}
-        </a>
-        {r.mode === "manual" && <span class="tag dash-mode">manual</span>}
-      </td>
-      <td class="loc" title={r.headSha}>
-        {r.headSha.slice(0, 7)}
-      </td>
-      <td class="dash-status" title={STATUS_MEANING[r.status]}>
-        {r.status === "running" && <span class="pulse" aria-hidden="true" />}
-        {STATUS_LABEL[r.status]}
-      </td>
-      <td class={r.decision === "changes_requested" ? "alert" : undefined}>
-        {outcome}
-      </td>
-      <td class="num" title={r.endedAt ? undefined : "still open"}>
-        {fmtDuration(end - r.startedAt)}
-      </td>
-      <td class="num">{r.costUsd > 0 ? fmtUsd(r.costUsd) : "–"}</td>
-    </tr>
-  );
-}
-
-function Models({ view }: { view: DashboardView }) {
-  return (
-    <section class="section" aria-labelledby="models-h">
-      <div class="section-head">
-        <h2 id="models-h">Models and prompt cache</h2>
-      </div>
-      {view.models.length === 0 ? (
-        <p class="empty">No model usage recorded in this window.</p>
-      ) : (
-        <div class="dash-scroll">
-          <table class="diags dash-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th class="num">Runs</th>
-                <th class="num">Input</th>
-                <th class="num">Cache read</th>
-                <th class="num">Cache write</th>
-                <th class="num">Output</th>
-                <th
-                  class="num"
-                  title="cache read ÷ (input + cache read + cache write)"
-                >
-                  Cache share
-                </th>
-                <th class="num">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.models.map((m) => (
-                <tr>
-                  <td class="loc">{m.model}</td>
-                  <td class="num">{fmtInt(m.runs)}</td>
-                  <td class="num">{fmtTokens(m.input)}</td>
-                  <td class="num">{fmtTokens(m.cacheRead)}</td>
-                  <td class="num">{fmtTokens(m.cacheWrite)}</td>
-                  <td class="num">{fmtTokens(m.output)}</td>
-                  <td class="num">{fmtPct(m.promptCacheHitRatio)}</td>
-                  <td class="num">{fmtUsd(m.costUsd)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <p class="dash-note muted">
-        Cache share is cache-read tokens over all prompt tokens. Cost is an
-        estimate.
-      </p>
-    </section>
-  );
-}
-
-function Calls({ view }: { view: DashboardView }) {
-  const { modal, connections: c } = view;
-  return (
-    <section class="section" aria-labelledby="calls-h">
-      <div class="section-head">
-        <h2 id="calls-h">Modal and MCP calls</h2>
-      </div>
-      <dl class="facts dash-facts">
-        <div class={modal.failed ? "alert" : undefined}>
-          <dt>Modal scans</dt>
-          <dd>
-            {modal.calls === 0
-              ? "none in this window"
-              : `${fmtInt(modal.calls)} calls, ${fmtInt(modal.failed)} failed · p50 ${fmtMs(modal.p50Ms)} · p95 ${fmtMs(modal.p95Ms)}`}
-          </dd>
-        </div>
-        <div>
-          <dt>Modal cost</dt>
-          <dd class="muted">unavailable</dd>
-        </div>
-        <div class={c.mcpConnectFailures ? "alert" : undefined}>
-          <dt>MCP connects</dt>
-          <dd>
-            {fmtInt(c.mcpConnects)}
-            {c.mcpConnectFailures > 0 &&
-              `, ${fmtInt(c.mcpConnectFailures)} failed`}{" "}
-            for {fmtInt(c.mcpCalls)} calls
-          </dd>
-        </div>
-        <div>
-          <dt>GitHub token cache</dt>
-          <dd>
-            {plural(c.tokenCacheHits, "hit")},{" "}
-            {plural(c.tokenCacheMisses, "miss", "misses")}
-          </dd>
-        </div>
-      </dl>
-      {view.mcp.length === 0 ? (
-        <p class="empty dash-note">No MCP tool calls in this window.</p>
-      ) : (
-        <div class="dash-scroll">
-          <table class="diags dash-table">
-            <thead>
-              <tr>
-                <th>Server</th>
-                <th>Tool</th>
-                <th class="num">Calls</th>
-                <th class="num">Errors</th>
-                <th class="num">p50</th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.mcp.map((m) => (
-                <tr>
-                  <td>{m.server}</td>
-                  <td class="loc">{m.tool}</td>
-                  <td class="num">{fmtInt(m.calls)}</td>
-                  <td class={`num${m.errors ? " alert" : ""}`}>
-                    {fmtInt(m.errors)}
-                  </td>
-                  <td class="num">{fmtMs(m.p50Ms)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Recoveries({ view }: { view: DashboardView }) {
-  const r = view.recoveries;
-  return (
-    <section class="section dash-recovery" aria-labelledby="rec-h">
-      <div class="section-head">
-        <h2 id="rec-h">Recoveries</h2>
-      </div>
-      <p>
-        {r.detected === 0 ? (
-          <span class="muted">
-            No boot found interrupted tasks in this window. Plain restarts and
-            alarms do not count.
-          </span>
-        ) : (
-          <>
-            {fmtInt(r.detected)} interrupted boots:{" "}
-            <strong>{fmtInt(r.recovered)} recovered</strong>,{" "}
-            <span class={r.failed ? "alert" : undefined}>
-              {fmtInt(r.failed)} failed
-            </span>
-            , {fmtInt(r.unverified)} unverified, {fmtInt(r.superseded)}{" "}
-            superseded, {fmtInt(r.open)} open.
-          </>
-        )}
-      </p>
-      <p class="dash-note muted">
-        Recovered means every interrupted task ended done and the review reached
-        a verdict. Unverified means the scan was capped or some task end was not
-        observed.
-      </p>
-    </section>
-  );
-}
-
-const KIND_LABEL: Record<string, string> = {
-  modal: "modal",
-  mcp: "mcp",
-  mcp_connect: "connect",
-  github_token: "token",
-  lifecycle: "review",
-};
-
-function Log({ rows, now }: { rows: LogRow[]; now: number }) {
-  return (
-    <section class="section" aria-labelledby="log-h">
-      <div class="section-head">
-        <h2 id="log-h">Event log</h2>
-        <span class="counts">newest {rows.length}</span>
-      </div>
-      {rows.length === 0 ? (
-        <p class="empty">No events in this window.</p>
-      ) : (
-        <ol class="dash-log">
-          {rows.map((e) => (
-            <li class={e.ok ? undefined : "err"}>
-              <time title={fmtAbs(e.at)}>{fmtAgo(e.at, now)}</time>
-              <span class="kind">{KIND_LABEL[e.kind] ?? e.kind}</span>
-              <span class="loc">{e.name}</span>
-              <span class="muted">
-                {[
-                  e.ok ? null : "failed",
-                  e.ms === null ? null : fmtMs(e.ms),
-                  ...Object.entries(e.detail ?? {}).map(
-                    ([k, v]) => `${k} ${v}`,
-                  ),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-              <span class="loc muted dash-run" title={e.runKey ?? undefined}>
-                {e.runKey?.replace(/@([0-9a-f]{7})[0-9a-f]+$/, "@$1") ?? ""}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
   );
 }
 

@@ -20,11 +20,11 @@ import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { alarmWrite, HEARTBEAT_MS } from "./alarm";
-import type { VerificationReceipt } from "./formal";
+import { type VerificationReceipt, verificationCounts } from "./formal";
 import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
 import { executor } from "./executor";
-import { Ledger, type RunSnapshot } from "./ledger";
+import { Ledger, type LedgerEvent, type RunSnapshot } from "./ledger";
 import { interruptedTasks, Lifecycle } from "./lifecycle";
 import {
   type PublicAppSecrets,
@@ -160,8 +160,17 @@ export class Review extends DurableObject<Env> {
           this.#lifecycle.finished(decision, findings);
           this.#ledger.record(() => this.#snapshot());
         },
-        checkout: (input, signal) => executor(env).checkout(input, signal),
-        shell: (input, signal) => executor(env).shell(input, signal),
+        checkout: (input, signal) =>
+          this.#timed("checkout", () => executor(env).checkout(input, signal)),
+        shell: (input, signal) =>
+          this.#timed(
+            "command",
+            () => executor(env).shell(input, signal),
+            (r) => ({
+              ok: !r.timedOut,
+              detail: { exit: r.exitCode, timedOut: r.timedOut },
+            }),
+          ),
         release: (session) => executor(env).release(session),
       });
       this.#scanTask = reviewer.scanTask;
@@ -391,6 +400,7 @@ export class Review extends DurableObject<Env> {
       decision: review.verdict?.decision ?? null,
       findings: review.findings.length,
       failure: status === "failed" ? failureClass(runFailure) : null,
+      verifications: verificationCounts(review.verifications ?? []),
       usage: Object.entries(usage.models).map(([model, u]) => ({
         model,
         input: u.input,
@@ -439,6 +449,35 @@ export class Review extends DurableObject<Env> {
     if (!res.ok)
       throw new Error(`scanner -> ${res.status}: ${await res.text()}`);
     return res.json();
+  }
+
+  /** Times one executor call into the ledger; never the command or its output. */
+  async #timed<T>(
+    name: "checkout" | "command",
+    call: () => Promise<T>,
+    judge: (result: T) => Pick<LedgerEvent, "ok" | "detail"> = () => ({
+      ok: true,
+    }),
+  ): Promise<T> {
+    const started = Date.now();
+    try {
+      const result = await call();
+      this.#ledger.event({
+        kind: "shell",
+        name,
+        ms: Date.now() - started,
+        ...judge(result),
+      });
+      return result;
+    } catch (error) {
+      this.#ledger.event({
+        kind: "shell",
+        name,
+        ok: false,
+        ms: Date.now() - started,
+      });
+      throw error;
+    }
   }
 
   #scanEvent(ok: boolean, started: number, status: number, checks: number) {

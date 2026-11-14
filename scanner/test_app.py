@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import app
 
@@ -92,6 +92,18 @@ class DotnetChecksTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "compile error at Project.cs:10"):
                 app.run(["dotnet", "test"], "/tmp", ok={0})
+
+    def test_dotnet_ci_runs_when_the_changed_file_was_deleted(self) -> None:
+        runner = Mock(return_value=[])
+        with tempfile.TemporaryDirectory() as cwd:
+            Path(cwd, "App.csproj").touch()
+            with patch.dict(app.RUNNERS, {"dotnet-ci": runner}):
+                result = app.scan_one(
+                    app.Check(tool="dotnet-ci", paths=["src/Removed.cs"]), cwd
+                )
+
+        runner.assert_called_once_with([], cwd)
+        self.assertEqual(result.paths, ["src/Removed.cs"])
 
 
 if __name__ == "__main__":

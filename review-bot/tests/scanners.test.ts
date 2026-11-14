@@ -25,7 +25,7 @@ test("plans CI and formatting evidence for every changed supported language", ()
   ]);
 });
 
-test("plans .NET checks for build configuration changes and ignores removed files", () => {
+test("plans .NET checks for build configuration changes and source deletions", () => {
   const checks = planChecks([
     { filename: "Directory.Build.props", status: "modified" },
     { filename: "src/Removed.cs", status: "removed" },
@@ -33,10 +33,13 @@ test("plans .NET checks for build configuration changes and ignores removed file
   ]);
 
   expect(checks).toEqual([
-    { tool: "dotnet-ci", paths: ["Directory.Build.props", "global.json"] },
+    {
+      tool: "dotnet-ci",
+      paths: ["Directory.Build.props", "src/Removed.cs", "global.json"],
+    },
     {
       tool: "dotnet-format",
-      paths: ["Directory.Build.props", "global.json"],
+      paths: ["Directory.Build.props", "src/Removed.cs", "global.json"],
     },
   ]);
 });

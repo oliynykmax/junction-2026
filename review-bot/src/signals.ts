@@ -261,7 +261,8 @@ export function assessRisk(files: readonly File[]): Risk {
     },
   );
   if (!reasons.length) {
-    const docsOnly = files.every((f) => DOC_PATH.test(f.path));
+    const docsOnly =
+      files.length > 0 && files.every((f) => DOC_PATH.test(f.path));
     reasons.push({
       rule: docsOnly ? "docs-only" : "none",
       tier: "low",

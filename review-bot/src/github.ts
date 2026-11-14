@@ -17,14 +17,29 @@ const HEADERS = {
   "x-github-api-version": "2022-11-28",
 };
 
+export class GitHubError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function gh(
   token: string,
   path: string,
-  init: { method?: string; body?: unknown; accept?: string } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    accept?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Response> {
   const method = init.method ?? "GET";
   const res = await fetch(path.startsWith("https://") ? path : API + path, {
     method,
+    signal: init.signal,
     headers: {
       ...HEADERS,
       ...(init.accept ? { accept: init.accept } : {}),
@@ -33,7 +48,7 @@ export async function gh(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
   if (!res.ok)
-    throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+    throw new GitHubError(res.status, `${method} ${path} -> ${res.status}`);
   return res;
 }
 

@@ -11,6 +11,8 @@
         "@earendil-works/pi-durable": "1.5.2",
         "@earendil-works/pi-mcp": "1.5.2",
         "@earendil-works/pi-schema": "1.5.2",
+        "@ui-sdk/core": "^0.1.0-beta.2",
+        "@ui-sdk/web": "0.1.0-beta.2",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20261114.1",
@@ -449,6 +451,10 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.2", "", {}, "sha512-y89M4OKL2Oy1IvFS8FEozn/44BJD9FoRjfecWA4XwFhkSuQADcEcI+eoLdfRK1hkrJZhKkHvhJf4Jtfp1y7aJw=="],
+
+    "@ui-sdk/web": ["@ui-sdk/web@0.1.0-beta.2", "", { "peerDependencies": { "@ui-sdk/core": "^0.1.0-beta.2" } }, "sha512-mUyj/Kz0UezsxLjEOvFBE/26CHNAyXpK6VOi7UnxTXYJgsydAiiTKx2W538Me2+HVXAL5+g52gVBEQ7O6pm4zw=="],
 
     "agent-base": ["agent-base@9.0.0", "", {}, "sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA=="],
 

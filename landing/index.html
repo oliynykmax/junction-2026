@@ -7,11 +7,29 @@
       name="description"
       content="Turn a public GitHub pull request into an AI review with traceable evidence and explicit limits. AI advises. You decide."
     />
-    <meta name="theme-color" content="#ff7a1a" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="theme-color"
+      content="#fbf8f4"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#131313"
+      media="(prefers-color-scheme: dark)"
+    />
     <title>Bumble Bot — Evidence before approval</title>
     <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot" />
+    <script>
+      // Applies a saved theme choice before first paint. Same key as landing.ts.
+      try {
+        var saved = localStorage.getItem("bumble-color-scheme");
+        if (saved === "light" || saved === "dark")
+          document.documentElement.setAttribute("data-color-scheme", saved);
+      } catch (_) {}
+    </script>
     <link
       rel="preload"
       href="/assets/public-sans-bold.ttf"
@@ -20,9 +38,10 @@
       crossorigin
     />
     <link rel="stylesheet" href="/assets/style.css" />
-    <script src="/assets/app.js" defer></script>
+    <script type="module" src="/assets/landing.js"></script>
   </head>
   <body>
+    <ui-preferences></ui-preferences>
     <a class="skip" href="#review">Skip to review form</a>
     <header class="site-header wrap">
       <div class="brand-group">
@@ -43,11 +62,16 @@
         >
       </div>
       <nav aria-label="Main navigation">
-        <a href="#how-it-works"
-          >How it works <span aria-hidden="true">↗</span></a
-        ><a class="nav-cta" href="#review"
+        <a class="nav-how" href="#how-it-works">How it works</a>
+        <a class="nav-cta" href="#review"
           >Review a PR <span aria-hidden="true">↗</span></a
         >
+        <label class="theme">
+          <span class="theme-label">Dark mode</span>
+          <ui-switch id="theme-switch">
+            <ui-switch-thumb></ui-switch-thumb>
+          </ui-switch>
+        </label>
       </nav>
     </header>
     <main>
@@ -58,39 +82,51 @@
             approval
           </p>
           <h1 id="hero-title">
-            AI wrote the code.<br />You own<br />the
-            <span class="orange">decision.</span>
+            AI wrote the code. You own the
+            <span class="accent">decision.</span>
           </h1>
           <p class="lede">
             Give your next pull request a second set of eyes. Get findings you
             can trace, assumptions you can question, and a clear view of what
             wasn't checked.
           </p>
+          <form id="review" class="review-form" novalidate>
+            <ui-field name="url">
+              <ui-field-label>Public GitHub pull request</ui-field-label>
+              <div class="input-row">
+                <ui-input>
+                  <input
+                    id="pr-url"
+                    type="url"
+                    required
+                    maxlength="512"
+                    placeholder="https://github.com/owner/repo/pull/123"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </ui-input>
+                <ui-button focusable-when-disabled>
+                  <button type="submit">
+                    <span id="button-label">Run review</span
+                    ><span class="arrow" aria-hidden="true">↗</span>
+                  </button>
+                </ui-button>
+              </div>
+              <ui-field-description>
+                Read-only. No GitHub comments or approvals. Public PRs only.
+              </ui-field-description>
+              <ui-field-error match="valueMissing"
+                >Paste the link to a public pull request.</ui-field-error
+              >
+              <ui-field-error match="typeMismatch"
+                >That doesn't look like a link. Try
+                https://github.com/owner/repo/pull/123.</ui-field-error
+              >
+            </ui-field>
+            <p id="form-status" role="status" aria-live="polite"></p>
+            <noscript><p>Enable JavaScript to start a review.</p></noscript>
+          </form>
         </div>
-        <form id="review" class="review-form" aria-describedby="form-note">
-          <label for="pr-url">Public GitHub pull request</label>
-          <div class="input-row">
-            <input
-              id="pr-url"
-              name="url"
-              type="url"
-              required
-              maxlength="512"
-              placeholder="https://github.com/owner/repo/pull/123"
-              autocomplete="off"
-              spellcheck="false"
-              aria-describedby="form-note form-status"
-            /><button type="submit">
-              <span id="button-label">Run review</span
-              ><span aria-hidden="true">↗</span>
-            </button>
-          </div>
-          <p id="form-note">
-            Read-only. No GitHub comments or approvals. Public PRs only.
-          </p>
-          <p id="form-status" role="status" aria-live="polite"></p>
-          <noscript><p>Enable JavaScript to start a review.</p></noscript>
-        </form>
         <figure class="report-figure" aria-labelledby="report-caption">
           <div class="orange-sheet" aria-hidden="true">
             <span>LOOK CLOSER.</span><span class="cross">+</span>

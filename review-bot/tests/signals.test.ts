@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { assessRisk, isTestPath, renderRisk, testChange } from "../src/signals";
+import {
+  assessRisk,
+  isTestPath,
+  renderRisk,
+  testAttention,
+  testChange,
+} from "../src/signals";
 
 const file = (path: string, patch: string | null, status = "modified") => ({
   path,
@@ -164,4 +170,31 @@ test("every Go skip form marks the test weakened", () => {
     expect(
       testChange(file("pkg/x_test.go", `@@\n+\t${call}`)).weakened,
     ).toEqual(["1 skip marker added."]);
+});
+
+test("deleting production code with no test change is medium, not low", () => {
+  const risk = assessRisk([file("src/MessagePack/Old.cs", null, "removed")]);
+  expect(risk.tier).toBe("medium");
+  expect(risk.reasons.map((r) => r.rule)).toEqual(["untested"]);
+  expect(risk.mustRead).toEqual(["src/MessagePack/Old.cs"]);
+});
+
+test("test attention lists weakened and uninspected test files together", () => {
+  const risk = assessRisk([
+    file("tests/GoneTests.cs", null, "removed"),
+    file("tests/HugeTests.cs", null),
+    file("tests/FineTests.cs", "@@\n+Assert.True(x);"),
+  ]);
+  expect(testAttention(risk.tests)).toEqual([
+    {
+      path: "tests/GoneTests.cs",
+      removed: true,
+      notes: ["The test file was deleted."],
+    },
+    {
+      path: "tests/HugeTests.cs",
+      removed: false,
+      notes: ["No diff to inspect, so this lane could not check it."],
+    },
+  ]);
 });

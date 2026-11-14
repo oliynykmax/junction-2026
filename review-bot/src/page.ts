@@ -1,6 +1,6 @@
 // The review page. A static shell that polls the review's JSON view.
 
-import { SEVERITIES } from "./reviewer";
+import { SEVERITIES } from "./findings";
 
 export function reviewPage(
   api: string,
@@ -53,7 +53,7 @@ button{font:inherit;font-size:.85rem;padding:4px 12px;border-radius:6px;border:1
 </main>
 <script>
 const API=${JSON.stringify(api)},BLOB=${JSON.stringify(prUrl.replace(/\/pull\/\d+$/, ""))};
-const SEV=${JSON.stringify(SEVERITIES)},LEGACY={blocker:"critical",major:"high",minor:"low"};
+const SEV=${JSON.stringify(SEVERITIES)};
 const $=(id)=>document.getElementById(id);
 const esc=(s)=>String(s).replace(/[&<>"]/g,(c)=>"&#"+c.charCodeAt(0)+";");
 let timer;
@@ -73,14 +73,14 @@ function render(v){
     +(r.prompt?'<span>rubric <a href="'+esc(r.prompt.url)+'">prompt</a> <code>sha256:'+r.prompt.sha256.slice(0,12)+'</code></span>':'')
     +'<span>cost $'+v.costUsd.toFixed(4)+'</span>'
     +(v.failure?'<span class="err">'+esc(v.failure)+'</span>':'');
-  $("verdict").innerHTML=r.verdict?'<div class="card verdict"><strong>AI advice: '+esc(r.verdict.decision.replaceAll("_"," "))+'</strong><p>'+esc(r.verdict.summary)+'</p><p class="empty">This is advice. A named human owns the merge decision.</p></div>':'';
-  const fs=r.findings.map((f)=>({...f,severity:LEGACY[f.severity]||f.severity})).sort((a,b)=>SEV.indexOf(a.severity)-SEV.indexOf(b.severity)||String(a.class||"").localeCompare(String(b.class||"")));
+  $("verdict").innerHTML=r.verdict?'<div class="card verdict"><strong>AI advice: '+esc(r.verdict.decision.replaceAll("_"," "))+'</strong><p>'+esc(r.verdict.summary)+'</p>'+(v.heldBack?'<p><strong>'+v.heldBack+' critical or high '+(v.heldBack===1?'finding is':'findings are')+' rated possible.</strong> The agent could not confirm '+(v.heldBack===1?'it':'them')+', so '+(v.heldBack===1?'it does':'they do')+' not change this advice. Check '+(v.heldBack===1?'it':'them')+' yourself.</p>':'')+'<p class="empty">This is advice. A named human owns the merge decision.</p></div>':'';
+  const fs=[...r.findings].sort((a,b)=>SEV.indexOf(a.severity)-SEV.indexOf(b.severity)||String(a.class||"").localeCompare(String(b.class||"")));
   $("counts").innerHTML=SEV.map((s)=>[s,fs.filter((f)=>f.severity===s).length]).filter(([,n])=>n).map(([s,n])=>'<span class="'+s+'">'+n+' '+s+'</span>').join("");
   $("findings").className=fs.length?"":"empty";
   if(fs.length)$("findings").innerHTML=fs.map((f)=>{
     const loc=f.path+(f.line?":"+f.line:"");
     const href=t?BLOB+"/blob/"+t.headSha+"/"+f.path+(f.line?"#L"+f.line:""):"#";
-    return '<div class="card finding '+(SEV.includes(f.severity)?f.severity:"info")+'"><header><span class="sev">'+esc(f.severity)+'</span>'+(f.class?'<span class="tag">'+esc(f.class)+'</span>':'')+(f.confidence?'<span class="tag">'+esc(f.confidence)+'</span>':'')+'<strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+linkDocs(esc(f.body))+'</p>'
+    return '<div class="card finding '+f.severity+'"><header><span class="sev">'+esc(f.severity)+'</span>'+(f.class?'<span class="tag">'+esc(f.class)+'</span>':'')+(f.confidence?'<span class="tag">'+esc(f.confidence)+'</span>':'')+'<strong>'+esc(f.title)+'</strong><a class="loc" href="'+esc(href)+'">'+esc(loc)+'</a><span class="badge">'+esc(f.source||"agent")+'</span></header><p>'+linkDocs(esc(f.body))+'</p>'
       +(f.suggestedPatch?'<details><summary>Suggested fix</summary><pre>'+esc(f.suggestedPatch)+'</pre><button disabled title="Not wired up yet">Open fix PR (coming soon)</button></details>':'')+'</div>';
   }).join("");
   const ls=r.lookups||[];

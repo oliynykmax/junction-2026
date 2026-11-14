@@ -18,6 +18,7 @@ import {
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
+import { heldBack, upgradeSeverity } from "./findings";
 import { type AppSecrets, approve, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Check, ScanResult } from "./scanners";
@@ -55,6 +56,7 @@ export type ReviewView = {
   review: Omit<ReviewState, "prompt"> & {
     prompt: { url: string; sha256: string } | null;
   };
+  heldBack: number;
   activity: Activity[];
   costUsd: number;
 };
@@ -240,6 +242,7 @@ export class Review extends DurableObject<Env> {
     }
 
     const { prompt, ...rest } = review;
+    const findings = review.findings.map(upgradeSeverity);
     return {
       status,
       failure:
@@ -248,8 +251,10 @@ export class Review extends DurableObject<Env> {
           : null,
       review: {
         ...rest,
+        findings,
         prompt: prompt && { url: prompt.url, sha256: prompt.sha256 },
       },
+      heldBack: findings.filter(heldBack).length,
       activity,
       costUsd: Object.values(usage.models).reduce(
         (sum, u) => sum + u.cost.total,

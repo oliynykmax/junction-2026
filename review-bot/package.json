@@ -3,13 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "vite build",
     "deploy": "wrangler deploy",
-    "lint": "oxlint src tests"
+    "lint": "oxlint src tests web"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261114.1",
+    "@fontsource/hanken-grotesk": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@preact/preset-vite": "^2.10.6",
     "oxlint": "^1.93.0",
+    "preact": "^11.2.0",
     "typescript": "^7.0.2",
+    "vite": "^8.3.8",
     "wrangler": "^4.162.0"
   },
   "dependencies": {

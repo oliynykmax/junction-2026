@@ -14,6 +14,13 @@ const SCOPE = process.env.EXECUTOR_SCOPE ?? "production";
 const IDLE_MS = Number(process.env.EXECUTOR_IDLE_MS ?? 600_000);
 const LIFETIME_MS = 45 * 60_000;
 const MAX_SESSIONS = 2;
+const WORKER_DISK_BYTES = Number(
+  process.env.EXECUTOR_WORKER_DISK_BYTES ?? 8 * 2 ** 30,
+);
+const MIN_FREE_BYTES = Number(
+  process.env.EXECUTOR_MIN_FREE_BYTES ?? 10 * 2 ** 30,
+);
+const DISK_POLL_MS = Number(process.env.EXECUTOR_DISK_POLL_MS ?? 2_000);
 const sessions = new Map();
 if (!TOKEN) throw new Error("EXECUTOR_TOKEN is required");
 if (!/^[a-zA-Z0-9_-]+$/.test(SCOPE)) throw new Error("invalid executor scope");
@@ -106,6 +113,11 @@ async function checkout(input, signal) {
   if (old?.busy) throw new Error("session busy");
   // An idle reap may still be removing the old worker; a fresh checkout waits for it.
   if (old) await destroy(old);
+  if (sessions.size >= MAX_SESSIONS)
+    throw new Error("executor capacity reached; retry later");
+  if ((await freeBytes()) < MIN_FREE_BYTES + WORKER_DISK_BYTES)
+    throw new Error("executor disk space low; retry later");
+  // The free-space read awaited; another checkout may have registered meanwhile.
   if (sessions.get(id)) throw new Error("session busy");
   if (sessions.size >= MAX_SESSIONS)
     throw new Error("executor capacity reached; retry later");
@@ -234,10 +246,12 @@ async function shell(input, signal) {
       : 900_000;
   session.busy = true;
   try {
-    return await podman(
+    const result = await podman(
       ["exec", "--workdir", cwd, session.name, "/bin/bash", "-c", command],
       { timeoutMs, signal, cancel: () => destroy(session) },
     );
+    if (session.removedFor) throw new Error(session.removedFor);
+    return result;
   } finally {
     session.busy = false;
     session.touched = Date.now();
@@ -321,7 +335,47 @@ const reaper = setInterval(
   },
   Math.min(IDLE_MS, 30_000),
 );
+async function freeBytes() {
+  const { stdout } = await pm(["info", "--format", "json"]);
+  const { graphRootAllocated, graphRootUsed } = JSON.parse(stdout).store;
+  return graphRootAllocated - graphRootUsed;
+}
+// Podman on the VM's filesystem has no per-container disk quota, so the
+// manager enforces one by polling each worker's writable-layer size.
+async function enforceDisk() {
+  const { stdout } = await pm([
+    "ps",
+    "--size",
+    "--format",
+    "json",
+    "--filter",
+    `label=${LABEL}=${SCOPE}`,
+  ]);
+  const sizes = new Map(
+    JSON.parse(stdout || "[]").map((c) => [c.Names[0], c.Size?.rwSize ?? 0]),
+  );
+  const low = (await freeBytes()) < MIN_FREE_BYTES;
+  for (const session of sessions.values()) {
+    const used = sizes.get(session.name) ?? 0;
+    if (!low && used <= WORKER_DISK_BYTES) continue;
+    session.removedFor = low
+      ? "worker removed: host disk space fell below the executor floor; check out again later"
+      : `worker removed: its writes reached ${used} bytes, over the ${WORKER_DISK_BYTES}-byte limit; check out again and write less`;
+    void destroy(session).catch(() => {});
+  }
+}
+let polling = false;
+const diskWatch = setInterval(() => {
+  if (polling) return;
+  polling = true;
+  enforceDisk()
+    .catch(() => {})
+    .finally(() => {
+      polling = false;
+    });
+}, DISK_POLL_MS);
 async function shutdown() {
+  clearInterval(diskWatch);
   closing = true;
   clearInterval(reaper);
   server.close();

@@ -13,6 +13,8 @@ test("failed worker removal stays unready and retries share one cleanup", async 
     join(bin, "podman"),
     `#!/usr/bin/env node
 const fs = require("node:fs");
+if (process.argv[2] === "info")
+  console.log(JSON.stringify({ store: { graphRootAllocated: 2 ** 50, graphRootUsed: 0 } }));
 if (process.argv[2] === "rm") {
   const path = process.env.TEST_CLEANUP_COUNT;
   const count = fs.existsSync(path) ? Number(fs.readFileSync(path)) + 1 : 1;

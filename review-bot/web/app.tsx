@@ -1,50 +1,21 @@
-import type { ChangedFile } from "./shared";
+// The review page: a PR header, the AI's advice, the checks, and either a
+// waiting state while the agent works or its findings once it returns.
+// ?demo=1 renders the same layout from mock data.
 
-const MOCK_FILES = [
-  {
-    path: "src/reviews/cache.ts",
-    status: "modified",
-    additions: 5,
-    deletions: 4,
-    patch: `@@ -1,7 +1,8 @@
- const reviews = new Map<string, Review>();
-${" "}
--export function getReview(pr: number) {
--  return reviews.get(String(pr));
-+export function getReview(pr: number, headSha: string) {
-+  const key = [pr, headSha].join(":");
-+  return reviews.get(key);
- }
-${" "}
--export function saveReview(pr: number, review: Review) {
-+export function saveReview(pr: number, headSha: string, review: Review) {
-@@ -8,2 +9,2 @@
--  reviews.set(String(pr), review);
-+  reviews.set([pr, headSha].join(":"), review);
- }`,
-  },
-  {
-    path: "tests/reviews/cache.test.ts",
-    status: "added",
-    additions: 14,
-    deletions: 0,
-    patch: `@@ -0,0 +1,14 @@
-+import { expect, test } from "bun:test";
-+import { getReview, saveReview } from "../../src/reviews/cache";
-+
-+test("a new commit does not reuse the previous review", () => {
-+  const review = { summary: "First commit reviewed" };
-+  saveReview(42, "abc1234", review);
-+
-+  expect(getReview(42, "abc1234")).toEqual(review);
-+  expect(getReview(42, "def5678")).toBeUndefined();
-+});
-+
-+test("an unknown pull request has no cached review", () => {
-+  expect(getReview(99, "abc1234")).toBeUndefined();
-+});`,
-  },
-] satisfies ChangedFile[];
+import type { ComponentChildren } from "preact";
+import { useEffect, useState } from "preact/hooks";
+import { blocks } from "../src/findings";
+import type { ReviewView } from "../src/review";
+import type { ScanResult } from "../src/scanners";
+import { Findings } from "./findings";
+import { RiskBand } from "./risk";
+import {
+  BLOCKING_RULE,
+  type ChangedFile,
+  type LineUrl,
+  plural,
+  type Star,
+} from "./shared";
 
 export type PageConfig = {
   api: string;
@@ -55,64 +26,271 @@ export type PageConfig = {
   number: string;
 };
 
-export function App({ prUrl, owner, repo, number }: PageConfig) {
-  const demo = new URLSearchParams(window.location.search).get("demo") === "1";
-
-  const identity: PrIdentity = demo
-    ? {
-        title: "Keep review results scoped to the commit",
-        number: "42",
-        author: "alex-chen",
-        updated: "updated 2h ago",
-        base: "main",
-        head: "fix/commit-cache",
-        files: MOCK_FILES.length,
-        additions: MOCK_FILES.reduce((sum, file) => sum + file.additions, 0),
-        deletions: MOCK_FILES.reduce((sum, file) => sum + file.deletions, 0),
-      }
-    : { title: `${owner}/${repo}`, number };
-
-  const requestedCheck = new URLSearchParams(window.location.search).get(
-    "check",
-  );
-  if (demo && requestedCheck !== null) {
+export function App(config: PageConfig) {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("demo") !== "1") return <LivePage {...config} />;
+  const requestedCheck = params.get("check");
+  if (requestedCheck !== null)
     return (
       <BotCheckPage
         check={BOT_CHECKS.find((check) => check.id === requestedCheck)}
       />
     );
-  }
+  return (
+    <>
+      <PrHeader identity={DEMO_IDENTITY} href={config.prUrl} />
+      <main class="page pr-body">
+        <section class="title">
+          <p class="summary">
+            A new push should get a fresh review. Key cached results by pull
+            request and commit so an earlier result cannot appear on new code.
+          </p>
+          <p class="muted">
+            Synthetic PR for layout exploration. Checks have not been run.
+          </p>
+        </section>
+        <CiChecks checks={demoChecks()} label="Mock results" />
+        <AgentWait />
+      </main>
+    </>
+  );
+}
+
+const sum = (files: readonly ChangedFile[], key: "additions" | "deletions") =>
+  files.reduce((n, file) => n + file[key], 0);
+
+const DEMO_IDENTITY: PrIdentity = {
+  title: "Keep review results scoped to the commit",
+  number: "42",
+  author: "alex-chen",
+  updated: "updated 2h ago",
+  base: "main",
+  head: "fix/commit-cache",
+  files: 2,
+  additions: 19,
+  deletions: 4,
+};
+
+const LIVE = new Set<ReviewView["status"]>([
+  "running",
+  "scanning",
+  "not_started",
+]);
+
+function useReview(api: string, pollMs: number) {
+  const [view, setView] = useState<ReviewView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(api, { cache: "no-store" });
+        const body = (await res.json()) as ReviewView & { error?: string };
+        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        if (stopped) return;
+        setView(body);
+        setError(null);
+        if (LIVE.has(body.status)) timer = setTimeout(tick, pollMs);
+      } catch (e) {
+        if (stopped) return;
+        setError(e instanceof Error ? e.message : String(e));
+        timer = setTimeout(tick, 5000);
+      }
+    };
+    tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [api, pollMs]);
+
+  return { view, error };
+}
+
+function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
+  const { view, error } = useReview(api, pollMs);
+  const r = view?.review;
+  const files = r?.files ?? [];
+  const sha = r?.target?.headSha ?? null;
+  const repoUrl = prUrl.replace(/\/pull\/\d+$/, "");
+  // A removed file does not exist at the head, so it links to the PR's diff.
+  const removed = new Set(
+    files.filter((f) => f.status === "removed").map((f) => f.path),
+  );
+  const lineUrl: LineUrl = (path, line) =>
+    !sha
+      ? prUrl
+      : removed.has(path)
+        ? `${prUrl}/files`
+        : `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}`;
+  const identity: PrIdentity = {
+    title: `${owner}/${repo}`,
+    number,
+    commit: sha?.slice(0, 7),
+    ...(r?.files && {
+      files: files.length,
+      additions: sum(files, "additions"),
+      deletions: sum(files, "deletions"),
+    }),
+  };
 
   return (
     <>
       <PrHeader identity={identity} href={prUrl} />
-      {demo && (
-        <main class="page pr-body">
-          <section class="title">
-            <div>
-              <p class="summary">
-                A new push should get a fresh review. Key cached results by pull
-                request and commit so an earlier result cannot appear on new
-                code.
+      <main class="page pr-body">
+        {error && (
+          <p class="pr-alert" role="alert">
+            Could not load the review: {error}. Retrying every 5 seconds.
+          </p>
+        )}
+        {!view ? (
+          !error && <p class="muted">Loading the review…</p>
+        ) : (
+          <>
+            <Advice view={view} />
+            <CiChecks checks={liveChecks(view)} />
+            {view.failure && (
+              <p class="pr-alert" role="alert">
+                {view.failure}
               </p>
-              <p class="muted">
-                Synthetic PR for layout exploration. Checks have not been run.
-              </p>
-            </div>
-          </section>
-          <CiChecks />
-          <section class="agent-wait" role="status" aria-live="polite">
-            <div class="agent-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <p class="agent-wait-title">The agent is reviewing this commit</p>
-            <p class="agent-wait-note">Findings appear here when it returns.</p>
-          </section>
-        </main>
-      )}
+            )}
+            <Findings
+              findings={view.review.findings}
+              heading="Findings"
+              empty={
+                LIVE.has(view.status)
+                  ? null
+                  : view.status === "done"
+                    ? "The AI reported no findings."
+                    : "No findings were recorded before the review stopped."
+              }
+              lineUrl={lineUrl}
+            />
+            {LIVE.has(view.status) ? (
+              <AgentWait />
+            ) : (
+              <>
+                <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
+                <NotChecked view={view} />
+              </>
+            )}
+          </>
+        )}
+      </main>
     </>
+  );
+}
+
+function AgentWait() {
+  return (
+    <section class="agent-wait" role="status" aria-live="polite">
+      <div class="agent-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <p class="agent-wait-title">The agent is reviewing this commit</p>
+      <p class="agent-wait-note">Findings appear here when it returns.</p>
+    </section>
+  );
+}
+
+// A count of the findings, not a verdict: it can never disagree with them, and
+// it leaves the decision to the named human.
+function Advice({ view }: { view: ReviewView }) {
+  const v = view.review.verdict;
+  const findings = view.review.findings;
+  const blocking = findings.filter(blocks).length;
+  const rest = findings.length - blocking;
+  const finished = v !== null;
+
+  let headline: ComponentChildren;
+  if (findings.length === 0)
+    headline = finished
+      ? "No findings"
+      : view.status === "failed"
+        ? "The review stopped before it recorded any findings"
+        : "No findings yet";
+  else if (blocking > 0)
+    headline = (
+      <>
+        <span class="alert">{plural(blocking, "blocking finding")}</span>
+        {rest > 0 && `, ${rest} more not blocking`}
+        {!finished && " so far"}
+      </>
+    );
+  else
+    headline = `${plural(findings.length, "finding")}, none blocking${finished ? "" : " so far"}`;
+
+  return (
+    <section class="title advice">
+      <p class="decision" title={BLOCKING_RULE}>
+        {headline}
+      </p>
+      {view.heldBack > 0 && (
+        <p class="note">
+          {plural(view.heldBack, "critical or high finding")} the AI could not
+          confirm {view.heldBack === 1 ? "is" : "are"} rated possible and{" "}
+          {view.heldBack === 1 ? "doesn't" : "don't"} block. Check{" "}
+          {view.heldBack === 1 ? "it" : "them"} yourself.
+        </p>
+      )}
+      {finished && (
+        <>
+          {v.star && <PrStar star={v.star} />}
+          <p class="summary">{v.summary}</p>
+        </>
+      )}
+      <p class="muted">
+        The AI advises. A named human decides whether to merge.
+      </p>
+    </section>
+  );
+}
+
+const STAR_LABELS = [
+  ["situation", "Situation"],
+  ["task", "Task"],
+  ["action", "Action"],
+  ["result", "Result"],
+] as const;
+
+function PrStar({ star }: { star: Star }) {
+  return (
+    <dl
+      class="star"
+      aria-label="The pull request as Situation, Task, Action and Result"
+    >
+      {STAR_LABELS.map(([key, label]) => (
+        <div key={key}>
+          <dt>{label}</dt>
+          <dd>{star[key]}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function NotChecked({ view }: { view: ReviewView }) {
+  const v = view.review.verdict;
+  if (!v) return null;
+  return (
+    <section class="section" aria-labelledby="nc-h">
+      <div class="section-head">
+        <h2 id="nc-h">Not checked by the AI</h2>
+      </div>
+      {v.notChecked.length === 0 ? (
+        <p class="empty">The AI listed nothing it left unchecked.</p>
+      ) : (
+        <ul class="notes">
+          {v.notChecked.map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -123,13 +301,15 @@ type PrIdentity = {
   updated?: string;
   base?: string;
   head?: string;
+  commit?: string;
   files?: number;
   additions?: number;
   deletions?: number;
 };
 
 function PrHeader({ identity, href }: { identity: PrIdentity; href: string }) {
-  const { title, number, author, updated, base, head, files } = identity;
+  const { title, number, author, updated, base, head, commit, files } =
+    identity;
   return (
     <header class="pr-header">
       <div class="pr-header-inner">
@@ -173,14 +353,20 @@ function PrHeader({ identity, href }: { identity: PrIdentity; href: string }) {
           )}
           <code class="pr-checkout">gh pr checkout {number}</code>
         </div>
-        {base && head && (
+        {((base && head) || commit || files !== undefined) && (
           <div class="pr-row">
             <p class="pr-branches">
-              <span class="pr-base">{base}</span>
-              <span class="pr-muted" aria-label="from">
-                ←
-              </span>
-              <span class="pr-muted">{head}</span>
+              {base && head ? (
+                <>
+                  <span class="pr-base">{base}</span>
+                  <span class="pr-muted" aria-label="from">
+                    ←
+                  </span>
+                  <span class="pr-muted">{head}</span>
+                </>
+              ) : (
+                commit && <span class="pr-muted">commit {commit}</span>
+              )}
             </p>
             {files !== undefined && (
               <p class="pr-stats">
@@ -198,7 +384,16 @@ function PrHeader({ identity, href }: { identity: PrIdentity; href: string }) {
   );
 }
 
-type CiState = "passed" | "running" | "queued";
+type CiState = "passed" | "failed" | "running" | "queued" | "skipped";
+type CheckRow = {
+  key: string;
+  name: string;
+  origin: string;
+  state: CiState;
+  status: string;
+  href?: string;
+  external?: boolean;
+};
 type CheckBase = { name: string; state: CiState; duration: string };
 type BotCheck = CheckBase & {
   kind: "builtin";
@@ -277,9 +472,95 @@ const CI_SOURCES: { name: string; checks: CiCheck[] }[] = [
 ];
 const CI_LABELS: Record<CiState, string> = {
   passed: "Passed",
+  failed: "Failed",
   running: "Running",
   queued: "Queued",
+  skipped: "Skipped",
 };
+
+function demoChecks(): CheckRow[] {
+  return CI_SOURCES.flatMap((source) =>
+    source.checks.map((check) => {
+      const href = new URL(window.location.href);
+      if (check.kind === "builtin") href.searchParams.set("check", check.id);
+      return {
+        key: `${source.name}-${check.name}`,
+        name: check.name,
+        origin: source.name,
+        state: check.state,
+        status: CI_LABELS[check.state],
+        href: check.kind === "github" ? check.href : href.toString(),
+        external: check.kind === "github",
+      };
+    }),
+  );
+}
+
+type Dismissal = NonNullable<
+  ReviewView["review"]["verdict"]
+>["dismissed"][number];
+
+// Errors and warnings the agent did not dismiss; info never needs action.
+const openDiagnostics = (result: ScanResult, dismissed: Dismissal[]) =>
+  result.diagnostics.filter(
+    (d) =>
+      d.severity !== "info" &&
+      !dismissed.some(
+        (m) => m.tool === result.tool && m.rule === d.rule && m.path === d.path,
+      ),
+  ).length;
+
+function scannerChecks(view: ReviewView): CheckRow[] {
+  const scan = view.review.scan;
+  const row = (name: string, state: CiState, status: string): CheckRow => ({
+    key: `scan-${name}`,
+    name,
+    origin: "Scanner",
+    state,
+    status,
+  });
+  if (!scan) return [];
+  if (scan.status === "pending")
+    return [row("zizmor, ty, oxlint", "running", "Running")];
+  if (scan.status === "skipped")
+    return [row("Scanners", "skipped", "Nothing to scan")];
+  if (scan.status === "failed")
+    return [row("Scanners", "failed", "Did not run")];
+  const dismissed = view.review.verdict?.dismissed ?? [];
+  return scan.results.map((r) => {
+    if (r.status === "error") return row(r.tool, "failed", "Failed");
+    const open = openDiagnostics(r, dismissed);
+    return open > 0
+      ? row(r.tool, "failed", plural(open, "open diagnostic"))
+      : row(r.tool, "passed", "Passed");
+  });
+}
+
+function reviewCheck(view: ReviewView): CheckRow {
+  const blocking = view.review.findings.filter(blocks).length;
+  const [state, status]: [CiState, string] =
+    view.status === "not_started"
+      ? ["queued", "Queued"]
+      : LIVE.has(view.status)
+        ? ["running", "Reviewing"]
+        : view.status === "failed"
+          ? ["failed", "Stopped"]
+          : blocking > 0
+            ? ["failed", plural(blocking, "blocking finding")]
+            : ["passed", "No blockers"];
+  return {
+    key: "review",
+    name: "AI review",
+    origin: "Bumble Bot",
+    state,
+    status,
+  };
+}
+
+const liveChecks = (view: ReviewView) => [
+  ...scannerChecks(view),
+  reviewCheck(view),
+];
 
 function CiIcon({ state }: { state: CiState }) {
   return (
@@ -290,7 +571,21 @@ function CiIcon({ state }: { state: CiState }) {
       aria-hidden="true"
     >
       <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
-      {state === "passed" ? (
+      {state === "failed" ? (
+        <path
+          d="m7.5 7.5 5 5m0-5-5 5"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+      ) : state === "skipped" ? (
+        <path
+          d="M6.5 10h7"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+      ) : state === "passed" ? (
         <path
           d="m6.5 10 2.3 2.3 4.7-4.7"
           stroke="currentColor"
@@ -310,7 +605,7 @@ function CiIcon({ state }: { state: CiState }) {
   );
 }
 
-function CiChecks() {
+function CiChecks({ checks, label }: { checks: CheckRow[]; label?: string }) {
   return (
     <details class="ci-block" open>
       <summary class="ci-heading">
@@ -333,34 +628,36 @@ function CiChecks() {
             />
           </svg>
         </span>
-        <span class="ci-demo-label">Mock results</span>
+        {label && <span class="ci-demo-label">{label}</span>}
       </summary>
       <div class="ci-results">
-        {CI_SOURCES.flatMap((source) =>
-          source.checks.map((check) => {
-            const resultUrl = new URL(window.location.href);
-            if (check.kind === "builtin")
-              resultUrl.searchParams.set("check", check.id);
-            return (
-              <a
-                class="ci-result"
-                key={`${source.name}-${check.name}`}
-                href={
-                  check.kind === "github" ? check.href : resultUrl.toString()
-                }
-                target={check.kind === "github" ? "_blank" : undefined}
-                rel={check.kind === "github" ? "noreferrer" : undefined}
-              >
-                <CiIcon state={check.state} />
-                <span class="ci-result-name">
-                  {check.name}
-                  <span class="ci-origin">{source.name}</span>
-                </span>
-                <span class="ci-result-status">{CI_LABELS[check.state]}</span>
-              </a>
-            );
-          }),
-        )}
+        {checks.map((check) => {
+          const body = (
+            <>
+              <CiIcon state={check.state} />
+              <span class="ci-result-name">
+                {check.name}
+                <span class="ci-origin">{check.origin}</span>
+              </span>
+              <span class="ci-result-status">{check.status}</span>
+            </>
+          );
+          return check.href ? (
+            <a
+              class="ci-result"
+              key={check.key}
+              href={check.href}
+              target={check.external ? "_blank" : undefined}
+              rel={check.external ? "noreferrer" : undefined}
+            >
+              {body}
+            </a>
+          ) : (
+            <div class="ci-result" key={check.key}>
+              {body}
+            </div>
+          );
+        })}
       </div>
     </details>
   );

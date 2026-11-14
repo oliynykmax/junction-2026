@@ -1228,6 +1228,14 @@ pre {
   max-width: calc(660px + 2 * var(--gutter));
 }
 
+.pr-alert {
+  background: var(--red-bg);
+  color: var(--accent-ink);
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+
 .pr-title-row {
   display: flex;
   align-items: flex-start;
@@ -1418,8 +1426,12 @@ pre {
 .ci-running {
   color: var(--ci-blue);
 }
-.ci-queued {
+.ci-queued,
+.ci-skipped {
   color: var(--ci-muted);
+}
+.ci-failed {
+  color: light-dark(#cf222e, #ff7b72);
 }
 .ci-result-name {
   display: flex;

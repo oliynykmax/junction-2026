@@ -155,6 +155,11 @@ test("star problems flag plural first person and mine", () => {
       result: "Users see fewer retries; the PR adds a USB test.",
     }),
   ).toEqual([]);
+  for (const action of [
+    "Retries failed I/O operations once.",
+    "Moves the bucket to us-east-1 and the cache to /var/our-cache.",
+  ])
+    expect(starProblems({ ...star, action })).toEqual([]);
 });
 
 test("star problems flag the reviewer speaking in the first person", () => {

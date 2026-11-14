@@ -63,6 +63,28 @@ same agent and model as the review, since it has already read every patch.
 - **A plan that no longer fits the findings is not used.** The file shows its
   full diff with a note, instead of hiding cited evidence.
 
+## Trial on sample PRs, 2026-11-14
+
+We ran the abridge step alone on the 8 files of sample PRs #1 and #2 (our
+copy of the MessagePack repo), with the bot's model (`claude-sonnet-5-5`,
+effort medium), its real protocol step and tool description, and the real
+compiler. Cost: about $0.23.
+
+- **Every file got an accepted plan.** Kept changed lines ranged from 16/50
+  (a fix repeated in two places: the second copy hidden) to 28/29 (new code
+  with doc comments that explain why, kept).
+- **5 of 8 files needed one retry, all for the same rule**: a remove range
+  covering a hunk header while the hunk kept lines. The rule protected
+  nothing, since the compiler decides header visibility anyway, so a header
+  in a remove range now simply stays while its hunk shows.
+- **Open failure mode: test inputs hidden whole.** In the generics tests the
+  agent hid each scenario's 26-33 line C# source string and kept only test
+  names and the final call. The owner must expand to see what a scenario
+  sets up. If this repeats, the protocol step should say to keep the
+  distinctive part of test inputs, as meat's rubric does for Python.
+- Not covered by the trial: findings. No file had any, so the rule that
+  cited lines stay visible was tested only by unit tests.
+
 ## Left out of meat, and why
 
 Move detection, chunking, Python structure checks and result caching. GitHub

@@ -147,8 +147,12 @@ test("a fold covers one kind of line", () => {
   expect(problems({ fold: [{ start_line: 4, end_line: 5 }] })).toEqual([]); // all using: moot
 });
 
-test("a hunk header goes only with its whole hunk", () => {
-  expect(problems({ remove: [{ start_line: 7, end_line: 9 }] })[0]).toMatch(/hunk header/);
+test("a hunk header stays while its hunk shows, and goes with the whole hunk", () => {
+  // A range spanning one hunk's trailing context and the next header, as
+  // agents write them: the header stays because line 10 onward still shows.
+  const spanning = rows({ remove: [{ start_line: 6, end_line: 9 }] });
+  expect(spanning).toContainEqual({ kind: "hunk", line: 7, text: "@@ -20,6 +21,9 @@ public class Formatter" });
+  expect(spanning).toContainEqual({ kind: "gap", reason: "removed", start_line: 8, end_line: 9 });
   const out = rows({ remove: [{ start_line: 7, end_line: 16 }] });
   expect(out.at(-1)).toEqual({ kind: "gap", reason: "removed", start_line: 7, end_line: 16 });
 });

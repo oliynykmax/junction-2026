@@ -285,7 +285,9 @@ export function compileReadingPlan(
   });
 
   // A hunk header is the compiler's: shown while any line in its hunk is,
-  // hidden with the hunk. Removing it while keeping the hunk is refused.
+  // hidden with the hunk. A remove range that covers the header of a hunk
+  // with visible lines leaves the header in place; agents naturally write
+  // ranges that span from one hunk's trailing context into the next.
   const hidden = (i: number) => removed[i] || auto[i];
   let hunkStart = -1;
   const hunkHidden = Array.from({ length: n }, (): boolean => false);
@@ -302,8 +304,6 @@ export function compileReadingPlan(
         }
         hunkHidden[hunkStart] = allHidden;
         hunkReason[hunkStart] = anyRemoved ? "removed" : "using";
-        if (removed[hunkStart] && !allHidden)
-          problems.push(`remove: line ${hunkStart + 1} is a hunk header; remove it only with every line of its hunk.`);
       }
       hunkStart = i;
     }

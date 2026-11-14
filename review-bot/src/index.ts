@@ -16,14 +16,8 @@ import { reviewPage } from "./page";
 import { type Env, reviewLink } from "./review";
 import { reviewKey } from "./review-key";
 import type { Target } from "./reviewer";
-import {
-  callback,
-  login,
-  logout,
-  me,
-  setOwnerStatus,
-  signOff,
-} from "./signoff";
+import { callback, login, logout, me } from "./auth";
+import { setOwnerStatus, signOff } from "./signoff";
 
 export { ManualGate } from "./manual-gate";
 export { Review } from "./review";

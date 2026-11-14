@@ -1,7 +1,7 @@
 // A named human's sign-off on one reviewed commit.
 //
-// The signer logs in with GitHub through the App's user authorization, so the
-// page knows who they are, and must have write access to the repository. They
+// The signer logs in with GitHub (auth.ts), so the page knows who they are,
+// and must have write access to the repository. They
 // state what they checked, what was not checked, the residual risk they accept,
 // and a decision with a reason on every blocking finding. The sign-off is
 // stored with the review of that exact commit, then echoed to the PR as a
@@ -13,16 +13,12 @@ import { gh, ghJson, installationToken } from "./github";
 import type { Env, ReviewView } from "./review";
 import { reviewKey, reviewLink } from "./review-key";
 import type { Target } from "./reviewer";
+import { readSession, type Session } from "./session";
 
 export const STATUS_CONTEXT = "bumble-bot/owner-sign-off";
 const COMMENT_MARKER = "<!-- bumble-bot-owner-sign-off -->";
-const SESSION_COOKIE = "bb_session";
-const STATE_COOKIE = "bb_oauth";
-const SESSION_TTL_S = 8 * 60 * 60;
-const STATE_TTL_S = 10 * 60;
 const MAX_TEXT = 4000;
 const WRITE = new Set(["admin", "write"]);
-const RETURN_PATH = /^\/r\/[\w.-]+\/[\w.-]+\/\d+\?sha=[0-9a-f]{40}(#[\w-]*)?$/;
 
 export type Disposition = {
   findingId: string;
@@ -55,8 +51,6 @@ export type SignOff = {
   echo: { comment: Echo; status: Echo } | null;
 };
 
-export type Session = { login: string; id: number };
-
 export class SignOffError extends Error {
   constructor(
     message: string,
@@ -66,202 +60,8 @@ export class SignOffError extends Error {
   }
 }
 
-const json = (body: unknown, status = 200, headers?: HeadersInit) =>
-  Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store", ...headers },
-  });
-
-// Signed cookies
-
-const enc = new TextEncoder();
-const b64url = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-const unb64url = (s: string) =>
-  Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
-    c.charCodeAt(0),
-  );
-
-function hmacKey(secret: string) {
-  return crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"],
-  );
-}
-
-export async function seal(secret: string, value: unknown, ttlS: number) {
-  const body = b64url(
-    enc.encode(
-      JSON.stringify({ v: value, exp: Math.floor(Date.now() / 1000) + ttlS }),
-    ),
-  );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    await hmacKey(secret),
-    enc.encode(body),
-  );
-  return `${body}.${b64url(new Uint8Array(sig))}`;
-}
-
-export async function unseal<T>(
-  secret: string,
-  token: string | undefined,
-): Promise<T | null> {
-  if (!token) return null;
-  const [body, sig] = token.split(".");
-  if (!body || !sig) return null;
-  try {
-    const ok = await crypto.subtle.verify(
-      "HMAC",
-      await hmacKey(secret),
-      unb64url(sig),
-      enc.encode(body),
-    );
-    if (!ok) return null;
-    const { v, exp } = JSON.parse(new TextDecoder().decode(unb64url(body)));
-    return typeof exp === "number" && exp > Date.now() / 1000 ? (v as T) : null;
-  } catch {
-    return null;
-  }
-}
-
-function cookie(request: Request, name: string): string | undefined {
-  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === name) return v.join("=");
-  }
-  return undefined;
-}
-
-const setCookie = (name: string, value: string, maxAge: number, path = "/") =>
-  `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
-
-const configured = (env: Env) =>
-  Boolean(
-    env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.SESSION_SECRET,
-  );
-
-export function readSession(request: Request, env: Env) {
-  if (!env.SESSION_SECRET) return Promise.resolve(null);
-  return unseal<Session>(env.SESSION_SECRET, cookie(request, SESSION_COOKIE));
-}
-
-// GitHub login
-
-export async function login(request: Request, env: Env): Promise<Response> {
-  if (!configured(env))
-    return new Response("GitHub sign-in is not configured here.\n", {
-      status: 503,
-    });
-  const back = new URL(request.url).searchParams.get("return") ?? "";
-  if (!RETURN_PATH.test(back))
-    return new Response("return must be a review page path\n", { status: 400 });
-  const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
-  const authorize = new URL("https://github.com/login/oauth/authorize");
-  authorize.searchParams.set("client_id", env.GITHUB_CLIENT_ID!);
-  authorize.searchParams.set("redirect_uri", callbackUrl(request));
-  authorize.searchParams.set("state", state);
-  authorize.searchParams.set("allow_signup", "false");
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: authorize.toString(),
-      "set-cookie": setCookie(
-        STATE_COOKIE,
-        await seal(env.SESSION_SECRET!, { state, back }, STATE_TTL_S),
-        STATE_TTL_S,
-        "/auth",
-      ),
-    },
-  });
-}
-
-const callbackUrl = (request: Request) =>
-  `${new URL(request.url).origin}/auth/callback`;
-
-export async function callback(request: Request, env: Env): Promise<Response> {
-  if (!configured(env))
-    return new Response("GitHub sign-in is not configured here.\n", {
-      status: 503,
-    });
-  const url = new URL(request.url);
-  const saved = await unseal<{ state: string; back: string }>(
-    env.SESSION_SECRET!,
-    cookie(request, STATE_COOKIE),
-  );
-  const code = url.searchParams.get("code");
-  if (!saved || !code || url.searchParams.get("state") !== saved.state)
-    return new Response(
-      "Sign-in expired or did not start here. Go back to the review and try again.\n",
-      { status: 400 },
-    );
-
-  const res = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "user-agent": "bumble-bot",
-    },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      code,
-      redirect_uri: callbackUrl(request),
-    }),
-  });
-  const grant = (await res.json().catch(() => ({}))) as {
-    access_token?: string;
-    error_description?: string;
-  };
-  if (!grant.access_token)
-    return new Response(
-      `GitHub sign-in failed: ${grant.error_description ?? res.status}\n`,
-      { status: 502 },
-    );
-  // Only the identity is kept. The user token is not stored or used again.
-  const user = await ghJson<{ login: string; id: number }>(
-    grant.access_token,
-    "/user",
-  );
-  const headers = new Headers({ location: saved.back });
-  headers.append(
-    "set-cookie",
-    setCookie(
-      SESSION_COOKIE,
-      await seal(
-        env.SESSION_SECRET!,
-        { login: user.login, id: user.id } satisfies Session,
-        SESSION_TTL_S,
-      ),
-      SESSION_TTL_S,
-    ),
-  );
-  headers.append("set-cookie", setCookie(STATE_COOKIE, "", 0, "/auth"));
-  return new Response(null, { status: 302, headers });
-}
-
-export function logout(request: Request): Response {
-  const back = new URL(request.url).searchParams.get("return") ?? "";
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: RETURN_PATH.test(back) ? back : "/",
-      "set-cookie": setCookie(SESSION_COOKIE, "", 0),
-    },
-  });
-}
-
-export async function me(request: Request, env: Env): Promise<Response> {
-  const session = await readSession(request, env);
-  return json({ configured: configured(env), login: session?.login ?? null });
-}
+const json = (body: unknown, status = 200) =>
+  Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
 // The sign-off itself
 
@@ -303,11 +103,11 @@ export function buildSignOff(
       (x): x is Record<string, unknown> =>
         typeof x === "object" && x !== null && x.findingId === f.id,
     );
-    const reason = d && typeof d.reason === "string" ? d.reason.trim() : "";
     if (
       !d ||
       (d.decision !== "accept" && d.decision !== "dismiss") ||
-      !reason
+      typeof d.reason !== "string" ||
+      !d.reason.trim()
     ) {
       missing.push(f.title);
       return [];
@@ -319,7 +119,7 @@ export function buildSignOff(
         severity: f.severity,
         confidence: f.confidence ?? "verified",
         decision: d.decision,
-        reason: text(reason, "A finding's reason", true),
+        reason: text(d.reason, "A finding's reason", true),
       },
     ];
   });
@@ -407,8 +207,14 @@ export async function signOff(
         409,
       );
 
+    // Stored: from here the sign-off stands, whatever else fails. Errors are
+    // reported with it rather than as a failed save.
     record.echo = await echo(env, token, target, record);
-    await stub.recordEcho(record.echo);
+    try {
+      await stub.recordEcho(record.echo);
+    } catch (e) {
+      console.error("sign-off echo not recorded", e);
+    }
     return json(record);
   } catch (e) {
     if (e instanceof SignOffError) return json({ error: e.message }, e.status);
@@ -474,16 +280,23 @@ export function setOwnerStatus(
   });
 }
 
-const quote = (s: string) =>
-  s
+// Text from the owner or the AI must not ping people: a zero-width space after
+// "@" keeps it readable but stops GitHub treating it as a mention.
+const unmention = (s: string) => s.replace(/@(?=[\w-])/g, "@\u200b");
+
+/** Multi-line text as a block quote, optionally indented into a list item. */
+const quote = (s: string, indent = "") =>
+  unmention(s)
     .split("\n")
-    .map((l) => `> ${l}`)
+    .map((l) => `${indent}> ${l}`)
     .join("\n");
+
+const line = (s: string) => unmention(s.replace(/\s+/g, " ").trim());
 
 export function signOffComment(s: SignOff, link: string): string {
   const short = s.headSha.slice(0, 7);
   const notChecked = [
-    ...s.aiNotChecked.map((x) => `- ${x} _(listed by the AI)_`),
+    ...s.aiNotChecked.map((x) => `- ${line(x)} _(listed by the AI)_`),
     ...(s.notChecked ? [quote(s.notChecked)] : []),
   ];
   return [
@@ -501,7 +314,7 @@ export function signOffComment(s: SignOff, link: string): string {
           "**Blocking findings**",
           ...s.dispositions.map(
             (d) =>
-              `- ${d.decision === "accept" ? "Risk accepted" : "Dismissed"}: ${d.title}. _${d.reason}_`,
+              `- **${d.decision === "accept" ? "Risk accepted" : "Dismissed"}:** ${line(d.title)}\n${quote(d.reason, "  ")}`,
           ),
         ]
       : []),

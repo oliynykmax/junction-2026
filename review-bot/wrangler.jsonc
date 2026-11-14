@@ -8,10 +8,14 @@
   "observability": { "enabled": true },
   "rules": [
     { "type": "Text", "globs": ["**/*.svg"], "fallthrough": true },
-    { "type": "Data", "globs": ["**/*.ico", "**/*.png"], "fallthrough": true }
+    { "type": "Data", "globs": ["**/*.ico", "**/*.png"], "fallthrough": true },
   ],
   "vars": { "REVIEW_BASE_URL": "https://review.oliinyk.dev" },
   "routes": [
-    { "pattern": "review.oliinyk.dev", "custom_domain": true, "zone_name": "oliinyk.dev" }
-  ]
+    {
+      "pattern": "review.oliinyk.dev",
+      "custom_domain": true,
+      "zone_name": "oliinyk.dev",
+    },
+  ],
 }

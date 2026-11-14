@@ -1,5 +1,7 @@
 // The review page. A static shell that polls the review's JSON view.
 
+import { SEVERITIES } from "./reviewer";
+
 export function reviewPage(
   api: string,
   prUrl: string,
@@ -51,7 +53,7 @@ button{font:inherit;font-size:.85rem;padding:4px 12px;border-radius:6px;border:1
 </main>
 <script>
 const API=${JSON.stringify(api)},BLOB=${JSON.stringify(prUrl.replace(/\/pull\/\d+$/, ""))};
-const SEV=["critical","high","medium","low","info"],LEGACY={blocker:"critical",major:"high",minor:"low"};
+const SEV=${JSON.stringify(SEVERITIES)},LEGACY={blocker:"critical",major:"high",minor:"low"};
 const $=(id)=>document.getElementById(id);
 const esc=(s)=>String(s).replace(/[&<>"]/g,(c)=>"&#"+c.charCodeAt(0)+";");
 let timer;

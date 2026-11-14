@@ -55,6 +55,8 @@ export const CONFIDENCES = ["verified", "likely", "possible"] as const;
 export type Confidence = (typeof CONFIDENCES)[number];
 
 const BLOCKING: ReadonlySet<Severity> = new Set(["critical", "high"]);
+const blocks = (f: Finding) =>
+  BLOCKING.has(f.severity) && f.confidence !== "possible";
 
 export type Finding = {
   id: string;
@@ -311,7 +313,7 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
   const finishReview = defineTool({
     name: "finish_review",
     description:
-      "End the review. Call exactly once, after every finding is recorded. The decision is derived from the findings' severities and is advice to the human owner, never an approval.",
+      "End the review. Call exactly once, after every finding is recorded. The decision is derived from the findings' severity and confidence and is advice to the human owner, never an approval.",
     parameters: obj({
       summary: str(),
       not_checked: arr(str()),
@@ -339,7 +341,7 @@ export function reviewerExtension({ token, scan, approve }: ReviewerDeps) {
           return;
         }
         state.verdict = {
-          decision: state.findings.some((f) => BLOCKING.has(f.severity))
+          decision: state.findings.some(blocks)
             ? "changes_requested"
             : "no_blockers_found",
           summary,
@@ -464,7 +466,7 @@ Severity. Rate the impact if the finding is real, not how sure you are.
 - medium: a likely bug in an edge case, or a design problem that will cost real work later.
 - low: a local quality issue such as naming, duplication or a missing guard on an unlikely path.
 - info: an observation or question with no action required.
-Any critical or high finding makes the advisory decision changes_requested. Otherwise it is no_blockers_found.
+A critical or high finding rated verified or likely makes the advisory decision changes_requested. Otherwise it is no_blockers_found. A critical or high finding rated possible is shown to the owner to check but does not change the decision, so confirm it through a tool if you can.
 
 Class. The kind of problem: correctness (wrong result), security, reliability (error handling, concurrency, resource leaks, retries), performance, breaking-change (public API, wire format, config or schema compatibility), maintainability (structure, complexity, duplication, the rubric's code-quality concerns), testing (missing or wrong tests) or docs.
 

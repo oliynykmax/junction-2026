@@ -1,6 +1,9 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import {
   collectBrief,
+  MAX_BODY_CHARS,
+  MAX_LISTED_FILES,
+  MAX_PAGES,
   MAX_BRIEF_DIFF_CHARS,
   MAX_COMMENTS_CHARS,
   renderBrief,
@@ -196,4 +199,76 @@ test("a change over 300 lines asks for a simplification", () => {
   expect(renderBrief({ target, brief: null, files, rubric: "r" })).toContain(
     "look for one or two simplifications",
   );
+});
+
+test("list endpoints are read past the first page, and a cut-off listing says so", async () => {
+  const comment = (i: number) => ({
+    user: user("dave"),
+    path: "a.ts",
+    line: 1,
+    body: `n${i}`,
+    created_at: `2026-11-14T${String(10 + Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}:00Z`,
+  });
+  const inline = Array.from({ length: 105 }, (_, i) => comment(i));
+  github({
+    [pull]: pr,
+    [`${pull}/commits`]: (url) =>
+      Response.json(
+        Array.from({ length: 100 }, (_, i) =>
+          commit(String(i % 10), `c${url.searchParams.get("page")}-${i}`),
+        ),
+      ),
+    [`${pull}/reviews`]: [],
+    [`${pull}/comments`]: (url) =>
+      Response.json(
+        url.searchParams.get("page") === "1"
+          ? inline.slice(0, 100)
+          : inline.slice(100),
+      ),
+    "/repos/team/demo/issues/7/comments": [],
+  });
+  const brief = await collectBrief("token", target);
+  if (brief.comments.kind !== "available") throw new Error("comments unread");
+  expect(brief.comments.value.map((c) => c.body)).toContain("n104");
+  expect(brief.comments.incomplete).toBe(false);
+  if (brief.commits.kind !== "available") throw new Error("commits unread");
+  expect(brief.commits.incomplete).toBe(true);
+  expect(brief.commits.value.at(-1)!.message).toBe(`c${MAX_PAGES}-99`);
+  const text = renderBrief({ target, brief, files: [], rubric: "r" });
+  expect(text).toContain(
+    `(GitHub listed more than ${MAX_PAGES * 100} commits, so the newest may be missing.`,
+  );
+  expect(text).not.toContain("comments, so the newest may be missing");
+});
+
+test("the file lists stop at the cap and count the rest", () => {
+  const files = Array.from({ length: MAX_LISTED_FILES + 2 }, (_, i) =>
+    file(`bin/f${i}.png`, null),
+  );
+  const text = renderBrief({ target, brief: null, files, rubric: "r" });
+  const last = `bin/f${MAX_LISTED_FILES - 1}.png`;
+  const over = `bin/f${MAX_LISTED_FILES}.png`;
+  expect(text).toContain(`modified  +2 -1  ${last}`);
+  expect(text).not.toContain(over);
+  expect(text).toContain(
+    "(2 more files not listed. pr_overview lists them all.)",
+  );
+  expect(text).toContain("- and 2 more: pr_overview lists them all.");
+});
+
+test("a clipped field stays within its cap and says how much was cut", async () => {
+  github({
+    [pull]: { ...pr, body: "z".repeat(MAX_BODY_CHARS + 500) },
+    [`${pull}/commits`]: [],
+    [`${pull}/reviews`]: [],
+    [`${pull}/comments`]: [],
+    "/repos/team/demo/issues/7/comments": [],
+  });
+  const brief = await collectBrief("token", target);
+  if (brief.facts.kind !== "available") throw new Error("facts unread");
+  const body = brief.facts.value.body;
+  expect(body.length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+  const kept = body.indexOf("\n[…");
+  const cut = Number(body.match(/\[… (\d+) characters cut\]$/)![1]);
+  expect(kept + cut).toBe(MAX_BODY_CHARS + 500);
 });

@@ -3,11 +3,27 @@ import type { Target } from "./reviewer";
 // GitHub App auth and the REST calls the bot and the reviewer make.
 
 import { fromStored, SEVERITIES, type Severity } from "./findings";
-import { riskLine, type RiskTier } from "./signals";
+import { RISK_TIERS, riskLine, type RiskTier } from "./signals";
 
 export interface AppSecrets {
   APP_ID: string;
   PRIVATE_KEY: string; // PKCS#8 PEM
+}
+
+export interface PublicAppSecrets extends AppSecrets {
+  PUBLIC_INSTALLATION_ID: string;
+}
+
+export function publicInstallationToken(app: PublicAppSecrets) {
+  const id = Number(app.PUBLIC_INSTALLATION_ID);
+  if (!Number.isSafeInteger(id) || id <= 0)
+    throw new Error(
+      "PUBLIC_INSTALLATION_ID must be a positive installation id",
+    );
+  return installationToken(app, id, {
+    contents: "read",
+    pull_requests: "read",
+  });
 }
 
 const API = "https://api.github.com";
@@ -114,6 +130,51 @@ async function botReviews(token: string, pr: Pr): Promise<PrReview[]> {
   return all.filter((r) => r.body?.startsWith(REVIEW_MARKER));
 }
 
+const RISK_LABEL_COLORS: Record<RiskTier, string> = {
+  low: "2da44e",
+  medium: "bf8700",
+  high: "cf222e",
+};
+
+/**
+ * Makes the PR carry exactly one `risk: <tier>` label, the tier the rules set
+ * for the reviewed head. Labels the bot did not put there are left alone.
+ */
+async function labelRisk(token: string, pr: Pr, tier: RiskTier) {
+  const repo = `/repos/${pr.owner}/${pr.repo}`;
+  const issue = `${repo}/issues/${pr.number}`;
+  const labels = await ghJson<{ name: string }[]>(
+    token,
+    `${issue}/labels?per_page=100`,
+  );
+  const want = `risk: ${tier}`;
+  for (const other of RISK_TIERS) {
+    const name = `risk: ${other}`;
+    if (other === tier || !labels.some((l) => l.name === name)) continue;
+    await gh(token, `${issue}/labels/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }).catch((e) => {
+      if (!(e instanceof GitHubError && e.status === 404)) throw e;
+    });
+  }
+  if (labels.some((l) => l.name === want)) return;
+  // Create the label with its colour first; a 422 means it already exists.
+  await gh(token, `${repo}/labels`, {
+    method: "POST",
+    body: {
+      name: want,
+      color: RISK_LABEL_COLORS[tier],
+      description: "Review risk tier set by the review bot's rules",
+    },
+  }).catch((e) => {
+    if (!(e instanceof GitHubError && e.status === 422)) throw e;
+  });
+  await gh(token, `${issue}/labels`, {
+    method: "POST",
+    body: { labels: [want] },
+  });
+}
+
 /**
  * Publishes a compact result only while the reviewed commit is still the head.
  * It is always a comment review: the bot never approves, a named human does.
@@ -128,6 +189,12 @@ export async function publishReview(
   const base = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`;
   const current = await ghJson<{ head: { sha: string } }>(token, base);
   if (current.head.sha !== pr.headSha) return;
+  // Before the duplicate check, so a retry repairs a label that failed earlier.
+  // A label problem must never block the review itself.
+  if (risk)
+    await labelRisk(token, pr, risk).catch((e) =>
+      console.error(`risk label for ${pr.headSha} failed`, e),
+    );
   const reviews = await botReviews(token, pr);
   if (
     reviews.some(
@@ -175,13 +242,19 @@ export async function dismissBotApprovals(token: string, pr: Pr) {
 export async function installationToken(
   app: AppSecrets,
   installationId: number,
+  permissions?: { contents: "read"; pull_requests: "read" },
 ): Promise<{ token: string; expiresAt: number }> {
   const jwt = await appJwt(app.APP_ID, app.PRIVATE_KEY);
   const res = await fetch(
     `${API}/app/installations/${installationId}/access_tokens`,
     {
       method: "POST",
-      headers: { ...HEADERS, authorization: `Bearer ${jwt}` },
+      headers: {
+        ...HEADERS,
+        authorization: `Bearer ${jwt}`,
+        "content-type": "application/json",
+      },
+      body: permissions ? JSON.stringify({ permissions }) : undefined,
     },
   );
   if (!res.ok)

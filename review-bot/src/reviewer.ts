@@ -540,7 +540,9 @@ export function reviewerExtension({
         };
         // The draft cannot be read once the commit settles: copy it out.
         findings = state.findings.map((f) => ({ ...f }));
-        evidence = state.evidence ? JSON.parse(JSON.stringify(state.evidence)) : null;
+        evidence = state.evidence
+          ? JSON.parse(JSON.stringify(state.evidence))
+          : null;
       }, context);
       if (refused) return { ...text(refused), isError: true };
       if (decision) finished(decision, findings.length);

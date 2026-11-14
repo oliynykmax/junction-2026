@@ -20,6 +20,7 @@ import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { alarmWrite, HEARTBEAT_MS } from "./alarm";
+import type { VerificationReceipt } from "./formal";
 import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
 import { executor } from "./executor";
@@ -87,7 +88,7 @@ export type ReviewView = {
   failure: string | null;
   review: Omit<ReviewState, "prompt" | "findings" | "brief"> & {
     prompt: { url: string; sha256: string } | null;
-    findings: Stored<Finding>[];
+    findings: (Stored<Finding> & { verification?: VerificationReceipt })[];
   };
   heldBack: number;
   activity: Activity[];
@@ -331,7 +332,17 @@ export class Review extends DurableObject<Env> {
     }
 
     const { prompt, brief: _brief, ...rest } = review;
-    const findings = review.findings.map(fromStored);
+    const findings = review.findings.map((finding) => {
+      const verification = review.verifications?.find(
+        (receipt) =>
+          receipt.id === finding.evidence?.verificationId &&
+          receipt.files.includes(finding.path),
+      );
+      return {
+        ...fromStored(finding),
+        ...(verification ? { verification } : {}),
+      };
+    });
     return {
       status,
       failure:

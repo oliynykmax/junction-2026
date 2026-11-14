@@ -1828,7 +1828,8 @@ pre {
 }
 
 /* Keep receipts legible independently of the surrounding page theme. */
-.verification {
+.verification,
+.verification-receipt {
   --verification-ink: #17213b;
   --verification-muted: #53617d;
   --verification-rule: #c8d0df;
@@ -1837,6 +1838,9 @@ pre {
   --verification-check: #0d7566;
   --verification-warn: #9e5c10;
   --verification-danger: #b23b49;
+}
+
+.verification {
   margin: 0 0 48px;
   padding: clamp(18px, 3vw, 36px);
   color: var(--verification-ink);
@@ -2105,4 +2109,15 @@ pre {
 }
 .verification-target {
   overflow-wrap: anywhere;
+}
+
+.inline-verification {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 16px;
+  color: var(--verification-ink);
+}
+
+.verification-receipt > .verification-disclosure {
+  grid-column: 1 / -1;
+  margin: 0;
 }

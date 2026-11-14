@@ -39,8 +39,7 @@ export interface Env extends AppSecrets {
   WEBHOOK_SECRET: string;
   REVIEW_BASE_URL: string;
   REVIEW_PROMPT_URL: string;
-  MODEL_PROVIDER: "anthropic" | "verda";
-  MODEL_ID: string;
+  MODELS: ModelChoice[];
   THINKING_LEVEL: ModelThinkingLevel;
   ANTHROPIC_API_KEY?: string;
   VERDA_API_KEY?: string;
@@ -52,6 +51,8 @@ export interface Env extends AppSecrets {
   MANUAL_GATE: DurableObjectNamespace<ManualGate>;
   ASSETS: Fetcher;
 }
+
+export type ModelChoice = { provider: "anthropic" | "verda"; id: string };
 
 export type Activity =
   | { kind: "say"; text: string }
@@ -81,9 +82,14 @@ export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
   #tokens = new Map<number, { token: string; expiresAt: number }>();
+  #model: ModelChoice;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    // The object id derives from the review key, so each (PR, commit) keeps
+    // one model across retries while reviews spread evenly over MODELS.
+    const bucket = parseInt(state.id.toString().slice(-8), 16);
+    this.#model = env.MODELS[bucket % env.MODELS.length]!;
     void state.blockConcurrencyWhile(async () => {
       // Armed before anything can throw, so an object whose open fails is started again.
       const fallback = Date.now() + HEARTBEAT_MS;
@@ -178,7 +184,7 @@ export class Review extends DurableObject<Env> {
       const state = await tx.doc(ReviewDoc, root.id);
       state.target = target;
       state.prompt = { url: this.env.REVIEW_PROMPT_URL, sha256, text };
-      state.model = `${this.env.MODEL_PROVIDER}/${this.env.MODEL_ID} thinking=${this.env.THINKING_LEVEL}`;
+      state.model = `${this.#model.provider}/${this.#model.id} thinking=${this.env.THINKING_LEVEL}`;
       state.startedAt = Date.now();
     }, ctx);
     await this.#arm({ ...this.#harness.wake(), active: true });
@@ -279,10 +285,7 @@ export class Review extends DurableObject<Env> {
   #root(): Promise<Conversation> {
     return this.#harness.root(ctx, {
       agent: {
-        model: {
-          provider: this.env.MODEL_PROVIDER,
-          modelId: this.env.MODEL_ID,
-        },
+        model: { provider: this.#model.provider, modelId: this.#model.id },
         thinkingLevel: this.env.THINKING_LEVEL,
         maxTurns: 80,
       },

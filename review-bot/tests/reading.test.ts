@@ -275,3 +275,42 @@ test("reports how much is still shown", () => {
     }),
   ).toBe("hid all 4 changed lines");
 });
+
+test("using lines inside C# source strings stay visible", () => {
+  // As in GenericsFormatterTests: the hunk starts at line 1, then code opens
+  // a raw string whose content has using lines.
+  const raw = [
+    "@@ -1,2 +1,8 @@",
+    " // Copyright (c) All contributors.",
+    "+using Microsoft.CodeAnalysis;",
+    " public class T {",
+    '+    string source = """',
+    "+using MessagePack;",
+    "+using Lib;",
+    '+""";',
+  ].join("\n");
+  const result = compileReadingPlan(raw, undefined, { path: "T.cs" });
+  if (!result.ok) throw new Error(result.problems.join("\n"));
+  const visible = result.rows.flatMap((r) => ("text" in r ? [r.text] : []));
+  expect(visible).toContain("using MessagePack;");
+  expect(visible).toContain("using Lib;");
+  expect(visible).not.toContain("using Microsoft.CodeAnalysis;");
+  expect(result.stats.usingChanged).toBe(1);
+});
+
+test("using lines in a hunk that does not start the file are left to the agent", () => {
+  // Line 495 may be inside a verbatim string the hunk does not show.
+  const later =
+    '@@ -494,2 +494,3 @@\n     private const string Preamble = @"\n+using MessagePack;\n ";';
+  const result = compileReadingPlan(later, undefined, { path: "T.cs" });
+  expect(result.ok && result.stats.usingChanged).toBe(0);
+});
+
+test("the elision check stays fast on repetitive text", () => {
+  const old = "a".repeat(3_000) + "b";
+  const next = Array.from({ length: 40 }, () => "a").join("...") + "...c";
+  const start = performance.now();
+  expect(isElision(old, next)).toBe(false);
+  expect(isElision(old, "a...a...a...b")).toBe(true);
+  expect(performance.now() - start).toBeLessThan(50);
+});

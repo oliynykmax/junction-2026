@@ -20,9 +20,14 @@ for at least one character, so `!allowed` cannot become `allowed`.
 - **A line a finding cites is never hidden or elided**, by the agent or by the
   automatic rule. The named owner decides on the findings, so their evidence
   stays on screen. A plan that hides one is refused with the reason.
-- **C# `using` directives are hidden automatically** as scaffolding. `using`
-  statements and declarations (`using var x = ...;`, `using (...)`) are not
-  directives and stay.
+- **C# `using` directives are hidden automatically** as scaffolding, but only
+  in the file's opening block: a hunk that starts at line 1 of the file, up to
+  its first line that is not a comment, blank, preprocessor, `extern alias`
+  or `using` line. No string can be open there, so `using` lines inside
+  embedded C# source strings (common in generator tests) stay visible. The
+  bot review of PR #37 caught the earlier per-line rule hiding them.
+  Directives the rule misses stay visible; the agent can hide them. `using`
+  statements and declarations (`using var x = ...;`) are never directives.
 - **Hidden lines are kept as gap rows**, not dropped, so the viewer can count
   them (`kept 3/9 changed lines`, computed from the plan) and expand them.
 - **Hunk headers belong to the compiler**: shown while any line of the hunk is,
@@ -39,9 +44,11 @@ same agent and model as the review, since it has already read every patch.
   finding reported after the plan that cites a hidden line therefore makes the
   plan invalid, and that file falls back to the full diff instead of hiding
   the evidence.
-- **Two refusals per file**, then the tool stops accepting plans for that file
-  and the owner sees its full diff. This bounds wasted turns, like the other
-  refusal caps.
+- **Two refusals per file**, then the tool takes no more plans for that file:
+  the owner sees the last plan the agent recorded for it, or its full diff if
+  none was. This bounds wasted turns, like the other refusal caps. An earlier
+  version only checked the limit when wording the refusal (caught by the bot
+  review of PR #37).
 - **The tool checks the patch stored with the review**, the one the owner
   sees, not a fresh copy from GitHub. A file over the size cap has no stored
   patch and cannot be shortened.

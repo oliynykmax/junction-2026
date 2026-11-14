@@ -670,6 +670,17 @@ export function reviewerExtension({
           reply = `Not recorded. ${path} has no stored diff (binary or over the size cap), so there is nothing to shorten.`;
           return;
         }
+        const refusals = state.readingRefusals ?? {};
+        const count = refusals[path] ?? 0;
+        // What the owner sees once no more plans are taken for this file.
+        const fallback = state.readings?.[path]
+          ? "the owner sees the last plan you recorded for it"
+          : "the owner sees its full diff";
+        if (count >= MAX_READING_REFUSALS) {
+          refused = true;
+          reply = `Not recorded: no more attempts for ${path}; ${fallback}. Move on.`;
+          return;
+        }
         const cited = state.findings
           .filter((f) => f.path === path && f.line !== null)
           .map((f) => f.line!);
@@ -679,13 +690,11 @@ export function reviewerExtension({
         });
         if (!result.ok) {
           refused = true;
-          const refusals = state.readingRefusals ?? {};
-          const count = refusals[path] ?? 0;
           state.readingRefusals = { ...refusals, [path]: count + 1 };
           reply =
-            count < MAX_READING_REFUSALS
+            count + 1 < MAX_READING_REFUSALS
               ? `Not recorded. Fix every problem and call abridge_file again with the complete plan:\n- ${result.problems.join("\n- ")}`
-              : `Not recorded, and no more attempts for ${path}: the owner sees its full diff. Move on. Problems:\n- ${result.problems.join("\n- ")}`;
+              : `Not recorded, and no more attempts for ${path}; ${fallback}. Move on. Problems:\n- ${result.problems.join("\n- ")}`;
           return;
         }
         state.readings = { ...state.readings, [path]: plan };

@@ -8,9 +8,9 @@ import {
   type Severity,
 } from "../src/findings";
 import type { ReviewView } from "../src/review";
-import type { Change, ChangedFile } from "../src/reviewer";
+import type { Change, ChangedFile, Star } from "../src/reviewer";
 
-export type { Change, ChangedFile };
+export type { Change, ChangedFile, Star };
 export type Finding = ReviewView["review"]["findings"][number];
 export type LineUrl = (path: string, line: number | null) => string;
 

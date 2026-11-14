@@ -1,5 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import vm from "node:vm";
+import { h } from "preact";
+import { renderToString } from "preact-render-to-string";
+import { EvidencePanel } from "../web/evidence";
 import { EMPTY_REVIEW, reviewerExtension } from "../src/reviewer";
 import { evidenceHtml } from "../src/evidence";
 import { reviewPage } from "../src/page";
@@ -121,46 +123,54 @@ test("older review without evidence gains explicit coverage gap and publishes no
   expect(publications[0][3]).toBeNull();
 });
 
-test("report shell script renders API evidence and legacy fallback", async () => {
-  const response = reviewPage(
-    "/api/test",
-    "https://github.com/team/demo/pull/1",
-    "team/demo#1",
-  );
+test("report shell loads the Preact client with pinned API configuration", async () => {
+  const response = reviewPage({
+    manual: false,
+    owner: "team",
+    repo: "demo",
+    number: "1",
+    headSha: target.headSha,
+  });
   const html = await response.text();
-  expect(html).toContain('id="evidence"');
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const elements = new Map();
-  const document = {
-    getElementById: (id) => {
-      if (!elements.has(id)) elements.set(id, { innerHTML: "", className: "" });
-      return elements.get(id);
+  expect(html).toContain('src="/review/app.js"');
+  expect(html).toContain('href="/favicon.svg?v=bumble-bot"');
+  const config = JSON.parse(
+    html.match(
+      /<script type="application\/json" id="config">([\s\S]*?)<\/script>/,
+    )[1],
+  );
+  expect(config.api).toBe(`/api/r/team/demo/1/${target.headSha}`);
+});
+
+test("Preact evidence panel renders the persisted snapshot and legacy fallback", () => {
+  const { state } = review();
+  const snapshot = {
+    headSha: target.headSha,
+    base: target.base,
+    capturedAt: 1,
+    checks: { kind: "available", items: [] },
+    statuses: { kind: "available", items: [] },
+    standard: {
+      kind: "available",
+      blobSha: "c".repeat(40),
+      sha256: "digest",
+      text: "</pre><script>bad()</script>",
+      url: `https://github.com/team/demo/blob/${target.base.sha}/code-standard.md`,
     },
   };
-  const { state } = review();
-  const view = {
-    status: "done",
-    review: state,
-    activity: [],
-    costUsd: 0,
-    heldBack: 0,
-    evidenceHtml: "<p>Observed CI: pending</p>",
-  };
-  vm.runInNewContext(script, {
-    document,
-    fetch: async () => Response.json(view),
-    setTimeout() {},
-  });
-  await new Promise((resolve) => setImmediate(resolve));
-  expect(elements.get("evidence").innerHTML).toBe(view.evidenceHtml);
-  delete view.evidenceHtml;
-  vm.runInNewContext(script, {
-    document,
-    fetch: async () => Response.json(view),
-    setTimeout() {},
-  });
-  await new Promise((resolve) => setImmediate(resolve));
-  expect(elements.get("evidence").innerHTML).toContain("No evidence snapshot");
+  state.evidence = snapshot;
+  const html = renderToString(
+    h(EvidencePanel, { html: evidenceHtml(state.evidence) }),
+  );
+  expect(html).toContain("CI and team standard evidence");
+  expect(html).toContain(target.headSha);
+  expect(html).toContain(target.base.sha);
+  expect(html).toContain("Observed CI:");
+  expect(html).toContain("&#60;script&#62;");
+  expect(html).not.toContain("<script>");
+  expect(renderToString(h(EvidencePanel, {}))).toContain(
+    "No evidence snapshot",
+  );
 });
 
 test("manual evidence uses anonymous reads and never publishes to GitHub", async () => {

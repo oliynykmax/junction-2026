@@ -75,6 +75,28 @@ export type Dismissal = {
   reason: string;
 };
 
+/** One changed file at the PR head, captured once when the review starts. */
+export type ChangedFile = {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  /** The unified diff, or null when GitHub omits it or it is over the size cap. */
+  patch: string | null;
+};
+
+/** A logical change in the PR, told as Situation, Task, Action, Result. */
+export type Change = {
+  id: string;
+  title: string;
+  tags: string[];
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+  files: string[];
+};
+
 export type Verdict = {
   decision: "no_blockers_found" | "changes_requested";
   summary: string;
@@ -95,6 +117,12 @@ export type ReviewState = {
   lookups: Lookup[];
   /** Times finish_review refused because no documentation was looked up. */
   docsRefusals: number;
+  /** Changed files with patches. Absent on reviews stored before it existed. */
+  files?: ChangedFile[];
+  /** The agent's description of the PR as changes. Absent on older reviews. */
+  changes?: Change[];
+  /** Times finish_review refused because changed files had no change. */
+  changeRefusals?: number;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -110,6 +138,9 @@ export const EMPTY_REVIEW: ReviewState = {
   verdict: null,
   lookups: [],
   docsRefusals: 0,
+  files: [],
+  changes: [],
+  changeRefusals: 0,
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -124,6 +155,81 @@ export const ReviewDoc = defineDoc<ReviewState>({
 
 const MAX_LOOKUP_ARGS = 300;
 const MAX_DOCS_REFUSALS = 2;
+const MAX_CHANGE_REFUSALS = 2;
+// Patches are stored in the review document, so their size is capped.
+const MAX_PATCH_CHARS = 20_000;
+const MAX_TOTAL_PATCH_CHARS = 200_000;
+const MAX_STAR_CHARS = 280;
+const MAX_TAGS = 3;
+const MAX_TAG_CHARS = 24;
+
+/** Changed files as stored in the review, with patches over the caps dropped. */
+export function capturedFiles(
+  files: readonly {
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+  }[],
+): ChangedFile[] {
+  let total = 0;
+  return files.map((f) => {
+    const patch =
+      f.patch &&
+      f.patch.length <= MAX_PATCH_CHARS &&
+      total + f.patch.length <= MAX_TOTAL_PATCH_CHARS
+        ? f.patch
+        : null;
+    if (patch) total += patch.length;
+    return {
+      path: f.filename,
+      status: f.status,
+      additions: f.additions,
+      deletions: f.deletions,
+      patch,
+    };
+  });
+}
+
+/** Problems with a describe_change call, or an empty list when it is valid. */
+export function changeProblems(
+  args: {
+    tags: readonly string[];
+    situation: string;
+    task: string;
+    action: string;
+    result: string;
+    files: readonly string[];
+  },
+  changed: readonly string[],
+): string[] {
+  const problems: string[] = [];
+  for (const part of ["situation", "task", "action", "result"] as const)
+    if (args[part].length > MAX_STAR_CHARS)
+      problems.push(
+        `${part} is ${args[part].length} characters; keep it to one sentence under ${MAX_STAR_CHARS}.`,
+      );
+  if (args.tags.length === 0 || args.tags.length > MAX_TAGS)
+    problems.push(`Give 1 to ${MAX_TAGS} tags.`);
+  for (const tag of args.tags)
+    if (tag.length > MAX_TAG_CHARS)
+      problems.push(`Tag "${tag}" is longer than ${MAX_TAG_CHARS} characters.`);
+  if (args.files.length === 0)
+    problems.push("List the changed files this change covers.");
+  const unknown = args.files.filter((f) => !changed.includes(f));
+  if (unknown.length && changed.length)
+    problems.push(
+      `Not changed in this pull request: ${unknown.join(", ")}. Use paths exactly as pr_overview lists them.`,
+    );
+  return problems;
+}
+
+/** Changed files that no described change covers. */
+export function uncoveredFiles(state: ReviewState): string[] {
+  const covered = new Set((state.changes ?? []).flatMap((c) => c.files));
+  return (state.files ?? []).map((f) => f.path).filter((p) => !covered.has(p));
+}
 
 /** Records one MCP call in the review, so the page and finish_review can see it. */
 export async function recordLookup(
@@ -321,6 +427,52 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
     },
   });
 
+  const describeChange = defineTool({
+    name: "describe_change",
+    description:
+      "Describe one logical change in the pull request for the human owner, as Situation, Task, Action and Result, one sentence each. Call once per change; together the changes must cover every changed file. Calling again with the same title replaces that change.",
+    parameters: obj({
+      title: str(),
+      tags: arr(str()),
+      situation: str(),
+      task: str(),
+      action: str(),
+      result: str(),
+      files: arr(str()),
+    }),
+    execute: async (args, api, context) => {
+      let problems: string[] = [];
+      await api.commit(async (tx) => {
+        const state = await tx.doc(ReviewDoc, api.conversationId);
+        problems = changeProblems(
+          args,
+          (state.files ?? []).map((f) => f.path),
+        );
+        if (problems.length) return;
+        const change: Change = {
+          id: api.callId,
+          title: args.title,
+          tags: args.tags.map((t) => t.toLowerCase()),
+          situation: args.situation,
+          task: args.task,
+          action: args.action,
+          result: args.result,
+          files: [...new Set(args.files)],
+        };
+        const others = (state.changes ?? []).filter(
+          (c) => c.id !== change.id && c.title !== change.title,
+        );
+        state.changes = [...others, change];
+      }, context);
+      if (problems.length)
+        return {
+          ...text(`Not recorded. ${problems.join(" ")}`),
+          isError: true,
+        };
+      return text("recorded");
+    },
+  });
+
   const finishReview = defineTool({
     name: "finish_review",
     description:
@@ -340,7 +492,7 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
       ),
     }),
     execute: async ({ summary, not_checked, dismissed }, api, context) => {
-      let refused = false;
+      let refused: string | null = null;
       let findings: Finding[] = [];
       let evidence: Evidence | null = null;
       await api.commit(async (tx) => {
@@ -349,7 +501,14 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
         const noDocs = !state.lookups?.length;
         if (noDocs && refusals < MAX_DOCS_REFUSALS) {
           state.docsRefusals = refusals + 1;
-          refused = true;
+          refused = DOCS_REFUSAL;
+          return;
+        }
+        const uncovered = uncoveredFiles(state);
+        const changeRefusals = state.changeRefusals ?? 0;
+        if (uncovered.length && changeRefusals < MAX_CHANGE_REFUSALS) {
+          state.changeRefusals = changeRefusals + 1;
+          refused = `Not finished: no described change covers ${uncovered.join(", ")}. Call describe_change for the change each of these files belongs to (or add them to an existing change by calling it again with the same title), then call finish_review again.`;
           return;
         }
         state.verdict = {
@@ -360,22 +519,21 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
             ...(noDocs
               ? [
                   "The agent finished without looking up any documentation, so its claims about library, framework and platform behaviour come from memory.",
-                  ...not_checked,
                 ]
-              : not_checked),
+              : []),
+            ...(uncovered.length
+              ? [
+                  `These changed files are not part of any described change: ${uncovered.join(", ")}.`,
+                ]
+              : []),
+            ...not_checked,
           ],
           dismissed: dismissed ?? [],
         };
         findings = state.findings;
         evidence = state.evidence ?? null;
       }, context);
-      if (refused)
-        return {
-          ...text(
-            "Not finished: you have looked up no documentation, and every review must. Your summary and findings rely on how a language, library, framework, compiler or platform behaves (for example GitHub Actions token permissions, a .NET API, a runtime function). Run a codemode script with the mcp__* tools that checks those claims against current docs for the versions in use, correct anything the docs contradict, then call finish_review again.",
-          ),
-          isError: true,
-        };
+      if (refused) return { ...text(refused), isError: true };
       const { t, tok } = await target(api, context);
       if (t.mode !== "manual")
         await publish(t, tok, findings, evidence).catch((e) =>
@@ -408,7 +566,8 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
             state.evidence ??= evidence;
           }, context);
         }
-        const checks = planChecks(await prFiles(tok, t));
+        const files = await prFiles(tok, t);
+        const checks = planChecks(files);
         let result: ScanState;
         try {
           result = checks.length
@@ -428,7 +587,9 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
             content: `Review pull request ${t.owner}/${t.repo}#${t.number} at head ${t.headSha}.`,
             requestId: "review",
           });
-          (await tx.doc(ReviewDoc, id)).scan = result;
+          const state = await tx.doc(ReviewDoc, id);
+          state.scan = result;
+          state.files = capturedFiles(files);
           return {
             status: "terminal",
             outcome: { status: "completed", result: null },
@@ -452,6 +613,7 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
       readFile,
       listDir,
       reportFinding,
+      describeChange,
       finishReview,
     ],
     sections: [
@@ -479,6 +641,9 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
   return { extension, scanTask };
 }
 
+const DOCS_REFUSAL =
+  "Not finished: you have looked up no documentation, and every review must. Your summary and findings rely on how a language, library, framework, compiler or platform behaves (for example GitHub Actions token permissions, a .NET API, a runtime function). Run a codemode script with the mcp__* tools that checks those claims against current docs for the versions in use, correct anything the docs contradict, then call finish_review again.";
+
 const PROTOCOL = `You are running as an automated reviewer on a GitHub pull request, with read-only access through tools. There is no shell and no checkout. The codemode tool runs a JavaScript script that can call the other tools, which suits batches of reads.
 
 Your knowledge of libraries, frameworks, compilers and platforms may be out of date. Current documentation for the versions this repository uses outranks your memory.
@@ -490,7 +655,8 @@ The review_evidence section contains a persisted CI snapshot and code-standard.m
 4. Record every finding with report_finding as soon as you are sure of it: the file, the line at the PR head when one applies, a severity, a class, a confidence, a one-line title and a body that says what is wrong, why it matters and the better structure. When the finding rests on documented behaviour, end the body with a line "Docs: <url>" for each page you relied on.
 5. Deterministic scanners (zizmor for GitHub Actions workflows, ty for Python, oxlint for JavaScript and TypeScript) already ran on the changed files; their output is in scanner_results below. Triage every diagnostic: read the code it points at, then either confirm it with report_finding (source set to the tool, severity by real impact, not the tool's label, confidence verified once you have read the code) or dismiss it in finish_review's dismissed list with a concrete reason. Several diagnostics with one root cause become one finding.
 6. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. It is offered to the owner, never applied by you.
-7. Finish with finish_review exactly once. Give a short summary for the human owner, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, documentation you could not find, missing context), with the reason.
+7. Describe the pull request for the owner with describe_change, once per logical change (a fix, its tests, a docs update and an unrelated dependency bump are four changes). Every changed file belongs to a change. Write each part as one plain sentence from what you read, not from the PR description alone: situation is what was wrong or missing before; task is what the change sets out to do; action is what the code now does differently; result is the observable effect and the evidence for it (a test, a line, a doc), or says it is unverified. Never write that the change is correct, safe or approved. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator".
+8. Finish with finish_review exactly once. Give a short summary for the human owner, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, documentation you could not find, missing context), with the reason.
 
 Severity. Rate the impact if the finding is real, not how sure you are.
 - critical: exploitable vulnerability, data loss or corruption, or an outage on a normal path. Must not merge.

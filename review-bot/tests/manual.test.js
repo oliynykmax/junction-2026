@@ -213,7 +213,7 @@ test("anonymous gh reads omit Bearer while authenticated webhook calls retain it
 });
 
 for (const manual of [true, false])
-  test(`clean completion ${manual ? "never approves manual review after restore" : "preserves webhook approval"}`, async () => {
+  test(`clean completion ${manual ? "never publishes a manual review after restore" : "publishes the webhook review"}`, async () => {
     const state = structuredClone(EMPTY_REVIEW);
     state.target = JSON.parse(
       JSON.stringify(

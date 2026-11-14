@@ -99,10 +99,16 @@ export class Review extends DurableObject<Env> {
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
-        publish: (target, token, findings) =>
+        publish: (target, token, findings, risk) =>
           target.mode === "manual"
             ? Promise.resolve()
-            : publishReview(token, target, findings, reviewLink(env, target)),
+            : publishReview(
+                token,
+                target,
+                findings,
+                reviewLink(env, target),
+                risk,
+              ),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);

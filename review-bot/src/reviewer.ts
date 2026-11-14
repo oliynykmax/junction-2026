@@ -31,6 +31,7 @@ import {
   type ScanState,
   type ScanTool,
 } from "./scanners";
+import { assessRisk, renderRisk, type Risk, type RiskTier } from "./signals";
 
 export type Target = {
   owner: string;
@@ -109,6 +110,8 @@ export type ReviewState = {
   changes?: Change[];
   /** Times finish_review refused because changed files had no change. */
   changeRefusals?: number;
+  /** Deterministic risk tier and test-change lane. Absent on older reviews. */
+  risk?: Risk;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -247,6 +250,7 @@ export type ReviewerDeps = {
     target: Target,
     token: string,
     findings: readonly Finding[],
+    risk?: RiskTier,
   ) => Promise<void>;
 };
 
@@ -483,6 +487,7 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
     execute: async ({ summary, not_checked, dismissed }, api, context) => {
       let refused: string | null = null;
       let findings: Finding[] = [];
+      let risk: RiskTier | undefined;
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
         const refusals = state.docsRefusals ?? 0;
@@ -518,11 +523,12 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
           dismissed: dismissed ?? [],
         };
         findings = state.findings;
+        risk = state.risk?.tier;
       }, context);
       if (refused) return { ...text(refused), isError: true };
       const { t, tok } = await target(api, context);
       if (t.mode !== "manual")
-        await publish(t, tok, findings).catch((e) =>
+        await publish(t, tok, findings, risk).catch((e) =>
           console.error(`review publication for ${t.headSha} failed`, e),
         );
       return { ...text("review finished"), control: { terminate: true } };
@@ -564,6 +570,15 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
           const state = await tx.doc(ReviewDoc, id);
           state.scan = result;
           state.files = capturedFiles(files);
+          state.risk = assessRisk(
+            files.map((f) => ({
+              path: f.filename,
+              status: f.status,
+              additions: f.additions,
+              deletions: f.deletions,
+              patch: f.patch ?? null,
+            })),
+          );
           return {
             status: "terminal",
             outcome: { status: "completed", result: null },
@@ -604,6 +619,12 @@ export function reviewerExtension({ token, scan, publish }: ReviewerDeps) {
             ?.scan ?? null,
         ),
       ),
+      section("risk_signals", async (input, context) =>
+        renderRisk(
+          (await input.read.snapshot(ReviewDoc, input.conversationId, context))
+            ?.risk,
+        ),
+      ),
     ],
   });
   return { extension, scanTask };
@@ -621,9 +642,10 @@ Your knowledge of libraries, frameworks, compilers and platforms may be out of d
 3. Apply the review rubric above to the pull request's changes. Never call an API wrong, missing, deprecated or unsafe, and never predict a compiler or runtime outcome, from memory alone: look it up first.
 4. Record every finding with report_finding as soon as you are sure of it: the file, the line at the PR head when one applies, a severity, a class, a confidence, a one-line title and a body that says what is wrong, why it matters and the better structure. When the finding rests on documented behaviour, end the body with a line "Docs: <url>" for each page you relied on.
 5. Deterministic scanners (zizmor for GitHub Actions workflows, ty for Python, oxlint for JavaScript and TypeScript) already ran on the changed files; their output is in scanner_results below. Triage every diagnostic: read the code it points at, then either confirm it with report_finding (source set to the tool, severity by real impact, not the tool's label, confidence verified once you have read the code) or dismiss it in finish_review's dismissed list with a concrete reason. Several diagnostics with one root cause become one finding.
-6. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. It is offered to the owner, never applied by you.
-7. Describe the pull request for the owner with describe_change, once per logical change (a fix, its tests, a docs update and an unrelated dependency bump are four changes). Every changed file belongs to a change. Write each part as one plain sentence from what you read, not from the PR description alone: situation is what was wrong or missing before; task is what the change sets out to do; action is what the code now does differently; result is the observable effect and the evidence for it (a test, a line, a doc), or says it is unverified. Never write that the change is correct, safe or approved. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator".
-8. Finish with finish_review exactly once. Give a short summary for the human owner, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, documentation you could not find, missing context), with the reason.
+6. risk_signals below holds deterministic checks that ran on the patches: a risk tier with the rules that set it, and every test file that lost tests or assertions, gained a skip marker or was deleted. You cannot change the tier. For each weakened test file, read its patch and the production code it covered, then either report a testing finding (severity by what the weakened test no longer protects, confidence verified once you have read both) or, when the requirement genuinely makes the old test wrong, say so with the reason in your summary. Never treat a weakened test as evidence that the change works.
+7. When the fix for a finding is small and you are certain of it, put it in suggested_patch as a unified diff against the PR head. It is offered to the owner, never applied by you.
+8. Describe the pull request for the owner with describe_change, once per logical change (a fix, its tests, a docs update and an unrelated dependency bump are four changes). Every changed file belongs to a change. Write each part as one plain sentence from what you read, not from the PR description alone: situation is what was wrong or missing before; task is what the change sets out to do; action is what the code now does differently; result is the observable effect and the evidence for it (a test, a line, a doc), or says it is unverified. Never write that the change is correct, safe or approved. Tags are one to three short lowercase labels for the kind of change and the area it touches, such as "bug fix", "tests", "docs", "dependency", "source generator".
+9. Finish with finish_review exactly once. Give a short summary for the human owner, your dismissed scanner diagnostics, and in not_checked everything you did not read or could not judge (files skipped, behaviour you could not run, documentation you could not find, missing context), with the reason.
 
 Severity. Rate the impact if the finding is real, not how sure you are.
 - critical: exploitable vulnerability, data loss or corruption, or an outage on a normal path. Must not merge.

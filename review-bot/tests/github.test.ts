@@ -1,10 +1,11 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { dismissStaleApprovals, publishReview } from "../src/github";
+import { dismissBotApprovals, publishReview } from "../src/github";
 import type { Severity } from "../src/findings";
 
 const pr = { owner: "team", repo: "demo", number: 1, headSha: "a".repeat(40) };
 const report = `https://review.example/r/team/demo/1?sha=${pr.headSha}`;
 const marker = "<!-- earned-trust-review-approval -->";
+const footer = `[Full report](${report}) · A named human owns the merge; this review is advice, never an approval.`;
 type Review = { id: number; state: string; commit_id: string; body: string };
 
 function github(head = pr.headSha, reviews: Review[] = []) {
@@ -38,7 +39,7 @@ afterEach(() => {
 });
 
 for (const { severities, summary, event } of [
-  { severities: [], summary: "0 findings", event: "APPROVE" },
+  { severities: [], summary: "0 findings", event: "COMMENT" },
   { severities: ["low"], summary: "1 finding · 1 low", event: "COMMENT" },
   {
     severities: ["low", "medium"],
@@ -65,12 +66,28 @@ for (const { severities, summary, event } of [
         body: {
           commit_id: pr.headSha,
           event,
-          body: `${marker}\n${summary}\n\n[Full report](${report})`,
+          body: `${marker}\n${summary}\n\n${footer}`,
         },
       },
     ]);
   });
 }
+
+test("never approves, even a clean review", async () => {
+  const writes = github();
+  await publishReview("token", pr, [], report, "low");
+  expect(writes.map((w) => (w.body as { event: string }).event)).toEqual([
+    "COMMENT",
+  ]);
+});
+
+test("states the risk tier and its review depth", async () => {
+  const writes = github();
+  await publishReview("token", pr, [{ severity: "low" }], report, "high");
+  expect((writes[0].body as { body: string }).body).toContain(
+    "Risk tier: **high**. Read the flagged files in full",
+  );
+});
 
 test("skips a stale head", async () => {
   const writes = github("b".repeat(40));
@@ -81,7 +98,7 @@ test("skips a stale head", async () => {
 for (const findings of [[], [{ severity: "medium" }]] satisfies {
   severity: Severity;
 }[][]) {
-  test(`retry skips an existing ${findings.length ? "comment review" : "approval"}`, async () => {
+  test(`retry skips an existing review with ${findings.length} findings`, async () => {
     const writes = github();
     await publishReview("token", pr, findings, report);
     await publishReview("token", pr, findings, report);
@@ -111,15 +128,16 @@ test("keeps legacy marked approval deduplication", async () => {
   expect(writes).toEqual([]);
 });
 
-test("dismisses only stale bot approvals", async () => {
+test("dismisses every bot approval, including the head's, and no human's", async () => {
   const writes = github(pr.headSha, [
     { id: 1, state: "APPROVED", commit_id: "old", body: marker },
     { id: 2, state: "COMMENTED", commit_id: "old", body: marker },
     { id: 3, state: "APPROVED", commit_id: pr.headSha, body: marker },
     { id: 4, state: "APPROVED", commit_id: "old", body: "Human approval" },
   ]);
-  await dismissStaleApprovals("token", pr);
+  await dismissBotApprovals("token", pr);
   expect(writes.map((write) => write.path)).toEqual([
     "/repos/team/demo/pulls/1/reviews/1/dismissals",
+    "/repos/team/demo/pulls/1/reviews/3/dismissals",
   ]);
 });

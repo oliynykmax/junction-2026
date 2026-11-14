@@ -20,4 +20,4 @@ Read [`challenge/earned-trust-in-ai-code.md`](challenge/earned-trust-in-ai-code.
 - Use synthetic or cleared sample data only.
 - Sample changes live in a separate repo (`te-industry-tech-office/junction26-messagepack-csharp`). Work on our own copy of it, never upstream.
 - Record notable design decisions and failure modes as you go. The challenge requires a decision log.
-- Before merging a PR, get approval from our review bot (`bumble-bot-review`). Its comment on the PR links to the review page for the head commit. Fix or dismiss with a reason each finding there, push, and merge only once the page for the new head says no blockers found. This is a team rule, not a branch protection, so a human can still override it with a stated reason.
+- Before merging a PR, get a review from our review bot (`bumble-bot-review`). The bot never approves; a named human does. Its comment on the PR links to the review page for the head commit. Fix or dismiss with a reason each finding there, push, and merge only once the page for the new head says no blockers found. This is a team rule, not a branch protection, so a human can still override it with a stated reason.

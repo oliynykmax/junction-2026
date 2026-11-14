@@ -82,6 +82,13 @@ compiler. Cost: about $0.23.
   names and the final call. The owner must expand to see what a scenario
   sets up. If this repeats, the protocol step should say to keep the
   distinctive part of test inputs, as meat's rubric does for Python.
+- **Rerun after the header fix**: retries fell from 5 to 1 of 8 files
+  (about $0.19). The remaining refusal was an elision whose `old` text
+  occurred twice on its line, which is correctly ambiguous.
+- **Run-to-run variance is real.** The same file went from 16/50 kept
+  changed lines to 36/50: the second run folded the repeated edit instead of
+  hiding it. Both are valid reading views; the owner should not treat the
+  kept count as a stable measure of a change.
 - Not covered by the trial: findings. No file had any, so the rule that
   cited lines stay visible was tested only by unit tests.
 

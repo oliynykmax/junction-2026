@@ -9,7 +9,10 @@ test("executor uses a private bearer token and forwards the exact pinned checkou
   const requests = [];
   spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
     requests.push({ url: String(url), init });
-    return Response.json({ workspace: "/tmp/runner/repo", commit: "a".repeat(40) });
+    return Response.json({
+      workspace: "/tmp/runner/repo",
+      commit: "a".repeat(40),
+    });
   });
   const client = executor({
     EXECUTOR_URL: "http://127.0.0.1:8787/",

@@ -171,7 +171,9 @@ test("read_file base uses pinned repository and commit without looking up curren
 
 test("checkout_pr and shell expose the pinned writable workspace without returning its token", async () => {
   const { reviewer, api, checkouts, shells } = review();
-  const checkout = reviewer.extension.tools.find((t) => t.name === "checkout_pr");
+  const checkout = reviewer.extension.tools.find(
+    (t) => t.name === "checkout_pr",
+  );
   const shell = reviewer.extension.tools.find((t) => t.name === "shell");
   const checkedOut = await checkout.execute({}, api, {});
   expect(checkouts).toEqual([
@@ -185,7 +187,9 @@ test("checkout_pr and shell expose the pinned writable workspace without returni
     },
   ]);
   expect(checkedOut.output[0].text).toContain("/tmp/review/repo");
-  expect(checkedOut.output[0].text).toContain(`Fetched base ${target.base.sha}`);
+  expect(checkedOut.output[0].text).toContain(
+    `Fetched base ${target.base.sha}`,
+  );
   expect(checkedOut.output[0].text).not.toContain("token");
   const ran = await shell.execute(
     { command: "go test ./...", cwd: "pkg", timeout_ms: 1234 },

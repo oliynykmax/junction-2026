@@ -1,6 +1,7 @@
 // The review page: a PR header, the AI's advice, the checks, and either a
 // waiting state while the agent works or its findings once it returns.
-// ?demo=1 renders the same layout from mock data.
+// ?demo=1 renders the same layout from mock data; ?demo=1&state=verified
+// renders a finished review with the verifier's checks, receipts and verdicts.
 
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -22,6 +23,7 @@ import {
 } from "./shared";
 import { FormalDemo, VerificationReceipts } from "./formal";
 import { ProofLoader } from "./proof-loader";
+import { VERIFIED_DEMO } from "./demo";
 
 export type PageConfig = {
   api: string;
@@ -39,6 +41,22 @@ export function App(config: PageConfig) {
   const formalDemo = params.get("formal-demo");
   if (formalDemo) return <FormalDemo scenario={formalDemo} />;
   if (params.get("demo") !== "1") return <LivePage {...config} />;
+  if (params.get("state") === "verified")
+    return (
+      <>
+        <PrHeader identity={DEMO_IDENTITY} href={config.prUrl} />
+        <main class="page pr-body">
+          <ReviewBody
+            view={VERIFIED_DEMO}
+            live={null}
+            lineUrl={() => config.prUrl}
+            signOffApi={null}
+            signed={null}
+            onSigned={() => {}}
+          />
+        </main>
+      </>
+    );
   const requestedCheck = params.get("check");
   if (requestedCheck !== null)
     return (
@@ -232,53 +250,75 @@ function LivePage({
         {!view ? (
           !error && <p class="muted">Loading the review…</p>
         ) : (
-          <>
-            <Advice view={view} />
-            <VerificationReceipts
-              receipts={view.review.verifications?.filter(
-                (receipt) =>
-                  !view.review.findings.some(
-                    (finding) =>
-                      finding.evidence?.verificationId === receipt.id,
-                  ),
-              )}
-              running={LIVE.has(view.status)}
-            />
-            <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />
-            {view.failure && (
-              <p class="pr-alert" role="alert">
-                {view.failure}
-              </p>
-            )}
-            <Findings
-              findings={view.review.findings}
-              heading="Findings"
-              empty={
-                LIVE.has(view.status)
-                  ? null
-                  : view.status === "done"
-                    ? "The AI reported no findings."
-                    : "No findings were recorded before the review stopped."
-              }
-              lineUrl={lineUrl}
-            />
-            {LIVE.has(view.status) ? (
-              <AgentWait />
-            ) : (
-              <>
-                <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
-                <NotChecked view={view} />
-                <SignOffSection
-                  view={view}
-                  api={signOffApi}
-                  signed={signed}
-                  onSigned={setJustSigned}
-                />
-              </>
-            )}
-          </>
+          <ReviewBody
+            view={view}
+            live={live}
+            lineUrl={lineUrl}
+            signOffApi={signOffApi}
+            signed={signed}
+            onSigned={setJustSigned}
+          />
         )}
       </main>
+    </>
+  );
+}
+
+function ReviewBody({
+  view,
+  live,
+  lineUrl,
+  signOffApi,
+  signed,
+  onSigned,
+}: {
+  view: ReviewView;
+  live: PrLive | null;
+  lineUrl: LineUrl;
+  signOffApi: string | null;
+  signed: SignOff | null;
+  onSigned: (s: SignOff) => void;
+}) {
+  return (
+    <>
+      <Advice view={view} />
+      <VerificationReceipts
+        receipts={view.review.verifications}
+        verifier={view.review.verifier}
+        running={LIVE.has(view.status)}
+      />
+      <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />
+      {view.failure && (
+        <p class="pr-alert" role="alert">
+          {view.failure}
+        </p>
+      )}
+      <Findings
+        findings={view.review.findings}
+        heading="Findings"
+        empty={
+          LIVE.has(view.status)
+            ? null
+            : view.status === "done"
+              ? "The AI reported no findings."
+              : "No findings were recorded before the review stopped."
+        }
+        lineUrl={lineUrl}
+      />
+      {LIVE.has(view.status) ? (
+        <AgentWait />
+      ) : (
+        <>
+          <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
+          <NotChecked view={view} />
+          <SignOffSection
+            view={view}
+            api={signOffApi}
+            signed={signed}
+            onSigned={onSigned}
+          />
+        </>
+      )}
     </>
   );
 }

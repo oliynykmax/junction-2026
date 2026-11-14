@@ -3,7 +3,7 @@ import provision from "../../.agents/skills/verify-pr-change/scripts/provision-v
 
 export const VERIFICATION_SKILL = instructions;
 
-function quote(value: string) {
+export function shellQuote(value: string) {
   return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 
@@ -12,9 +12,9 @@ export function installVerificationSkill(workspace: string) {
   return {
     directory,
     command: [
-      `mkdir -p ${quote(`${directory}/scripts`)}`,
-      `printf '%s' ${quote(instructions)} > ${quote(`${directory}/SKILL.md`)}`,
-      `printf '%s' ${quote(provision)} > ${quote(`${directory}/scripts/provision-verifiers.sh`)}`,
+      `mkdir -p ${shellQuote(`${directory}/scripts`)}`,
+      `printf '%s' ${shellQuote(instructions)} > ${shellQuote(`${directory}/SKILL.md`)}`,
+      `printf '%s' ${shellQuote(provision)} > ${shellQuote(`${directory}/scripts/provision-verifiers.sh`)}`,
     ].join(" && "),
   };
 }

@@ -1830,16 +1830,17 @@ pre {
 .verification,
 .verification-receipt {
   --verification-ink: #17213b;
-  --verification-muted: #53617d;
+  --verification-muted: #3e4a63;
   --verification-rule: #c8d0df;
   --verification-surface: #f5f7fb;
   --verification-panel: #ffffff;
-  --verification-check: #0d7566;
-  --verification-warn: #9e5c10;
-  --verification-danger: #b23b49;
+  --verification-check: #075247;
+  --verification-warn: #7a4508;
+  --verification-danger: #8f2433;
 }
 
 .verification {
+  container-type: inline-size;
   margin: 0 0 48px;
   padding: clamp(18px, 3vw, 36px);
   color: var(--verification-ink);
@@ -2110,17 +2111,116 @@ pre {
   overflow-wrap: anywhere;
 }
 
-.inline-verification {
-  grid-template-columns: minmax(0, 1fr);
-  margin-top: 16px;
-  color: var(--verification-ink);
-}
-
-.inline-verification > .verification-limits {
-  grid-column: 1 / -1;
-}
-
 .verification-receipt > .verification-disclosure {
   grid-column: 1 / -1;
   margin: 0;
+}
+
+.verification-list > li {
+  scroll-margin-top: 24px;
+}
+
+.verification-list > li:target .verification-receipt {
+  outline: 3px solid var(--verification-ink);
+  outline-offset: 2px;
+}
+
+.verifier-status {
+  max-width: 75ch;
+  margin-bottom: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.blind-checks {
+  margin-bottom: 18px;
+  padding: 16px 20px;
+  background: var(--verification-panel);
+  border: 1px solid var(--verification-rule);
+  border-left: 5px solid var(--verification-ink);
+  border-radius: 12px;
+}
+
+.blind-checks h3 {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--verification-ink);
+}
+
+.blind-checks-note {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--verification-muted);
+}
+
+.blind-checks ol {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-left: 20px;
+}
+
+.blind-checks li p {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.blind-checks summary {
+  margin-top: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.blind-checks pre {
+  margin-top: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font: 12px/1.45 var(--mono);
+  background: var(--verification-surface);
+  border-radius: 6px;
+}
+
+.verdict {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1.5px solid var(--ink);
+}
+
+a.verdict:hover {
+  text-decoration: underline;
+}
+
+.verdict-reproduced {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent-ink);
+}
+
+.verdict-not_checked {
+  border-style: dashed;
+}
+
+@container (max-width: 760px) {
+  .verification-receipt {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+  .verification-state,
+  .verification-limits {
+    grid-column: 1 / -1;
+  }
+  .verification-proof {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (max-width: 480px) {
+  .verification-receipt {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

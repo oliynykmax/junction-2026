@@ -2,62 +2,34 @@
    greys, and red only where something needs the owner's attention. */
 
 :root {
-  --bg: #ffffff;
-  --ink: #111111;
-  --ink-2: #5c5c5c;
-  --rule: #e2e2e2;
-  --rule-strong: #111111;
-  --tag: #efefef;
-  --tag-ink: #2b2b2b;
-  --code-bg: #f6f6f6;
-  --add: #e8f0e6;
-  --del: #f2f2f2;
-  --mark: #8a8a8a;
-  --red: #c4261b;
-  --red-bg: #fdeceb;
+  /* Each colour is one light-dark() pair. Dark follows the OS unless the
+     landing page's switch pinned a scheme (data-color-scheme, set before
+     paint by the script in src/theme.ts). */
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #131313);
+  --ink: light-dark(#111111, #ececec);
+  --ink-2: light-dark(#5c5c5c, #a4a4a4);
+  --rule: light-dark(#e2e2e2, #2d2d2d);
+  --rule-strong: light-dark(#111111, #ececec);
+  --tag: light-dark(#efefef, #262626);
+  --tag-ink: light-dark(#2b2b2b, #dcdcdc);
+  --code-bg: light-dark(#f6f6f6, #1c1c1c);
+  --add: light-dark(#e8f0e6, #1d2a1b);
+  --del: light-dark(#f2f2f2, #1f1f1f);
+  --mark: light-dark(#8a8a8a, #777777);
+  --red: light-dark(#c4261b, #ff7468);
+  --red-bg: light-dark(#fdeceb, #3a1714);
   --sans: "Hanken Grotesk", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --gutter: clamp(16px, 3.4vw, 48px);
   --gap: 24px;
+}
+
+:root[data-color-scheme="light"] {
   color-scheme: light;
 }
 
-/* Dark follows the OS unless the landing page's switch pinned light or dark
-   (data-color-scheme, set before paint by the inline script in src/page.ts).
-   The two blocks carry the same values. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-color-scheme="light"]) {
-    --bg: #131313;
-    --ink: #ececec;
-    --ink-2: #a4a4a4;
-    --rule: #2d2d2d;
-    --rule-strong: #ececec;
-    --tag: #262626;
-    --tag-ink: #dcdcdc;
-    --code-bg: #1c1c1c;
-    --add: #1d2a1b;
-    --del: #1f1f1f;
-    --mark: #777777;
-    --red: #ff7468;
-    --red-bg: #3a1714;
-    color-scheme: dark;
-  }
-}
-
 :root[data-color-scheme="dark"] {
-  --bg: #131313;
-  --ink: #ececec;
-  --ink-2: #a4a4a4;
-  --rule: #2d2d2d;
-  --rule-strong: #ececec;
-  --tag: #262626;
-  --tag-ink: #dcdcdc;
-  --code-bg: #1c1c1c;
-  --add: #1d2a1b;
-  --del: #1f1f1f;
-  --mark: #777777;
-  --red: #ff7468;
-  --red-bg: #3a1714;
   color-scheme: dark;
 }
 

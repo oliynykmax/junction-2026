@@ -13,7 +13,8 @@ import {
 } from "./github";
 import { manualView, startManual } from "./manual";
 import { reviewPage } from "./page";
-import { type Env, reviewKey, reviewLink } from "./review";
+import { type Env, reviewLink } from "./review";
+import { reviewKey } from "./review-key";
 import type { Target } from "./reviewer";
 
 export { ManualGate } from "./manual-gate";

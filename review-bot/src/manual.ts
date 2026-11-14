@@ -1,3 +1,4 @@
+import { reviewKey } from "./review-key";
 import { gh } from "./github";
 import type { Env, ReviewView } from "./review";
 import type { Target } from "./reviewer";
@@ -29,33 +30,10 @@ export function parsePrUrl(value: unknown) {
   };
 }
 
-export async function requirePublic(owner: string, repo: string) {
-  try {
-    const data: unknown = await (
-      await gh("", `/repos/${owner}/${repo}`)
-    ).json();
-    if (
-      typeof data !== "object" ||
-      data === null ||
-      !("private" in data) ||
-      data.private !== false ||
-      !("visibility" in data) ||
-      data.visibility !== "public"
-    )
-      throw new Error("not public");
-  } catch {
-    throw new ManualError(
-      "This repository is not publicly accessible, or GitHub's public API limit has been reached. Try again later.",
-      422,
-    );
-  }
-}
-
 export async function resolveManual(
   value: unknown,
 ): Promise<Target & { mode: "manual" }> {
   const pr = parsePrUrl(value);
-  await requirePublic(pr.owner, pr.repo);
   try {
     const data: unknown = await (
       await gh("", `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`)
@@ -71,6 +49,22 @@ export async function resolveManual(
     )
       throw new Error("invalid PR");
     const { head, base } = data;
+    if (
+      typeof base !== "object" ||
+      base === null ||
+      !("repo" in base) ||
+      typeof base.repo !== "object" ||
+      base.repo === null ||
+      !("private" in base.repo) ||
+      base.repo.private !== false ||
+      !("visibility" in base.repo) ||
+      base.repo.visibility !== "public"
+    )
+      throw new ManualError(
+        "This pull request is not publicly accessible.",
+        422,
+      );
+
     if (
       typeof head !== "object" ||
       head === null ||
@@ -103,12 +97,6 @@ export async function resolveManual(
       422,
     );
   }
-}
-
-export function manualKey(
-  t: Pick<Target, "owner" | "repo" | "number" | "headSha">,
-) {
-  return `manual:${t.owner}/${t.repo}#${t.number}@${t.headSha}`;
 }
 
 export async function startManual(
@@ -155,7 +143,7 @@ export async function startManual(
         429,
       );
     const target = await resolveManual(data.url);
-    const key = manualKey(target);
+    const key = reviewKey(target);
     const review = env.REVIEWS.getByName(key);
     if (!(await review.hasStarted()) && !(await gate.admit(client, key)))
       throw new ManualError(
@@ -192,7 +180,7 @@ export async function manualView(
   target: Pick<Target, "owner" | "repo" | "number" | "headSha">,
 ): Promise<Response> {
   const view: ReviewView = await env.REVIEWS.getByName(
-    manualKey(target),
+    reviewKey({ ...target, mode: "manual" }),
   ).view();
   if (view.review.target?.mode !== "manual")
     return Response.json(

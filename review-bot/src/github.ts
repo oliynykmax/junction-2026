@@ -134,3 +134,27 @@ export async function validSignature(
   const sig = Uint8Array.from(hex.match(/../g)!, (h) => parseInt(h, 16));
   return crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(body));
 }
+
+export type PrFile = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+};
+
+export async function prFiles(
+  token: string,
+  pr: { owner: string; repo: string; number: number },
+): Promise<PrFile[]> {
+  const files: PrFile[] = [];
+  for (let page = 1; page <= 30; page++) {
+    const batch = await ghJson<PrFile[]>(
+      token,
+      `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/files?per_page=100&page=${page}`,
+    );
+    files.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return files;
+}

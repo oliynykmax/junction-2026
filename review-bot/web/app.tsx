@@ -95,15 +95,16 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
     <>
       <header class="bar">
         <div class="grid bar-inner">
-          <span class="brand">
+          <a class="brand" href="/" aria-label="Bumble Bot home">
+            {/* Same versioned URL as the landing page, so a cached old logo is never shown. */}
             <img
               src="/favicon.svg?v=bumble-bot"
               alt=""
-              width="24"
-              height="24"
+              width="32"
+              height="32"
             />
             Bumble Bot
-          </span>
+          </a>
           {storied && files.length > 0 && (
             <nav class="tabs" aria-label="Review views">
               <button

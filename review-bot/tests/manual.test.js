@@ -278,7 +278,14 @@ for (const manual of [true, false])
       commit: settlingCommit(state),
     };
     const result = await finish.execute(
-      { summary: "Checked", not_checked: [] },
+      {
+        situation: "s",
+        task: "t",
+        action: "a",
+        result: "r",
+        summary: "Checked",
+        not_checked: [],
+      },
       api,
       {},
     );

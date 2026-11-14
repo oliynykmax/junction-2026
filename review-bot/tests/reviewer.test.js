@@ -60,6 +60,12 @@ function review() {
   return { state, runtime, api, reviewer, publications, submissions };
 }
 
+const STAR = {
+  situation: "The demo service had no retry on transient errors.",
+  task: "Retry transient failures once.",
+  action: "Wraps the client call in a single retry.",
+  result: "Callers see fewer transient failures; the PR adds no tests.",
+};
 test("scan replay reuses persisted evidence; prompt, coverage and publication consume it", async () => {
   let ciReads = 0;
   spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -102,7 +108,7 @@ test("scan replay reuses persisted evidence; prompt, coverage and publication co
     (t) => t.name === "finish_review",
   );
   await finish.execute(
-    { summary: "No code findings", not_checked: [] },
+    { ...STAR, summary: "No code findings", not_checked: [] },
     api,
     {},
   );
@@ -135,7 +141,11 @@ test("older review without evidence gains explicit coverage gap and publishes no
   const finish = reviewer.extension.tools.find(
     (t) => t.name === "finish_review",
   );
-  await finish.execute({ summary: "Legacy review", not_checked: [] }, api, {});
+  await finish.execute(
+    { ...STAR, summary: "Legacy review", not_checked: [] },
+    api,
+    {},
+  );
   expect(state.verdict.notChecked.join(" ")).toContain(
     "No CI or team standard evidence",
   );
@@ -225,7 +235,7 @@ test("manual evidence uses anonymous reads and never publishes to GitHub", async
     (t) => t.name === "finish_review",
   );
   await finish.execute(
-    { summary: "Read-only report", not_checked: [] },
+    { ...STAR, summary: "Read-only report", not_checked: [] },
     api,
     {},
   );

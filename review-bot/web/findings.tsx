@@ -1,6 +1,7 @@
 // Findings: the full row used where findings stand on their own, the compact
 // note used inside a change, and the finding body and suggested-fix renderers.
 
+import { Fragment } from "preact";
 import { useMemo, useState } from "preact/hooks";
 import { heldBack } from "../src/findings";
 import {
@@ -193,24 +194,23 @@ export function FindingNote({
     <li
       class={`note-finding${attention ? " attention" : ""}${focused ? " focused" : ""}`}
     >
-      <div class="note-head">
-        <Severity f={f} />
-        <p class="note-title">{f.title}</p>
-      </div>
+      <p class="note-title">{f.title}</p>
       <div class="note-meta">
-        <Tags f={f} />
+        <NoteFacts f={f} />
         {onLocate ? (
           <button
             type="button"
             class="loc loc-button"
             aria-pressed={focused}
-            title="Show this line in the diff"
+            title={`${location(f)}: show this line in the diff`}
             onClick={onLocate}
           >
-            {location(f)}
+            {shortLocation(f)}
           </button>
         ) : (
-          <span class="loc">{location(f)}</span>
+          <span class="loc" title={location(f)}>
+            {shortLocation(f)}
+          </span>
         )}
         <button
           type="button"
@@ -228,6 +228,51 @@ export function FindingNote({
         </div>
       )}
     </li>
+  );
+}
+
+// The file name and line, with the full path left to the tooltip.
+const shortLocation = (f: Finding) =>
+  location({ path: f.path.split("/").pop() ?? f.path, line: f.line });
+
+/** Severity, confidence, class and blocking state as one line of plain text. */
+function NoteFacts({ f }: { f: Finding }) {
+  const blocking = isBlocking(f);
+  const facts = [
+    <span
+      class={`note-sev${blocking ? " alert" : QUIET.has(f.severity) ? "" : " notable"}`}
+      title={SEVERITY_MEANING[f.severity]}
+    >
+      {f.severity}
+    </span>,
+    f.confidence && (
+      <span title={CONFIDENCE_MEANING[f.confidence]}>{f.confidence}</span>
+    ),
+    f.class && (
+      <span title="The kind of problem.">{f.class.replace("-", " ")}</span>
+    ),
+    f.source && f.source !== "agent" && (
+      <span title="A scanner flagged this; the AI confirmed it.">
+        from {f.source}
+      </span>
+    ),
+    blocking ? (
+      <span class="alert" title={BLOCKING_RULE}>
+        blocks
+      </span>
+    ) : (
+      heldBack(f) && <span title={BLOCKING_RULE}>not confirmed, check it</span>
+    ),
+  ].filter(Boolean);
+  return (
+    <span class="note-facts">
+      {facts.map((fact, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          {fact}
+        </Fragment>
+      ))}
+    </span>
   );
 }
 

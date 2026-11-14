@@ -10,6 +10,7 @@ const BASE_URL = "https://inference.verda.com/v1";
 
 export function verdaProvider() {
   const kimi = MOONSHOTAI_MODELS["kimi-k3.1-pro"];
+  if (!kimi) throw new Error("pi-ai no longer lists moonshotai/kimi-k3.1-pro");
   return createProvider({
     id: "verda",
     name: "Verda",

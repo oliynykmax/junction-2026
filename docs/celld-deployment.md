@@ -12,7 +12,7 @@ Create a private object-storage bucket and a dedicated access key. The tested en
 
 Create `/etc/bumble/runtime.env` from `deploy/runtime.env.example`. Give it mode `600`. The single-node configuration binds both CellD listeners to loopback. Caddy is the only public app listener.
 
-The review runtime runs a credential-bearing executor manager, published only on host loopback. Only this trusted manager mounts the Podman API socket. It fetches Git data privately and copies a credential-free checkout into a separate disposable container per review. Workers use separate bridge networks with `isolate=true` and their own PID, network, IPC and filesystem namespaces, root and outbound network access, and no host mounts or manager socket. CellD stays read-only.
+The review runtime runs a credential-bearing executor manager, published only on host loopback. Only this trusted manager mounts the Podman API socket. It fetches Git data privately and copies a credential-free checkout into a separate disposable container per review. Workers use separate bridge networks with `isolate=strict` and their own PID, network, IPC and filesystem namespaces, root and outbound network access, and no host mounts or manager socket. CellD stays read-only.
 
 The deployment builds both worker and manager targets from `executor/Containerfile` and enables the rootful `podman.socket`. Node 22, Git and the remote Podman client are provisioned in the manager image. The manager controls the host engine and must be treated as trusted host administration code.
 

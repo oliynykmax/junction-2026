@@ -5,6 +5,8 @@ import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 
 const scope = `test${process.pid}`;
+const peerNetwork = `${scope}-peer-network`;
+const peerContainer = `${scope}-peer-service`;
 const port = 19000 + (process.pid % 1000);
 const token =
   process.env.GITHUB_TOKEN ??
@@ -125,6 +127,38 @@ try {
     "sleep",
     "infinity",
   );
+  podman("network", "create", "--opt", "isolate=false", peerNetwork);
+  podman(
+    "run",
+    "-d",
+    "--name",
+    peerContainer,
+    "--network",
+    peerNetwork,
+    "localhost/bumble-worker:latest",
+    "node",
+    "-e",
+    'require("http").createServer((q,r)=>r.end("PEER CONTROL")).listen(18082,"0.0.0.0")',
+  );
+  const peer = JSON.parse(podman("inspect", peerContainer))[0];
+  const peerIp = peer.NetworkSettings.Networks[peerNetwork].IPAddress;
+  assert.equal(
+    podman(
+      "run",
+      "--rm",
+      "--network",
+      peerNetwork,
+      "localhost/bumble-worker:latest",
+      "curl",
+      "--noproxy",
+      "*",
+      "--max-time",
+      "3",
+      "-fsS",
+      `http://${peerIp}:18082`,
+    ),
+    "PEER CONTROL",
+  );
   start();
   await ready();
   const first = await checkout("first");
@@ -134,6 +168,15 @@ try {
     `test "$(id -u)" = 0 && test -w . && test -z "$(git status --porcelain)" && test "$(git rev-parse HEAD)" = ${input.sha} && git diff ${input.baseSha}...HEAD --stat && git log ${input.baseSha}..HEAD --oneline && echo PRIVATE_FIRST > /foreign-secret && apt-get update -qq && apt-get install -y -qq jq && curl -fsSL https://example.com >/dev/null`,
   );
   assert.equal(result.exitCode, 0, result.stderr);
+  const peerProbe = await shell(
+    "first",
+    `! curl --noproxy '*' --connect-timeout 1 --max-time 2 -fsS http://${peerIp}:18082`,
+  );
+  assert.equal(
+    peerProbe.exitCode,
+    0,
+    "worker reached a non-isolated bridge service",
+  );
   console.log(
     "PASS root, writable clean checkout, pinned head/base/history, apt install, outbound HTTPS",
   );
@@ -154,11 +197,11 @@ try {
       networkName,
     ]);
     const network = JSON.parse(podman("network", "inspect", networkName))[0];
-    assert.equal(network.options.isolate, "true");
+    assert.equal(network.options.isolate, "strict");
     assert.equal(container.Mounts.length, 0);
   }
   console.log(
-    "PASS cross-review source/credential/socket isolation, host-loopback denial, actual resource config",
+    "PASS cross-review source/credential/socket isolation, host-loopback and non-isolated-bridge denial, actual resource config",
   );
   await call("checkout", { ...input, session: "capacity" }, undefined, 400);
   const busy = shell("second", "sleep 1");
@@ -183,6 +226,8 @@ try {
   console.log(
     "PASS capacity bound and explicit same-session checkout/shell race rejection",
   );
+  // The 3 s idle limit can reap "first" during slower steps; a re-checkout must wait for it.
+  await checkout("first");
   const started = Date.now();
   result = await shell("first", "setsid bash -c 'sleep 300 & wait' & wait", {
     timeoutMs: 250,
@@ -249,6 +294,9 @@ try {
   }
   host.close();
   podman("rm", "-f", "--ignore", `${scope}-unrelated`);
+  podman("rm", "-f", "--ignore", peerContainer);
+  if (podman("network", "ls", "-q", "--filter", `name=^${peerNetwork}$`))
+    podman("network", "rm", peerNetwork);
   const ids = podman("ps", "-aq", "--filter", label);
   if (ids) podman("rm", "-f", ...ids.split(/\s+/));
 }

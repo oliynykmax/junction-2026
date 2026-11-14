@@ -1,0 +1,40 @@
+{
+  "runtime": "celld 0.6.2",
+  "provider": "Verda CPU.4V.16G, FIN-01",
+  "storage": "Verda S3, eu-north-3",
+  "checks": {
+    "bunTests": 120,
+    "typecheck": "pass",
+    "lint": "pass",
+    "cloudflareBundle": "pass",
+    "celldBundle": "pass",
+    "originHttpWithoutToken": 403,
+    "originListeners": "127.0.0.1:8080 and 127.0.0.1:8081",
+    "gatewaySignedWebhookPing": "200 pong",
+    "originAndGatewayHttpSmoke": "pass",
+    "storageConditionalRangeAndCasProbe": "pass",
+    "workflowLint": "jactionlint 2.6.0 passed; shellcheck unavailable"
+  },
+  "activeCrash": {
+    "pullRequest": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/2",
+    "beforeStatus": "running",
+    "beforeActivity": 2,
+    "afterStatus": "done",
+    "afterActivity": 25,
+    "sameStartedAt": true,
+    "verdict": "no_blockers_found",
+    "recoveries": {
+      "detected": 1,
+      "open": 0,
+      "recovered": 1,
+      "failed": 0,
+      "unverified": 0,
+      "superseded": 0
+    }
+  },
+  "limits": [
+    "single-node process restart tested; multi-node failover not tested",
+    "existing Cloudflare state is not copied",
+    "Verda object storage passes these probes but is not on CellD qualified-provider list"
+  ]
+}

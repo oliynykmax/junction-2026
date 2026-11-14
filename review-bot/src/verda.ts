@@ -32,9 +32,10 @@ export function verdaProvider() {
         id: "kimi-k3-1-pro",
         provider: "verda",
         baseUrl: BASE_URL,
-        // Moonshot lists the whole 1M context as output, so a run asks for
-        // nearly all of it and Verda rejects any input the estimate undercounts.
-        maxTokens: 65_536,
+        // pi-ai lists the whole 1M context as max output. Without the model's
+        // real limit a turn asks for nearly all of it, and Verda rejects any
+        // input that pi-ai's token estimate undercounts.
+        maxTokens: 131_072,
         // Verda's list price, USD per 1M tokens.
         cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 0 },
       },

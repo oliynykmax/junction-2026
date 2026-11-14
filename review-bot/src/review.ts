@@ -18,11 +18,13 @@ import {
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
+import { fromStored, heldBack, type Stored } from "./findings";
 import { type AppSecrets, approve, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
+  type Finding,
   recordLookup,
   ReviewDoc,
   reviewerExtension,
@@ -52,9 +54,11 @@ export type Activity =
 export type ReviewView = {
   status: "not_started" | "scanning" | "running" | "done" | "failed";
   failure: string | null;
-  review: Omit<ReviewState, "prompt"> & {
+  review: Omit<ReviewState, "prompt" | "findings"> & {
     prompt: { url: string; sha256: string } | null;
+    findings: Stored<Finding>[];
   };
+  heldBack: number;
   activity: Activity[];
   costUsd: number;
 };
@@ -240,6 +244,7 @@ export class Review extends DurableObject<Env> {
     }
 
     const { prompt, ...rest } = review;
+    const findings = review.findings.map(fromStored);
     return {
       status,
       failure:
@@ -248,8 +253,10 @@ export class Review extends DurableObject<Env> {
           : null,
       review: {
         ...rest,
+        findings,
         prompt: prompt && { url: prompt.url, sha256: prompt.sha256 },
       },
+      heldBack: findings.filter(heldBack).length,
       activity,
       costUsd: Object.values(usage.models).reduce(
         (sum, u) => sum + u.cost.total,

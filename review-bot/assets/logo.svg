@@ -1,21 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <rect width="512" height="512" fill="#14161a"/>
-  <!-- antenna -->
-  <line x1="256" y1="70" x2="256" y2="128" stroke="#ff7a1a" stroke-width="16" stroke-linecap="round"/>
-  <circle cx="256" cy="62" r="22" fill="#ff7a1a"/>
-  <!-- ears -->
-  <rect x="70" y="220" width="42" height="104" rx="14" fill="#cc5a0a"/>
-  <rect x="400" y="220" width="42" height="104" rx="14" fill="#cc5a0a"/>
-  <!-- head -->
-  <rect x="104" y="128" width="304" height="288" rx="64" fill="#ff7a1a"/>
-  <!-- visor -->
-  <rect x="146" y="188" width="220" height="110" rx="40" fill="#14161a"/>
-  <!-- eyes -->
-  <circle cx="206" cy="243" r="26" fill="#ffb066"/>
-  <circle cx="306" cy="243" r="26" fill="#ffb066"/>
-  <!-- mouth -->
-  <rect x="186" y="336" width="140" height="28" rx="14" fill="#14161a"/>
-  <rect x="222" y="336" width="10" height="28" fill="#ff7a1a"/>
-  <rect x="251" y="336" width="10" height="28" fill="#ff7a1a"/>
-  <rect x="280" y="336" width="10" height="28" fill="#ff7a1a"/>
+  <g fill="#cfe8ff" fill-opacity=".85" stroke="#8fb8de" stroke-width="6">
+    <ellipse cx="122" cy="190" rx="88" ry="52" transform="rotate(-28 122 190)"/>
+    <ellipse cx="390" cy="190" rx="88" ry="52" transform="rotate(28 390 190)"/>
+  </g>
+  <g stroke="#d99a00" stroke-width="14" stroke-linecap="round" fill="none">
+    <path d="M206 140 L176 70"/>
+    <path d="M306 140 L336 70"/>
+  </g>
+  <circle cx="172" cy="62" r="20" fill="#ffc21a"/>
+  <circle cx="340" cy="62" r="20" fill="#ffc21a"/>
+  <clipPath id="head"><rect x="112" y="132" width="288" height="304" rx="72"/></clipPath>
+  <rect x="112" y="132" width="288" height="304" rx="72" fill="#ffc21a"/>
+  <g clip-path="url(#head)" fill="#1c1d21">
+    <rect x="100" y="318" width="320" height="34"/>
+    <rect x="100" y="390" width="320" height="34"/>
+  </g>
+  <rect x="148" y="176" width="216" height="104" rx="40" fill="#1c1d21"/>
+  <circle cx="206" cy="228" r="26" fill="#ffe27a"/>
+  <circle cx="306" cy="228" r="26" fill="#ffe27a"/>
+  <circle cx="214" cy="220" r="8" fill="#fff8d6"/>
+  <circle cx="314" cy="220" r="8" fill="#fff8d6"/>
+  <rect x="186" y="292" width="140" height="22" rx="11" fill="#1c1d21"/>
+  <g fill="#ffc21a">
+    <rect x="218" y="292" width="8" height="22"/>
+    <rect x="252" y="292" width="8" height="22"/>
+    <rect x="286" y="292" width="8" height="22"/>
+  </g>
+  <path d="M256 478 L238 434 L274 434 Z" fill="#d99a00"/>
 </svg>

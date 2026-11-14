@@ -23,6 +23,29 @@ The `finish_review` call holds a summary for the human owner, the dismissed scan
 - **Model.** `MODEL_ID` (`claude-sonnet-5-5`) with `THINKING_LEVEL` `medium`, through the Anthropic API.
 - **Page.** `/r/<owner>/<repo>/<pr>?sha=<head>` (and `/m/...` for manual reviews) is a Preact + Vite client in `web/`, built into `../landing/review/` and served from the Worker's assets. It shows the status, the advisory decision and a scanner band with each scanner's diagnostics and the agent's dismissals. The **Changes** view lists each described change with its tags, line counts, STAR sentences and the findings in its files; "Show diff" opens the change's patches inline, and selecting a finding's location dims every other line. The **Full diff** view shows every file with finding lines marked. Findings outside any change, what was not checked, docs consulted, cost and the agent's tool calls follow. Reviews stored before changes existed keep a plain findings list. It polls `/api/r/<owner>/<repo>/<pr>/<sha>` every 2 s (manual reviews every 15 s) while the review runs.
 
+## Recovery logs
+
+`src/lifecycle.ts` logs one structured object per lifecycle event to the Worker console, which Workers Logs indexes by field. It never writes to storage and never logs prompts, tool arguments or secrets. Every event carries `objectId` (the Durable Object id) and `bootId` (new on each instance start), so one review can be followed across restarts.
+
+- `review.boot`: every instance start, with `interruptedTasks`. An idle cold open, such as a report read of a finished review, logs `0`.
+- `review.recovery_detected`: tasks still `running` in storage when the instance started, read with `scanTasks` before `Harness.open`. Only a process that died mid-phase leaves one. Each task has its `taskId`, `taskName`, `taskPhase` and earlier `restarts`.
+- `review.recovery_phase`: an interrupted task ran its phase again in this boot, with the phase `outcome`.
+- `review.recovery_task_ended`: an interrupted task reached `done`, `faulted` or `aborted`.
+- `review.alarm`: an alarm fired. `workActive` is the wake before the heartbeat is re-armed. A heartbeat on a healthy run logs this with no detection.
+- `review.finished`: `finish_review` committed a verdict, with the decision and finding count. A replayed tool call can log it again.
+
+A task recovery is confirmed when `recovery_detected` is followed by `recovery_task_ended` with `done` for the same `objectId` and `taskId`. To count reviews that completed after recovery, also require a later `review.finished` for that object. Count distinct `objectId` values for reviews, and `objectId` plus `bootId` for interrupted boots. Detection alone does not prove success. The scan reads one page of 50 running tasks, and `scanComplete: false` says more existed. The logs do not see a process that dies before `review.boot` is written. They also do not see work that was queued but never started, because that work loses nothing.
+
+In the Worker's Observability tab, filter `event` to `review.recovery_detected`, then filter by `objectId` to follow the task outcomes and verdict across boots. These counts start after deployment and cannot establish past recoveries.
+
+Task endings are observed through phase spans. A failure settled without a phase, such as a restart-limit failure or a cascaded abort, may have no `review.recovery_task_ended` event. A missing terminal event means the outcome is unknown, not success.
+
+`observability.enabled` keeps the default head sampling rate of 1, so every invocation is logged. [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) keeps logs 3 days on Workers Free and 7 days on Workers Paid. Free accounts get 200,000 log events per day, and oversized lines are truncated. Query older history before it expires.
+
+## Write profile
+
+`node scripts/profile-writes.mjs --repeats 5 --out profile.json` runs the `Review` object on local workerd with every outbound request answered by fixtures (`scripts/profile-writes/worker.ts`): no model, GitHub, scanner or MCP traffic. It runs a scripted five-turn review, repeat starts, warm and cold report reads and alarms after completion, and an eviction while a model request hangs. For each phase it reports SQLite cursor `rowsWritten` by table and statement, split into pi-durable records and the `review.state` document. It also reports `setAlarm` and `deleteAlarm` calls, which Cloudflare bills as row writes. It asserts the review's work and the recovery logs, and exits nonzero when a check fails. It runs on Node, because wrangler cannot forward requests to a local Worker under Bun. Results from 2026-11-14 are in `scripts/profile-writes/results/`.
+
 ## Develop
 
 ```sh

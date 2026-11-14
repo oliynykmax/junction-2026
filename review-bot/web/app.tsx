@@ -16,6 +16,7 @@ import type { Diagnostic, ScanResult, ScanState } from "../src/scanners";
 
 export type PageConfig = {
   api: string;
+  pollMs: number;
   prUrl: string;
   owner: string;
   repo: string;
@@ -44,7 +45,7 @@ const STATUS_LABEL: Record<ReviewView["status"], string> = {
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
 
-function useReview(api: string) {
+function useReview(api: string, pollMs: number) {
   const [view, setView] = useState<ReviewView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +60,7 @@ function useReview(api: string) {
         if (stopped) return;
         setView(body);
         setError(null);
-        if (LIVE.has(body.status)) timer = setTimeout(tick, 2000);
+        if (LIVE.has(body.status)) timer = setTimeout(tick, pollMs);
       } catch (e) {
         if (stopped) return;
         setError(e instanceof Error ? e.message : String(e));
@@ -71,13 +72,13 @@ function useReview(api: string) {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [api]);
+  }, [api, pollMs]);
 
   return { view, error };
 }
 
-export function App({ api, prUrl, owner, repo, number }: PageConfig) {
-  const { view, error } = useReview(api);
+export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
+  const { view, error } = useReview(api, pollMs);
   const repoUrl = prUrl.replace(/\/pull\/\d+$/, "");
   const sha = view?.review.target?.headSha ?? null;
   const lineUrl = (path: string, line: number | null) =>

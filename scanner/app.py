@@ -79,7 +79,7 @@ def checkout(req: ScanRequest, into: str) -> None:
     request = urllib.request.Request(
         f"https://api.github.com/repos/{req.owner}/{req.repo}/tarball/{req.sha}",
         headers={
-            "authorization": f"Bearer {req.token}",
+            **({"authorization": f"Bearer {req.token}"} if req.token else {}),
             "accept": "application/vnd.github+json",
             "user-agent": "earned-trust-review-scanner",
         },

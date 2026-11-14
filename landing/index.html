@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Turn a public GitHub pull request into an AI review with traceable evidence and explicit limits. AI advises. You decide."
+    />
+    <meta name="theme-color" content="#ff7a1a" />
+    <title>Bumble Bot — Evidence before approval</title>
+    <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot" />
+    <link
+      rel="preload"
+      href="/assets/public-sans-bold.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#review">Skip to review form</a>
+    <header class="site-header wrap">
+      <a class="brand" href="/" aria-label="Bumble Bot home"
+        ><img
+          src="/favicon.svg?v=bumble-bot"
+          alt=""
+          width="40"
+          height="40"
+        />Bumble Bot<span class="demo">Junction 2026</span></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="#how-it-works"
+          >How it works <span aria-hidden="true">↗</span></a
+        ><a class="nav-cta" href="#review"
+          >Review a PR <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+    <main>
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="intro">
+            <span class="status-dot" aria-hidden="true"></span> Evidence before
+            approval
+          </p>
+          <h1 id="hero-title">
+            AI wrote the code.<br />You own<br />the
+            <span class="orange">decision.</span>
+          </h1>
+          <p class="lede">
+            Give your next pull request a second set of eyes. Get findings you
+            can trace, assumptions you can question, and a clear view of what
+            wasn't checked.
+          </p>
+        </div>
+        <form id="review" class="review-form" aria-describedby="form-note">
+          <label for="pr-url">Public GitHub pull request</label>
+          <div class="input-row">
+            <input
+              id="pr-url"
+              name="url"
+              type="url"
+              required
+              maxlength="512"
+              placeholder="https://github.com/owner/repo/pull/123"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="form-note form-status"
+            /><button type="submit">
+              <span id="button-label">Run review</span
+              ><span aria-hidden="true">↗</span>
+            </button>
+          </div>
+          <p id="form-note">
+            Read-only. No GitHub comments or approvals. Public PRs only.
+          </p>
+          <p id="form-status" role="status" aria-live="polite"></p>
+          <noscript><p>Enable JavaScript to start a review.</p></noscript>
+        </form>
+        <figure class="report-figure" aria-labelledby="report-caption">
+          <div class="orange-sheet" aria-hidden="true">
+            <span>LOOK CLOSER.</span><span class="cross">+</span>
+          </div>
+          <div class="report-sheet">
+            <div class="report-top">
+              <span class="report-symbol" aria-hidden="true">↳</span
+              ><span>Pull request review</span
+              ><span class="sample-tag">Illustration</span>
+            </div>
+            <div class="report-title">
+              The evidence.<br />The unknowns.<br /><span>Your call.</span>
+            </div>
+            <div class="commit">
+              <span class="branch-icon" aria-hidden="true">⑂</span> A report
+              tied to one commit
+            </div>
+            <div class="evidence-row">
+              <span class="evidence-mark" aria-hidden="true">↗</span>
+              <div>
+                <strong>Trace each finding</strong>
+                <p>Source lines, severity, and the reason it matters.</p>
+              </div>
+            </div>
+            <div class="evidence-row">
+              <span class="evidence-mark" aria-hidden="true">?</span>
+              <div>
+                <strong>See the limits</strong>
+                <p>What the reviewer couldn't check, and why.</p>
+              </div>
+            </div>
+            <div class="owner-line">
+              <span class="human-icon" aria-hidden="true">◎</span>
+              <div>
+                <strong>Decision owner</strong
+                ><span>A named human. Always.</span>
+              </div>
+              <span class="owner-arrow" aria-hidden="true">↗</span>
+            </div>
+          </div>
+          <figcaption id="report-caption">
+            Report anatomy, not a live review result.
+          </figcaption>
+        </figure>
+      </section>
+      <section class="ownership" aria-label="Our principle">
+        <div class="wrap ownership-inner">
+          <p>AI advises. <strong>You decide.</strong></p>
+          <span
+            >A review is evidence for your judgment.<br />The merge still has
+            your name on it.</span
+          >
+        </div>
+      </section>
+      <section
+        class="process wrap"
+        id="how-it-works"
+        aria-labelledby="process-title"
+      >
+        <div class="process-intro">
+          <h2 id="process-title">Less guesswork.<br />More to go on.</h2>
+          <p>A second opinion that shows its work, including where it stops.</p>
+        </div>
+        <ol class="steps">
+          <li>
+            <span class="step-number">1</span>
+            <div>
+              <h3>Bring a pull request</h3>
+              <p>
+                Paste a public GitHub PR. The review is tied to its current
+                commit, so you know exactly which change it covers.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <div>
+              <h3>Inspect the evidence</h3>
+              <p>
+                Follow the review as it runs. Check findings against source
+                lines, scanner results, and consulted documentation.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <div>
+              <h3>Own the next step</h3>
+              <p>
+                Question the findings. Read the unchecked areas. A named
+                engineer decides what to fix and which risks to accept.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+      <section class="limits wrap" aria-labelledby="limits-title">
+        <h2 id="limits-title">Trust has limits.<br />We make them visible.</h2>
+        <div>
+          <p>
+            AI can miss bugs and report things that aren't bugs. “No blockers
+            found” is advice about the checks performed, never a guarantee that
+            a change is safe.
+          </p>
+          <p>
+            This Junction demo accepts public PRs up to 60 files and 4,000
+            changed lines. Reviews can take several minutes. Shared usage and
+            GitHub API limits apply. Only submit code you have permission to
+            share for review.
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer class="wrap">
+      <a class="brand" href="/"
+        ><img
+          src="/favicon.svg?v=bumble-bot"
+          width="28"
+          height="28"
+          alt=""
+        />Bumble Bot</a
+      >
+      <p>Built for Tieto's Earned Trust in AI Code challenge.</p>
+      <a href="#review">Put evidence first <span aria-hidden="true">↑</span></a>
+    </footer>
+  </body>
+</html>

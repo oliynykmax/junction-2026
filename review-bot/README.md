@@ -2,7 +2,7 @@
 
 Cloudflare Worker `j26-review-bot`, live at https://review.oliinyk.dev. GitHub App: https://github.com/apps/bumble-bot-review, installed only on our copy of the sample repo, `oliynykmax/junction26-messagepack-csharp`.
 
-When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It also posts one comment linking to `https://review.oliinyk.dev/r/<owner>/<repo>/<pr>?sha=<head>`, and later pushes edit that comment, which says so. When a review ends with `no_blockers_found` and no findings, the bot approves the PR at that commit, provided the commit is still the head. Each push dismisses the bot's approvals of older commits, so an approval always belongs to a clean review of the current head. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
+When a pull request is opened, reopened, marked ready or pushed to, the bot starts an AI review of the head commit. It maintains one comment linking to the full report for that commit. On completion, it posts a formal GitHub review with a short count summary such as `2 findings · 1 medium · 1 low` and a full-report link pinned to the reviewed commit. A review with no findings approves the PR. Any findings produce a comment review, regardless of the advisory decision. Publication skips stale heads and retries skip an existing marked review for that commit. Each push dismisses the bot's approvals of older commits. The review remains advice; a named human owns the merge. Set `REVIEW_BASE_URL` in `wrangler.jsonc` to send the link elsewhere.
 
 ## Review runtime
 
@@ -29,11 +29,34 @@ bun install
 bun fmt        # format
 bun lint
 bun check      # type check
+bun test       # GitHub publication behavior
 bunx wrangler dev   # local run; secrets go in .dev.vars (gitignored)
 ```
 
-CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint` and `bun check` on Bun canary for every PR and push that touches `review-bot/`. A push to `main` then deploys with `wrangler deploy`, using the repo secret `CLOUDFLARE_API_TOKEN`.
+CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint`, `bun check` and `bun test` on Bun canary for every PR and push that touches `review-bot/`. A push to `main` then deploys with `wrangler deploy`, using the repo secret `CLOUDFLARE_API_TOKEN`.
 
 ## Secrets
 
 `APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY` and `SCANNER_TOKEN` are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
+
+## Public landing and manual reviews
+
+The Worker serves the static landing from `../landing` through `ASSETS`.
+`POST /api/reviews` accepts JSON `{ "url": "https://github.com/owner/repo/pull/123" }`
+and returns `{ "url": "/m/owner/repo/123?sha=<head>" }`.
+Only publicly readable repositories are accepted. Manual reviews use anonymous GitHub
+reads and never obtain app tokens, post comments, or approve PRs. Their persisted targets,
+Durable Object keys, and report API paths are separate from webhook reviews.
+
+`MANUAL_GATE` limits new public reviews to two per IP per hour, ten globally per
+hour, and fifty per day. The demo accepts at most 60 files and 4,000 changed lines.
+Failed resolutions and stored reviews do not spend review slots. Duplicate concurrent
+admissions are charged once per pinned review key. A separate lookup budget limits
+resolution attempts to ten per IP per hour, thirty globally per hour and one hundred
+per day before any GitHub calls. Anonymous GitHub API quotas can still interrupt reviews.
+Manual report reads use only the stored manual target verified public at admission;
+historical public evidence remains readable if a repository later becomes private. See [the decision log](../landing/DECISIONS.md)
+for the integration choice and limits. Deploy the scanner's anonymous-read header change
+through its separate deployment process as well; no scanner credential is sent to GitHub.
+
+Run `bun test`, `bun lint`, `bun check`, and `bun fmt --check` from `review-bot/`.

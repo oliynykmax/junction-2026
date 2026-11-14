@@ -3,6 +3,8 @@
 // review's API path and PR identity.
 
 export type PageTarget = {
+  /** A manual review started from the landing page (/m/), not a webhook one. */
+  manual: boolean;
   owner: string;
   repo: string;
   number: string;
@@ -12,7 +14,9 @@ export type PageTarget = {
 export function reviewPage(t: PageTarget): Response {
   const label = `${t.owner}/${t.repo}#${t.number}`;
   const config = {
-    api: `/api/r/${t.owner}/${t.repo}/${t.number}/${t.headSha}`,
+    api: `/api/${t.manual ? "m" : "r"}/${t.owner}/${t.repo}/${t.number}/${t.headSha}`,
+    // Manual reviews poll every 15 s, webhook reviews every 2 s.
+    pollMs: t.manual ? 15000 : 2000,
     prUrl: `https://github.com/${t.owner}/${t.repo}/pull/${t.number}`,
     owner: t.owner,
     repo: t.repo,

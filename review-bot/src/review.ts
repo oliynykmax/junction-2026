@@ -161,6 +161,7 @@ export class Review extends DurableObject<Env> {
         },
         checkout: (input, signal) => executor(env).checkout(input, signal),
         shell: (input, signal) => executor(env).shell(input, signal),
+        release: (session) => executor(env).release(session),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);

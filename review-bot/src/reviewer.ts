@@ -366,6 +366,7 @@ export type ReviewerDeps = {
   ) => Promise<CheckoutResult>;
   /** Runs any command in that intentionally unrestricted container. */
   shell?: (input: ShellInput, signal?: AbortSignal) => Promise<ShellResult>;
+  release?: (session: string) => Promise<unknown>;
 };
 
 const MAX_FILE_LINES = 400;
@@ -435,6 +436,7 @@ export function reviewerExtension({
   finished,
   checkout,
   shell,
+  release,
 }: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
@@ -645,9 +647,7 @@ export function reviewerExtension({
         },
         context.abortSignal,
       );
-      const status = result.timedOut
-        ? "timed out"
-        : `exit ${result.exitCode}`;
+      const status = result.timedOut ? "timed out" : `exit ${result.exitCode}`;
       return text(
         `${status}\nstdout:\n${result.stdout || "(empty)"}\nstderr:\n${
           result.stderr || "(empty)"
@@ -896,7 +896,12 @@ export function reviewerExtension({
         risk = state.risk?.tier;
       }, context);
       if (refused) return { ...text(refused), isError: true };
-      if (decision) finished(decision, findings.length);
+      if (decision) {
+        finished(decision, findings.length);
+        await release?.(String(api.conversationId)).catch((error) =>
+          console.error("executor release failed", error),
+        );
+      }
       const { t, tok } = await target(api, context);
       if (t.mode !== "manual")
         await publish(t, tok, findings, risk).catch((e) =>

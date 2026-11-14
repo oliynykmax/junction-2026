@@ -7,7 +7,7 @@ export type CheckoutInput = {
   owner: string;
   repo: string;
   sha: string;
-  /** Also fetch this base commit, with 50 commits of history on each side. */
+  /** Also fetch this base commit, including commit history. */
   baseSha?: string;
   githubToken: string;
 };
@@ -40,6 +40,7 @@ type ExecutorEnv = {
 type Executor = {
   checkout(input: CheckoutInput, signal?: AbortSignal): Promise<CheckoutResult>;
   shell(input: ShellInput, signal?: AbortSignal): Promise<ShellResult>;
+  release(session: string): Promise<{ released: boolean }>;
 };
 
 function endpoint(base: string, path: string): string {
@@ -87,6 +88,14 @@ export function executor(env: ExecutorEnv): Executor {
   if (!env.EXECUTOR_URL || !env.EXECUTOR_TOKEN)
     throw new Error("Free shell executor is not configured");
   return {
+    release: (session) =>
+      call(
+        env.EXECUTOR_URL!,
+        env.EXECUTOR_TOKEN!,
+        "/v1/release",
+        { session },
+        AbortSignal.timeout(15_000),
+      ),
     checkout: (input, signal) =>
       call<CheckoutResult>(
         env.EXECUTOR_URL!,

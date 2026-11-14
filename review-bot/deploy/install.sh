@@ -21,4 +21,5 @@ podman pull ghcr.io/denoland/celld@sha256:6ae0e0b453f8d85dae969fbef44c3ba1280698
 podman run --rm --entrypoint cat ghcr.io/denoland/celld@sha256:6ae0e0b453f8d85dae969fbef44c3ba12806989f43f69bdc6094205662018334 /usr/local/bin/celld > /usr/local/bin/celld
 chmod 755 /usr/local/bin/celld
 systemctl daemon-reload
+systemctl enable --now podman.socket
 echo "Install /etc/bumble/runtime.env, /etc/bumble/executor.env and /etc/bumble/caddy.env with mode 600, then start bumble-executor, bumble-celld and caddy."

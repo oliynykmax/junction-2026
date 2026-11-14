@@ -22,9 +22,11 @@
         "url": "https://learn.microsoft.com/api/mcp",
         "description": "Microsoft Learn: official .NET, C# and Azure documentation and code samples.",
       },
-      "context7": {
-        "url": "https://mcp.context7.com/mcp",
-        "description": "Context7: up-to-date documentation for open-source libraries.",
+      "contextdev": {
+        "url": "https://mcp.context.dev/mcp",
+        "description": "Context.dev: live web search, and any page as clean Markdown.",
+        "headers": { "Authorization": "Bearer ${CONTEXT_DEV_API_KEY}" },
+        "tools": ["web-search", "web-scrape"],
       },
     },
     "SCANNER_URL": "https://j26-earned-trust--j26-review-scanner-web.us-east.modal.run",

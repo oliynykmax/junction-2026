@@ -18,14 +18,39 @@ import {
   defineExtension,
   defineTool,
   type Extension,
+  type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord/context";
+
+/** Called before each MCP tool call, with the tool's durable name. */
+export type OnMcpCall = (
+  tool: string,
+  args: unknown,
+  api: ToolExecutionApi,
+  context: Context,
+) => Promise<void>;
 
 const CONNECT_TIMEOUT_MS = 8_000;
 const CALL_TIMEOUT_S = 60;
 
-type Server = { name: string; config: McpHttpServerConfig };
+type Server = {
+  name: string;
+  config: McpHttpServerConfig;
+  /** The server's tools the agent may call; null allows all of them. */
+  allow: ReadonlySet<string> | null;
+};
 
-export function mcpServers(raw: Record<string, unknown> | undefined): Server[] {
+const SECRET_REF = /\$\{(\w+)\}/g;
+
+/**
+ * The `mcpServers` entries the Worker can reach. Header values may name a
+ * Worker secret as `${NAME}`; a server whose secret is unset is left out.
+ * `tools` limits a server to the listed tool names.
+ */
+export function mcpServers(
+  raw: Record<string, unknown> | undefined,
+  secrets: Record<string, unknown>,
+): Server[] {
   const servers: Server[] = [];
   for (const [name, entry] of Object.entries(raw ?? {})) {
     const result = validateMcpServerConfig(name, entry);
@@ -35,8 +60,39 @@ export function mcpServers(raw: Record<string, unknown> | undefined): Server[] {
       );
       continue;
     }
-    if (result.config.enabled !== false)
-      servers.push({ name, config: result.config });
+    const { config } = result;
+    if (config.enabled === false) continue;
+
+    const missing: string[] = [];
+    const headers = Object.fromEntries(
+      Object.entries(config.headers ?? {}).map(([key, value]) => [
+        key,
+        value.replace(SECRET_REF, (_, ref: string) => {
+          const secret = secrets[ref];
+          if (typeof secret === "string" && secret) return secret;
+          missing.push(ref);
+          return "";
+        }),
+      ]),
+    );
+    if (missing.length) {
+      console.warn(`mcp ${name}: secret ${missing.join(", ")} not set`);
+      continue;
+    }
+
+    const tools = config.tools;
+    if (
+      tools !== undefined &&
+      !(Array.isArray(tools) && tools.every((t) => typeof t === "string"))
+    ) {
+      console.warn(`mcp ${name}: tools must be a list of tool names`);
+      continue;
+    }
+    servers.push({
+      name,
+      config: { ...config, headers },
+      allow: tools ? new Set(tools) : null,
+    });
   }
   return servers;
 }
@@ -94,7 +150,10 @@ function within<T>(ms: number, work: Promise<T>): Promise<T> {
  * Connects to every server and lists its tools. A server that does not answer
  * within CONNECT_TIMEOUT_MS is left out of this run's tools.
  */
-export async function mcpExtension(servers: Server[]): Promise<Extension> {
+export async function mcpExtension(
+  servers: Server[],
+  onCall: OnMcpCall,
+): Promise<Extension> {
   const taken = new Set<string>();
   const listed = await Promise.all(
     servers.map(async (server) => {
@@ -104,7 +163,11 @@ export async function mcpExtension(servers: Server[]): Promise<Extension> {
           CONNECT_TIMEOUT_MS,
           client().then((c) => c.listTools()),
         );
-        return { server, client, tools };
+        return {
+          server,
+          client,
+          tools: tools.filter((t) => !server.allow || server.allow.has(t.name)),
+        };
       } catch (error) {
         console.warn(`mcp ${server.name}: tools unavailable: ${error}`);
         return { server, client, tools: [] as Tool[] };
@@ -124,7 +187,8 @@ export async function mcpExtension(servers: Server[]): Promise<Extension> {
         parameters: normalizeMcpInputSchema(tool.inputSchema),
         callers: ["tools"],
         replay: tool.annotations?.readOnlyHint ? "safe" : "unsafe",
-        execute: async (args, _api, context) => {
+        execute: async (args, api, context) => {
+          await onCall(name, args, api, context);
           const mcp = await client();
           const result = await mcp.callTool(
             tool.name,

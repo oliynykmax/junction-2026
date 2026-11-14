@@ -39,15 +39,26 @@ export const heldBack = (f: Graded) => SEVERE.has(f.severity) && !blocks(f);
 export const decisionFor = (findings: readonly Graded[]) =>
   findings.some(blocks) ? "changes_requested" : "no_blockers_found";
 
-// Reviews stored before the five-level scale used blocker/major/minor.
+// Reviews stored before this scale used blocker/major/minor and had no class
+// or confidence, so a stored finding is graded only after this boundary.
 const LEGACY: Record<string, Severity> = {
   blocker: "critical",
   major: "high",
   minor: "low",
 };
 
-export function upgradeSeverity<F extends { severity: string }>(
-  f: F,
-): F & { severity: Severity } {
-  return { ...f, severity: LEGACY[f.severity] ?? (f.severity as Severity) };
+const isSeverity = (s: string): s is Severity =>
+  (SEVERITIES as readonly string[]).includes(s);
+
+export type Stored<F> = Omit<F, "severity" | "class" | "confidence"> & {
+  severity: Severity;
+  class?: FindingClass;
+  confidence?: Confidence;
+};
+
+export function fromStored<F extends { severity: string }>(f: F): Stored<F> {
+  const severity = isSeverity(f.severity)
+    ? f.severity
+    : (LEGACY[f.severity] ?? "info");
+  return { ...f, severity };
 }

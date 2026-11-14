@@ -18,12 +18,13 @@ import {
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
-import { heldBack, upgradeSeverity } from "./findings";
+import { fromStored, heldBack, type Stored } from "./findings";
 import { type AppSecrets, approve, installationToken } from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
+  type Finding,
   recordLookup,
   ReviewDoc,
   reviewerExtension,
@@ -53,8 +54,9 @@ export type Activity =
 export type ReviewView = {
   status: "not_started" | "scanning" | "running" | "done" | "failed";
   failure: string | null;
-  review: Omit<ReviewState, "prompt"> & {
+  review: Omit<ReviewState, "prompt" | "findings"> & {
     prompt: { url: string; sha256: string } | null;
+    findings: Stored<Finding>[];
   };
   heldBack: number;
   activity: Activity[];
@@ -242,7 +244,7 @@ export class Review extends DurableObject<Env> {
     }
 
     const { prompt, ...rest } = review;
-    const findings = review.findings.map(upgradeSeverity);
+    const findings = review.findings.map(fromStored);
     return {
       status,
       failure:

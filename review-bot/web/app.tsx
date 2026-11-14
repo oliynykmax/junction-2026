@@ -1,20 +1,50 @@
-// The review page: status, the AI's advice and its Situation/Task/Action/Result
-// description of the PR, the scanner band, the PR's changes with their
-// findings and diffs,
-// what the AI did not check, docs it consulted and the agent's activity. It
-// polls the review's JSON view while the review runs.
+import type { ChangedFile } from "./shared";
 
-import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useState } from "preact/hooks";
-import type { Activity, ReviewView } from "../src/review";
-import type { Diagnostic, ScanResult, ScanState } from "../src/scanners";
-import { Changes, findingsByChange } from "./changes";
-import { FileDiffs } from "./diff";
-import { EvidencePanel } from "./evidence";
-import { Findings } from "./findings";
-import { BLOCKING_RULE, type Focus, plural, type Star } from "./shared";
-import { blocks } from "../src/findings";
-import { RiskBand } from "./risk";
+const MOCK_FILES = [
+  {
+    path: "src/reviews/cache.ts",
+    status: "modified",
+    additions: 5,
+    deletions: 4,
+    patch: `@@ -1,7 +1,8 @@
+ const reviews = new Map<string, Review>();
+${" "}
+-export function getReview(pr: number) {
+-  return reviews.get(String(pr));
++export function getReview(pr: number, headSha: string) {
++  const key = [pr, headSha].join(":");
++  return reviews.get(key);
+ }
+${" "}
+-export function saveReview(pr: number, review: Review) {
++export function saveReview(pr: number, headSha: string, review: Review) {
+@@ -8,2 +9,2 @@
+-  reviews.set(String(pr), review);
++  reviews.set([pr, headSha].join(":"), review);
+ }`,
+  },
+  {
+    path: "tests/reviews/cache.test.ts",
+    status: "added",
+    additions: 14,
+    deletions: 0,
+    patch: `@@ -0,0 +1,14 @@
++import { expect, test } from "bun:test";
++import { getReview, saveReview } from "../../src/reviews/cache";
++
++test("a new commit does not reuse the previous review", () => {
++  const review = { summary: "First commit reviewed" };
++  saveReview(42, "abc1234", review);
++
++  expect(getReview(42, "abc1234")).toEqual(review);
++  expect(getReview(42, "def5678")).toBeUndefined();
++});
++
++test("an unknown pull request has no cached review", () => {
++  expect(getReview(99, "abc1234")).toBeUndefined();
++});`,
+  },
+] satisfies ChangedFile[];
 
 export type PageConfig = {
   api: string;
@@ -25,647 +55,348 @@ export type PageConfig = {
   number: string;
 };
 
-type Dismissal = NonNullable<
-  ReviewView["review"]["verdict"]
->["dismissed"][number];
+export function App({ prUrl, owner, repo, number }: PageConfig) {
+  const demo = new URLSearchParams(window.location.search).get("demo") === "1";
 
-const LIVE = new Set<ReviewView["status"]>([
-  "running",
-  "scanning",
-  "not_started",
-]);
-
-const STATUS_LABEL: Record<ReviewView["status"], string> = {
-  not_started: "Not started",
-  scanning: "Scanning",
-  running: "Reviewing",
-  done: "Review finished",
-  failed: "Review failed",
-};
-
-function useReview(api: string, pollMs: number) {
-  const [view, setView] = useState<ReviewView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-    const tick = async () => {
-      try {
-        const res = await fetch(api, { cache: "no-store" });
-        const body = (await res.json()) as ReviewView & { error?: string };
-        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        if (stopped) return;
-        setView(body);
-        setError(null);
-        if (LIVE.has(body.status)) timer = setTimeout(tick, pollMs);
-      } catch (e) {
-        if (stopped) return;
-        setError(e instanceof Error ? e.message : String(e));
-        timer = setTimeout(tick, 5000);
+  const identity: PrIdentity = demo
+    ? {
+        title: "Keep review results scoped to the commit",
+        number: "42",
+        author: "alex-chen",
+        updated: "updated 2h ago",
+        base: "main",
+        head: "fix/commit-cache",
+        files: MOCK_FILES.length,
+        additions: MOCK_FILES.reduce((sum, file) => sum + file.additions, 0),
+        deletions: MOCK_FILES.reduce((sum, file) => sum + file.deletions, 0),
       }
-    };
-    tick();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [api, pollMs]);
+    : { title: `${owner}/${repo}`, number };
 
-  return { view, error };
-}
-
-export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
-  const { view, error } = useReview(api, pollMs);
-  const repoUrl = prUrl.replace(/\/pull\/\d+$/, "");
-  const sha = view?.review.target?.headSha ?? null;
-  // A removed file does not exist at the head, so it links to the PR's diff.
-  const removed = new Set(
-    (view?.review.files ?? [])
-      .filter((f) => f.status === "removed")
-      .map((f) => f.path),
+  const requestedCheck = new URLSearchParams(window.location.search).get(
+    "check",
   );
-  const lineUrl = (path: string, line: number | null) =>
-    !sha
-      ? prUrl
-      : removed.has(path)
-        ? `${prUrl}/files`
-        : `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}`;
-  const [tab, setTab] = useState<"changes" | "diff">("changes");
-  const [focus, setFocus] = useState<Focus>(null);
-  const r = view?.review;
-  // Reviews stored before changes existed have no files and keep the old layout.
-  const storied = r?.files !== undefined;
-  const files = r?.files ?? [];
-  const changes = r?.changes ?? [];
-  const split = useMemo(
-    () => findingsByChange(changes, r?.findings ?? []),
-    [changes, r?.findings],
-  );
-  const live = view ? LIVE.has(view.status) : true;
-
-  return (
-    <>
-      <header class="bar">
-        <div class="grid bar-inner">
-          <a class="brand" href="/" aria-label="Bumble Bot home">
-            {/* Same versioned URL as the landing page, so a cached old logo is never shown. */}
-            <img
-              src="/favicon.svg?v=bumble-bot"
-              alt=""
-              width="32"
-              height="32"
-            />
-            Bumble Bot
-          </a>
-          {storied && files.length > 0 && (
-            <nav class="tabs" aria-label="Review views">
-              <button
-                type="button"
-                aria-current={tab === "changes" ? "page" : undefined}
-                onClick={() => setTab("changes")}
-              >
-                Changes
-              </button>
-              <button
-                type="button"
-                aria-current={tab === "diff" ? "page" : undefined}
-                onClick={() => setTab("diff")}
-              >
-                Full diff
-              </button>
-            </nav>
-          )}
-          {view && <Status status={view.status} />}
-        </div>
-      </header>
-      <main class="page">
-        <section class="grid title">
-          <div class="lede">
-            <h1>
-              <a href={prUrl}>
-                {repo} <span class="num">#{number}</span>
-              </a>
-            </h1>
-            {view ? (
-              <Advice view={view} />
-            ) : (
-              <p class="muted">{error ? null : "Loading the review…"}</p>
-            )}
-          </div>
-          <Facts view={view} owner={owner} error={error} />
-        </section>
-        {view && <EvidencePanel html={view.evidenceHtml} />}
-        {view && tab === "diff" && (
-          <section class="section" aria-labelledby="diff-h">
-            <div class="section-head">
-              <h2 id="diff-h">Full diff</h2>
-              <p class="counts">
-                <span>{plural(files.length, "file")}</span>
-              </p>
-            </div>
-            <FileDiffs
-              files={files}
-              findings={view.review.findings}
-              focus={focus}
-              onFocus={setFocus}
-              lineUrl={lineUrl}
-            />
-          </section>
-        )}
-        {view && tab === "changes" && (
-          <>
-            <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
-            <Scanners
-              scan={view.review.scan}
-              dismissed={view.review.verdict?.dismissed ?? []}
-              lineUrl={lineUrl}
-            />
-            {storied && (
-              <Changes
-                changes={changes}
-                files={files}
-                owned={split.owned}
-                running={live}
-                lineUrl={lineUrl}
-              />
-            )}
-            <Findings
-              findings={
-                storied && changes.length ? split.other : view.review.findings
-              }
-              heading={
-                storied && changes.length
-                  ? "Findings outside the changes"
-                  : "Findings"
-              }
-              empty={
-                storied && changes.length
-                  ? null
-                  : view.status === "done"
-                    ? "The AI reported no findings."
-                    : view.status === "failed"
-                      ? "No findings were recorded before the review stopped."
-                      : "None yet. Findings appear here as the agent confirms them."
-              }
-              lineUrl={lineUrl}
-            />
-            <NotChecked view={view} />
-            <Docs view={view} />
-            <ActivityFeed
-              activity={view.activity}
-              live={LIVE.has(view.status)}
-            />
-          </>
-        )}
-      </main>
-    </>
-  );
-}
-
-function Status({ status }: { status: ReviewView["status"] }) {
-  return (
-    <span class={`status status-${status}`} role="status">
-      {LIVE.has(status) && <span class="pulse" aria-hidden="true" />}
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
-
-// A count of the findings, not a verdict: it can never disagree with them, and
-// it leaves the decision to the named human.
-function Advice({ view }: { view: ReviewView }) {
-  const v = view.review.verdict;
-  const findings = view.review.findings;
-  const blocking = findings.filter(blocks).length;
-  const rest = findings.length - blocking;
-  const finished = v !== null;
-
-  let headline: ComponentChildren;
-  if (findings.length === 0)
-    headline = finished
-      ? "No findings"
-      : view.status === "failed"
-        ? "The review stopped before it recorded any findings"
-        : "No findings yet";
-  else if (blocking > 0)
-    headline = (
-      <>
-        <span class="alert">{plural(blocking, "blocking finding")}</span>
-        {rest > 0 && `, ${rest} more not blocking`}
-        {!finished && " so far"}
-      </>
-    );
-  else
-    headline = `${plural(findings.length, "finding")}, none blocking${finished ? "" : " so far"}`;
-
-  return (
-    <div class="advice">
-      <p class="decision" title={BLOCKING_RULE}>
-        {headline}
-      </p>
-      {view.heldBack > 0 && (
-        <p class="note">
-          {plural(view.heldBack, "critical or high finding")} the AI could not
-          confirm {view.heldBack === 1 ? "is" : "are"} rated possible and{" "}
-          {view.heldBack === 1 ? "doesn't" : "don't"} block. Check{" "}
-          {view.heldBack === 1 ? "it" : "them"} yourself.
-        </p>
-      )}
-      {finished ? (
-        <>
-          {v.star && <PrStar star={v.star} />}
-          <h2 class="summary-h">What the AI read and concluded</h2>
-          <p class="summary">{v.summary}</p>
-        </>
-      ) : (
-        <p class="muted advice-wait">
-          {view.status === "failed"
-            ? "The review stopped before the AI wrote its summary."
-            : "The AI's description of this PR and its summary appear here when the review finishes."}
-        </p>
-      )}
-      <p class="muted">
-        The AI advises. A named human decides whether to merge.
-      </p>
-    </div>
-  );
-}
-
-const STAR_LABELS = [
-  ["situation", "Situation"],
-  ["task", "Task"],
-  ["action", "Action"],
-  ["result", "Result"],
-] as const;
-
-function PrStar({ star }: { star: Star }) {
-  return (
-    <dl
-      class="star"
-      aria-label="The pull request as Situation, Task, Action and Result"
-    >
-      {STAR_LABELS.map(([key, label]) => (
-        <div key={key}>
-          <dt>{label}</dt>
-          <dd>{star[key]}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function Facts({
-  view,
-  owner,
-  error,
-}: {
-  view: ReviewView | null;
-  owner: string;
-  error: string | null;
-}) {
-  const r = view?.review;
-  return (
-    <dl class="facts">
-      <div>
-        <dt>Repository owner</dt>
-        <dd>{owner}</dd>
-      </div>
-      {r?.target && (
-        <div>
-          <dt>Commit</dt>
-          <dd>
-            <code>{r.target.headSha.slice(0, 7)}</code>
-          </dd>
-        </div>
-      )}
-      {r?.model && (
-        <div>
-          <dt>Model</dt>
-          <dd>
-            <code>{r.model}</code>
-          </dd>
-        </div>
-      )}
-      {r?.prompt && (
-        <div>
-          <dt>Rubric</dt>
-          <dd>
-            <a href={r.prompt.url}>prompt</a>{" "}
-            <code>sha256:{r.prompt.sha256.slice(0, 12)}</code>
-          </dd>
-        </div>
-      )}
-      {view && view.costUsd > 0 && (
-        <div>
-          <dt>Cost</dt>
-          <dd>
-            <code>${view.costUsd.toFixed(4)}</code>
-          </dd>
-        </div>
-      )}
-      {(error || view?.failure) && (
-        <div class="alert">
-          <dt>{error ? "Could not load" : "Failure"}</dt>
-          <dd>
-            {error ? `${error}. Retrying every 5 seconds.` : view?.failure}
-          </dd>
-        </div>
-      )}
-    </dl>
-  );
-}
-
-// Scanners
-
-type Flagged = { diag: Diagnostic; dismissal: Dismissal | undefined };
-
-function flag(result: ScanResult, dismissed: Dismissal[]): Flagged[] {
-  return result.diagnostics.map((diag) => ({
-    diag,
-    dismissal: dismissed.find(
-      (m) =>
-        m.tool === result.tool && m.rule === diag.rule && m.path === diag.path,
-    ),
-  }));
-}
-
-// A scanner needs attention when it failed to run, or reported an error or
-// warning the agent did not dismiss.
-const needsAttention = (result: ScanResult, flagged: Flagged[]) =>
-  result.status === "error" ||
-  flagged.some((f) => !f.dismissal && f.diag.severity !== "info");
-
-function Scanners({
-  scan,
-  dismissed,
-  lineUrl,
-}: {
-  scan: ScanState | null;
-  dismissed: Dismissal[];
-  lineUrl: (path: string, line: number | null) => string;
-}) {
-  const [open, setOpen] = useState(false);
-  let summary: string;
-  let body: ComponentChildren = null;
-
-  if (!scan) summary = "No scan for this review";
-  else if (scan.status === "pending")
-    summary = "Running zizmor, ty and oxlint on the changed files…";
-  else if (scan.status === "skipped")
-    summary = "No scanner applies to the changed files";
-  else if (scan.status === "failed") {
-    summary = "Did not run";
-    body = (
-      <div class="flag">
-        <p class="flag-title">The scanners did not run</p>
-        <p>{scan.error}</p>
-      </div>
-    );
-  } else {
-    const rows = scan.results.map((r) => ({ r, flagged: flag(r, dismissed) }));
-    const bad = rows.filter(({ r, flagged }) => needsAttention(r, flagged));
-    const clean = rows.filter((x) => !bad.includes(x));
-    const total = rows.reduce((n, x) => n + x.flagged.length, 0);
-    summary = bad.length
-      ? `${bad.length} of ${rows.length} need attention`
-      : `${plural(rows.length, "scanner")}, nothing to act on`;
-    body = (
-      <>
-        <div class="flags">
-          {bad.map(({ r, flagged }) => (
-            <div class="flag" key={r.tool}>
-              <p class="flag-title">
-                {r.status === "error"
-                  ? `${r.tool} failed`
-                  : `${r.tool}: ${plural(
-                      flagged.filter(
-                        (f) => !f.dismissal && f.diag.severity !== "info",
-                      ).length,
-                      "open diagnostic",
-                    )}`}
-              </p>
-              {r.status === "error" ? <p>{r.error}</p> : <ToolMeta r={r} />}
-            </div>
-          ))}
-        </div>
-        {clean.length > 0 && (
-          <ul class="clean">
-            {clean.map(({ r, flagged }) => (
-              <li key={r.tool}>
-                <strong>{r.tool}</strong>{" "}
-                {flagged.length
-                  ? `${plural(flagged.length, "diagnostic")}, all dismissed or informational`
-                  : "clean"}
-                <ToolMeta r={r} />
-              </li>
-            ))}
-          </ul>
-        )}
-        {total > 0 && (
-          <>
-            <button
-              type="button"
-              class="toggle"
-              aria-expanded={open}
-              onClick={() => setOpen(!open)}
-            >
-              {open ? "Hide" : "Show"} {plural(total, "diagnostic")}
-            </button>
-            {open && (
-              <table class="diags">
-                <thead>
-                  <tr>
-                    <th scope="col">Severity</th>
-                    <th scope="col">Rule</th>
-                    <th scope="col">Location</th>
-                    <th scope="col">Message</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.flatMap(({ flagged }) =>
-                    flagged.map(({ diag: d, dismissal }) => (
-                      <tr
-                        key={`${d.tool}${d.rule}${d.path}${d.line}`}
-                        class={
-                          !dismissal && d.severity !== "info"
-                            ? "open"
-                            : "settled"
-                        }
-                      >
-                        <td class="sev">{d.severity}</td>
-                        <td>
-                          <span class="tool">{d.tool}</span>{" "}
-                          {d.url ? (
-                            <a href={d.url}>
-                              <code>{d.rule}</code>
-                            </a>
-                          ) : (
-                            <code>{d.rule}</code>
-                          )}
-                        </td>
-                        <td>
-                          <a class="loc" href={lineUrl(d.path, d.line)}>
-                            {d.path}
-                            {d.line ? `:${d.line}` : ""}
-                          </a>
-                        </td>
-                        <td>
-                          {d.message}
-                          {dismissal && (
-                            <span class="dismissed">
-                              Dismissed by the agent: {dismissal.reason}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    )),
-                  )}
-                </tbody>
-              </table>
-            )}
-          </>
-        )}
-      </>
+  if (demo && requestedCheck !== null) {
+    return (
+      <BotCheckPage
+        check={BOT_CHECKS.find((check) => check.id === requestedCheck)}
+      />
     );
   }
 
   return (
-    <section class="grid band" aria-labelledby="scanners-h">
-      <div class="band-label">
-        <h2 id="scanners-h">Scanners</h2>
-        <p>{summary}</p>
-      </div>
-      <div class="band-body">{body}</div>
-    </section>
-  );
-}
-
-function ToolMeta({ r }: { r: ScanResult }) {
-  return (
-    <span class="meta">
-      {r.version} · {plural(r.paths.length, "file")} · {r.durationMs} ms
-    </span>
-  );
-}
-
-// What the AI did not check
-
-function NotChecked({ view }: { view: ReviewView }) {
-  const v = view.review.verdict;
-  return (
-    <section class="section" aria-labelledby="nc-h">
-      <div class="section-head">
-        <h2 id="nc-h">Not checked by the AI</h2>
-      </div>
-      {!v ? (
-        <p class="empty">Listed when the review finishes.</p>
-      ) : v.notChecked.length === 0 ? (
-        <p class="empty">The AI listed nothing it left unchecked.</p>
-      ) : (
-        <ul class="notes">
-          {v.notChecked.map((x) => (
-            <li key={x}>{x}</li>
-          ))}
-        </ul>
+    <>
+      <PrHeader identity={identity} href={prUrl} />
+      {demo && (
+        <main class="page pr-body">
+          <section class="title">
+            <div>
+              <p class="summary">
+                A new push should get a fresh review. Key cached results by pull
+                request and commit so an earlier result cannot appear on new
+                code.
+              </p>
+              <p class="muted">
+                Synthetic PR for layout exploration. Checks have not been run.
+              </p>
+            </div>
+          </section>
+          <CiChecks />
+        </main>
       )}
-    </section>
+    </>
   );
 }
 
-function Docs({ view }: { view: ReviewView }) {
-  const ls = view.review.lookups ?? [];
-  return (
-    <section class="section" aria-labelledby="docs-h">
-      <div class="section-head">
-        <h2 id="docs-h">Docs consulted</h2>
-        {ls.length > 0 && <p class="counts">{plural(ls.length, "lookup")}</p>}
-      </div>
-      {ls.length === 0 ? (
-        <p class="empty">
-          {view.review.verdict
-            ? "None. The agent's library and platform claims come from memory."
-            : "No documentation looked up yet."}
-        </p>
-      ) : (
-        <ul class="lookups">
-          {ls.map((l) => (
-            <li key={`${l.at}${l.args}`}>
-              <code class="tool">
-                {l.tool.replace(/^mcp__/, "").replace("__", " ")}
-              </code>
-              <code>{l.args}</code>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
+type PrIdentity = {
+  title: string;
+  number: string;
+  author?: string;
+  updated?: string;
+  base?: string;
+  head?: string;
+  files?: number;
+  additions?: number;
+  deletions?: number;
+};
 
-function ActivityFeed({
-  activity,
-  live,
-}: {
-  activity: Activity[];
-  live: boolean;
-}) {
-  const [open, setOpen] = useState<boolean | null>(null);
-  const shown = open ?? live;
+function PrHeader({ identity, href }: { identity: PrIdentity; href: string }) {
+  const { title, number, author, updated, base, head, files } = identity;
   return (
-    <section class="section" aria-labelledby="act-h">
-      <div class="section-head">
-        <h2 id="act-h">Agent activity</h2>
-        {activity.length > 0 && (
-          <button
-            type="button"
-            class="toggle"
-            aria-expanded={shown}
-            onClick={() => setOpen(!shown)}
+    <header class="pr-header">
+      <div class="pr-header-inner">
+        <div class="pr-title-row">
+          <h1 class="pr-title">
+            {title} <span class="pr-number">#{number}</span>
+          </h1>
+          <a
+            class="pr-github"
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open pull request on GitHub"
+            title="Open pull request on GitHub"
           >
-            {shown ? "Hide" : "Show"} {plural(activity.length, "step")}
-          </button>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3h7v7M21 3l-10 10" />
+              <path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" />
+            </svg>
+          </a>
+        </div>
+        <div class="pr-row">
+          {author && (
+            <p class="pr-author">
+              <span class="pr-avatar" aria-hidden="true">
+                {author.slice(0, 1).toUpperCase()}
+              </span>
+              <span class="pr-author-name">{author}</span>
+              {updated && <span class="pr-muted">· {updated}</span>}
+            </p>
+          )}
+          <code class="pr-checkout">gh pr checkout {number}</code>
+        </div>
+        {base && head && (
+          <div class="pr-row">
+            <p class="pr-branches">
+              <span class="pr-base">{base}</span>
+              <span class="pr-muted" aria-label="from">
+                ←
+              </span>
+              <span class="pr-muted">{head}</span>
+            </p>
+            {files !== undefined && (
+              <p class="pr-stats">
+                <span class="pr-muted">
+                  {files} {files === 1 ? "file" : "files"}
+                </span>
+                <span class="pr-add">+{identity.additions}</span>
+                <span class="pr-del">−{identity.deletions}</span>
+              </p>
+            )}
+          </div>
         )}
       </div>
-      {activity.length === 0 ? (
-        <p class="empty">No activity yet.</p>
+    </header>
+  );
+}
+
+type CiState = "passed" | "running" | "queued";
+type CheckBase = { name: string; state: CiState; duration: string };
+type BotCheck = CheckBase & {
+  kind: "builtin";
+  id: string;
+  summary: string;
+  command: string;
+  output: string;
+};
+type CiCheck = BotCheck | (CheckBase & { kind: "github"; href: string });
+
+const BOT_CHECKS: BotCheck[] = [
+  {
+    kind: "builtin",
+    id: "static-analysis",
+    name: "Static analysis",
+    state: "passed",
+    duration: "8s",
+    summary: "No diagnostics in the two changed files.",
+    command: "bunx oxlint src/reviews/cache.ts tests/reviews/cache.test.ts",
+    output:
+      "[sample output]\nChecking 2 changed files…\n0 errors, 0 warnings\nCompleted in 8s.",
+  },
+  {
+    kind: "builtin",
+    id: "commit-isolation",
+    name: "Commit isolation",
+    state: "running",
+    duration: "24s elapsed",
+    summary:
+      "Checking that a new commit cannot reuse a cached review from an earlier commit.",
+    command: "bun test tests/reviews/cache.test.ts",
+    output:
+      "[sample output]\nPASS  A known commit retrieves its stored review\nRUN   A new commit does not reuse the previous review\nWaiting for the current check to finish…",
+  },
+  {
+    kind: "builtin",
+    id: "broken-variants",
+    name: "Broken variants",
+    state: "queued",
+    duration: "Not started",
+    summary:
+      "Waiting for commit isolation. The check will remove the commit from the cache key and confirm the isolation check catches it.",
+    command: "Not started",
+    output: "No output yet. This mock check is queued.",
+  },
+];
+
+const CI_SOURCES: { name: string; checks: CiCheck[] }[] = [
+  {
+    name: "GitHub Actions",
+    checks: [
+      {
+        kind: "github",
+        name: "Install",
+        state: "passed",
+        duration: "12s",
+        href: "https://github.com/oliynykmax/junction-2026/actions/runs/43613592339/job/132503728867#step:5:1",
+      },
+      {
+        kind: "github",
+        name: "Build",
+        state: "passed",
+        duration: "28s",
+        href: "https://github.com/oliynykmax/junction-2026/actions/runs/43613592339/job/132503728867#step:13:1",
+      },
+      {
+        kind: "github",
+        name: "Tests",
+        state: "passed",
+        duration: "44s",
+        href: "https://github.com/oliynykmax/junction-2026/actions/runs/43613592339/job/132503728867#step:9:1",
+      },
+    ],
+  },
+  { name: "Bumble Bot", checks: BOT_CHECKS },
+];
+const CI_LABELS: Record<CiState, string> = {
+  passed: "Passed",
+  running: "Running",
+  queued: "Queued",
+};
+
+function CiIcon({ state }: { state: CiState }) {
+  return (
+    <svg
+      class={`ci-icon ci-${state}`}
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+      {state === "passed" ? (
+        <path
+          d="m6.5 10 2.3 2.3 4.7-4.7"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       ) : (
-        shown && (
-          <ol class="feed">
-            {activity.map((a, i) => (
-              <li
-                key={i}
-                class={a.kind === "result" && a.isError ? "err" : undefined}
-              >
-                <span class="kind">
-                  {a.kind === "say"
-                    ? "agent"
-                    : a.kind === "call"
-                      ? "call"
-                      : a.isError
-                        ? "error"
-                        : "result"}
-                </span>
-                <div>
-                  {a.kind === "say" && <p>{a.text}</p>}
-                  {a.kind === "call" && (
-                    <p>
-                      <code>{a.name}</code>{" "}
-                      <code class="args">{JSON.stringify(a.args)}</code>
-                    </p>
-                  )}
-                  {a.kind === "result" && (
-                    <>
-                      <code>{a.name}</code>
-                      <pre>{a.text}</pre>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
-        )
+        <circle
+          cx="10"
+          cy="10"
+          r={state === "running" ? "3" : "1.5"}
+          fill="currentColor"
+        />
       )}
-    </section>
+    </svg>
+  );
+}
+
+function CiChecks() {
+  return (
+    <details class="ci-block" open>
+      <summary class="ci-heading">
+        <span>
+          Checks{" "}
+          <svg
+            class="ci-chevron"
+            viewBox="0 0 16 16"
+            width="16"
+            height="16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="m4 6 4 4 4-4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <span class="ci-demo-label">Mock results</span>
+      </summary>
+      <div class="ci-results">
+        {CI_SOURCES.flatMap((source) =>
+          source.checks.map((check) => {
+            const resultUrl = new URL(window.location.href);
+            if (check.kind === "builtin")
+              resultUrl.searchParams.set("check", check.id);
+            return (
+              <a
+                class="ci-result"
+                key={`${source.name}-${check.name}`}
+                href={
+                  check.kind === "github" ? check.href : resultUrl.toString()
+                }
+                target={check.kind === "github" ? "_blank" : undefined}
+                rel={check.kind === "github" ? "noreferrer" : undefined}
+              >
+                <CiIcon state={check.state} />
+                <span class="ci-result-name">
+                  {check.name}
+                  <span class="ci-origin">{source.name}</span>
+                </span>
+                <span class="ci-result-status">{CI_LABELS[check.state]}</span>
+              </a>
+            );
+          }),
+        )}
+      </div>
+    </details>
+  );
+}
+
+function BotCheckPage({ check }: { check: BotCheck | undefined }) {
+  const back = new URL(window.location.href);
+  back.searchParams.delete("check");
+  return (
+    <main class="bot-check-page ci-block">
+      <a class="bot-check-back" href={back.toString()}>
+        ← Pull request checks
+      </a>
+      <p class="bot-check-source">
+        Bumble Bot · mock result · commit <code>abc1234</code>
+      </p>
+      {!check ? (
+        <h1>Check not found</h1>
+      ) : (
+        <>
+          <div class="bot-check-title">
+            <CiIcon state={check.state} />
+            <h1>{check.name}</h1>
+          </div>
+          <div class="bot-check-meta">
+            <span class={`ci-${check.state}`}>{CI_LABELS[check.state]}</span>
+            <span>{check.duration}</span>
+          </div>
+          <p class="bot-check-summary">{check.summary}</p>
+          <section class="bot-check-output" aria-labelledby="output-heading">
+            <h2 id="output-heading">Output</h2>
+            <pre>
+              <code>
+                {check.command}
+                {"\n\n"}
+                {check.output}
+              </code>
+            </pre>
+          </section>
+          <p class="bot-check-disclaimer">
+            Preview data only. No checks are executing and this output is
+            illustrative.
+          </p>
+        </>
+      )}
+    </main>
   );
 }

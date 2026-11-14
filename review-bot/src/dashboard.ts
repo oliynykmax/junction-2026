@@ -12,8 +12,8 @@ const DEFAULT_WINDOW_MS = 86_400_000;
 const PAGE = 50;
 const LOG = 200;
 const MCP_GROUPS = 50;
-/** Newest call rows read per window for percentiles. Counts come from exact SQL totals, not from this sample. */
-const SAMPLE = 5_000;
+/** Newest rows per kind (modal, mcp) read per window for percentiles, so one kind cannot crowd out the other. Counts come from exact SQL totals, not from this sample. */
+const SAMPLE = 2_500;
 
 export type ShownStatus = "done" | "failed" | "running" | "stale";
 const SHOWN: readonly ShownStatus[] = ["done", "failed", "running", "stale"];
@@ -459,9 +459,11 @@ export async function dashboardView(
        WHERE ${runWhere} GROUP BY m.model ORDER BY cost_usd DESC`,
       ),
       stmt(
-        `SELECT e.kind, e.name, e.ok, e.ms FROM events e
-       WHERE e.kind IN ('modal', 'mcp', 'mcp_connect', 'github_token') AND ${eventWhere}
-       ORDER BY e.at DESC LIMIT ${SAMPLE}`,
+        `SELECT kind, name, ok, ms FROM (
+         SELECT e.kind, e.name, e.ok, e.ms,
+           ROW_NUMBER() OVER (PARTITION BY e.kind ORDER BY e.at DESC) AS rn
+         FROM events e WHERE e.kind IN ('modal', 'mcp') AND ${eventWhere}
+       ) WHERE rn <= ${SAMPLE}`,
       ),
       stmt(
         `SELECT e.kind, e.name, COUNT(*) AS n, SUM(e.ok = 0) AS bad FROM events e

@@ -43,9 +43,7 @@ function match(value, name, pattern) {
   if (!pattern.test(parsed)) throw new Error(`${name} is invalid`);
   return parsed;
 }
-async function destroy(session) {
-  session.ready = false;
-  session.busy = true;
+async function removeWorker(session) {
   const result = await podman(
     ["rm", "--force", "--time", "0", "--ignore", session.name],
     {
@@ -66,6 +64,14 @@ async function destroy(session) {
   ).stdout.trim();
   if (network) await pm(["network", "rm", network]);
   if (sessions.get(session.key) === session) sessions.delete(session.key);
+}
+function destroy(session) {
+  if (session.cleanup) return session.cleanup;
+  session.ready = false;
+  session.cleanup = removeWorker(session).finally(() => {
+    session.cleanup = null;
+  });
+  return session.cleanup;
 }
 async function cleanup() {
   const { stdout } = await pm([
@@ -96,9 +102,8 @@ async function checkout(input, signal) {
   if (/[\r\n\0]/.test(token)) throw new Error("invalid githubToken");
   const id = key(input.session);
   const old = sessions.get(id);
-  if (old?.busy) throw new Error("session busy");
+  if (old?.busy || old?.cleanup) throw new Error("session busy");
   if (old) {
-    old.busy = true;
     await destroy(old);
   }
   if (sessions.size >= MAX_SESSIONS)
@@ -291,7 +296,6 @@ const server = createServer(async (request, response) => {
 });
 await mkdir(ROOT, { recursive: true, mode: 0o700 });
 await cleanup();
-// Staging contains only broker-fetched Git data, never worker-controlled paths.
 await rm(ROOT, { recursive: true, force: true });
 await mkdir(ROOT, { recursive: true, mode: 0o700 });
 const reaper = setInterval(
@@ -301,8 +305,6 @@ const reaper = setInterval(
         (!session.busy && Date.now() - session.touched > IDLE_MS) ||
         Date.now() - session.created > LIFETIME_MS
       ) {
-        session.ready = false;
-        session.busy = true;
         void destroy(session).catch(() => {});
       }
     }

@@ -54,6 +54,21 @@ Local runtime was Node 22.23.3 and rootless Podman 6.1.4 with resource controls 
 
 The local engine is rootless. The systemd deployment uses the rootful engine and socket on the dedicated VM. That exact VM, its firewall, kernel, cgroup delegation and deployed distro versions were not exercised. Deployment must fail if network isolation or resource flags are unsupported. Only the manager mounts the administrative socket; compromising the broker itself would compromise the engine.
 
+## Independent review and cleanup retry
+
+A fresh Codex reviewer reran both live Podman integration paths and the local
+checks. It reproduced one transient-failure defect: a failed worker removal
+left the session busy, preventing release retries and idle cleanup.
+
+The parent added an HTTP regression test using the actual manager server with
+a failing Podman CLI boundary. Before the fix, both release retries returned
+400 instead of 200. Cleanup now has its own shared promise, separate from
+command execution. Failed workers stay unready and capacity-accounted;
+release and idle cleanup can retry. Concurrent release requests await the same
+removal. The regression test passes, including the single-removal assertion.
+The full suite passes 232 tests with 736 assertions. Type checking, lint and
+formatting also pass. A new comment narration line was removed.
+
 Worker writable layers have no per-worker disk quota. Logs are disabled and lifetime/concurrency are bounded, but hostile code can still exhaust shared VM disk. Use quota-backed Podman storage or a separate execution host before accepting workloads with disk-exhaustion intent. Full Git history is also bounded only by the manager's memory, tmpfs and fetch timeout. Containers share a kernel. These checks do not prove resistance to kernel escapes, unrestricted public-network abuse or every possible host routing configuration. The deliberately unrestricted shell has no command allow-list.
 
 Official API references checked against the installed major versions are [Node 22 child processes](https://nodejs.org/download/release/latest-v22.x/docs/api/child_process.html), [Podman 6.1.4 run](https://docs.podman.io/en/v6.1.4/markdown/podman-run.1.html), and [Podman 6.1.4 network creation](https://docs.podman.io/en/v6.1.4/markdown/podman-network-create.1.html). Runtime checks, rather than flag names alone, establish the evidence above.

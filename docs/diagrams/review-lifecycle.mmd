@@ -1,0 +1,62 @@
+sequenceDiagram
+  autonumber
+  actor Dev as Developer / Agent
+  participant GH as GitHub (Repo & App)
+  participant CF as Cloudflare Worker (j26-review-bot)
+  participant DO as Durable Object (Review / SQLite)
+  participant Modal as Modal Scanner (FastAPI)
+  participant Rubric as Cursor Rubric (SKILL.md)
+  participant Agent as Claude Sonnet 3.5/5.5 (QuickJS)
+  participant MCP as Streamable HTTP MCP (Context.dev / MS Learn)
+  participant UI as Web Dashboard (/r/... & /m/...)
+
+  Dev->>GH: Open / Synchronize Pull Request
+  GH->>CF: POST /webhook (pull_request event)
+  CF->>DO: Route event by PR & head commit SHA
+  DO->>DO: Initialize SQLite state & set alarm heartbeat
+  DO->>GH: Post initial sticky comment with review link
+
+  rect rgb(240, 245, 255)
+    note over DO,Modal: Step 1: Deterministic Static Scans
+    DO->>Modal: POST /scan (commit SHA, scanner tools, token)
+    Modal->>Modal: Download tarball & execute zizmor, ty, oxlint
+    Modal-->>DO: Return normalized diagnostics JSON
+    DO->>DO: Store diagnostics in SQLite
+  end
+
+  rect rgb(255, 245, 240)
+    note over DO,Rubric: Step 2: Fetch Pinned Review Rubric
+    DO->>Rubric: GET Cursor thermo-nuclear SKILL.md
+    Rubric-->>DO: Return rubric text
+    DO->>DO: Compute & verify SHA256 of rubric
+  end
+
+  rect rgb(245, 255, 245)
+    note over DO,MCP: Step 3: AI Code Review & Docs Gate
+    DO->>Agent: Start agent turns with rubric, diff, & diagnostics
+    loop Code Mode Exploration
+      Agent->>GH: Read PR overview, patch, & files
+      Agent->>MCP: Query Context.dev (web) / MS Learn (docs)
+      MCP-->>Agent: Return official docs / search results
+      Agent->>DO: Record consulted documentation
+    end
+    Agent->>DO: Confirm findings or dismiss scanner diagnostics
+    DO->>DO: Enforce Docs Gate (refuse finish if no docs checked)
+    Agent->>DO: finish_review(summary, dismissed, not_checked)
+  end
+
+  rect rgb(250, 250, 250)
+    note over DO,GH: Step 4: Decision & Status Update
+    DO->>DO: Derive advisory decision from findings
+    alt No critical/high verified/likely findings
+      DO->>GH: Submit PR Approval (commit head)
+    else Blocker findings detected
+      DO->>GH: Request changes / report blockers
+    end
+    DO->>GH: Update sticky PR comment with summary & chips
+  end
+
+  loop Live Polling
+    UI->>DO: GET /api/r/:owner/:repo/:pr/:sha (every 2s)
+    DO-->>UI: Return live turns, diagnostics, & findings
+  end

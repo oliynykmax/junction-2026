@@ -1,0 +1,65 @@
+flowchart TD
+  subgraph SOURCE_CONTROL["Source Control (GitHub)"]
+    DEV_PUSH["Developer Git Push / PR"]
+    MAIN_BRANCH["Branch: main"]
+    GH_WORKFLOWS[".github/workflows/"]
+  end
+
+  subgraph CI_CD_WORKER["Cloudflare Worker CI/CD (.github/workflows/review-bot.yml)"]
+    direction TB
+    TRIGGER_CHECK{"Trigger Event:<br/>Push to main or PR<br/>paths: review-bot/**"}
+    
+    subgraph JOB_CHECK["Job: check (ubuntu-latest)"]
+      SETUP_BUN["oven-sh/setup-bun (canary)"]
+      BUN_INSTALL["bun install --frozen-lockfile"]
+      BUN_FMT["bun fmt --check (Code style)"]
+      BUN_LINT["bun lint (Linter)"]
+      BUN_TYPECHECK["bun check (TypeScript)"]
+      
+      SETUP_BUN --> BUN_INSTALL
+      BUN_INSTALL --> BUN_FMT
+      BUN_FMT --> BUN_LINT
+      BUN_LINT --> BUN_TYPECHECK
+    end
+
+    GATE_MAIN{"Condition Check:<br/>Branch == main &amp;&amp;<br/>Event != pull_request"}
+
+    subgraph JOB_DEPLOY["Job: deploy (Environment: production)"]
+      DEPLOY_CHECKOUT["actions/checkout"]
+      DEPLOY_SETUP["Setup Bun canary &amp; install"]
+      WRANGLER_DEPLOY["bunx wrangler deploy<br/>(CLOUDFLARE_API_TOKEN)"]
+      
+      DEPLOY_CHECKOUT --> DEPLOY_SETUP
+      DEPLOY_SETUP --> WRANGLER_DEPLOY
+    end
+
+    CF_PROD["Cloudflare Production<br/>Worker: j26-review-bot<br/>Domain: review.oliinyk.dev"]
+  end
+
+  subgraph CI_LINT["Workflow Validation (.github/workflows/jactionlint.yml)"]
+    TRIGGER_LINT{"Trigger Event:<br/>paths: .github/**"}
+    ACTIONLINT["jdx/jactionlint<br/>Validates GitHub Actions YAML"]
+  end
+
+  subgraph DEPLOY_MODAL["Modal Scanner Deployment (scanner/)"]
+    MODAL_LOCAL["Developer / CI Environment"]
+    UV_SYNC["uv sync<br/>(pyproject.toml + uv.lock)"]
+    MODAL_DEPLOY_CMD["uv run modal deploy app.py<br/>Profile: j26-earned-trust"]
+    MODAL_CLOUD["Modal Serverless Cloud<br/>Endpoint: us-east.modal.run<br/>Secret: j26-review-scanner"]
+    
+    MODAL_LOCAL --> UV_SYNC
+    UV_SYNC --> MODAL_DEPLOY_CMD
+    MODAL_DEPLOY_CMD --> MODAL_CLOUD
+  end
+
+  %% Connections
+  DEV_PUSH --> TRIGGER_CHECK
+  DEV_PUSH --> TRIGGER_LINT
+  GH_WORKFLOWS -.-> TRIGGER_LINT
+  TRIGGER_LINT --> ACTIONLINT
+
+  TRIGGER_CHECK --> JOB_CHECK
+  JOB_CHECK --> GATE_MAIN
+  GATE_MAIN -->|"Yes (on merge to main)"| JOB_DEPLOY
+  GATE_MAIN -.->|"No (on PR)"| CI_STOP["CI Pass (No Deploy)"]
+  WRANGLER_DEPLOY --> CF_PROD

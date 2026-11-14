@@ -10,6 +10,7 @@ import {
   uncoveredFiles,
 } from "../src/reviewer";
 import { unabridgedFiles } from "../src/reading-gate";
+import { receiptFrom } from "../src/formal";
 import { changeSentence } from "../web/shared";
 
 const file = (filename: string, patch?: string) => ({
@@ -82,6 +83,25 @@ function reviewWith(paths: string[]): ReviewState {
     readings: Object.fromEntries(
       paths.map((p) => [p, { remove: [], fold: [], replace: [] }]),
     ),
+    verifications: paths.length
+      ? [
+          receiptFrom("seed", {
+            files: paths,
+            target: "cache key",
+            property: "A read stays scoped to its commit.",
+            harm: "A human could read stale evidence.",
+            method: "TLA+",
+            checker: "TLC 2.19",
+            command: "tlc CacheScope.tla",
+            outcome: "passed",
+            result: "No violation in 12 states.",
+            scope: "Two heads and every read/write order.",
+            broken_variant: "Removing the head key produces a stale read.",
+            assumptions: ["writes are atomic"],
+            limits: ["does not model eviction"],
+          }),
+        ]
+      : [],
   };
 }
 
@@ -216,6 +236,96 @@ test("finish_review refuses an invalid STAR without finishing", async () => {
   expect(state.verdict).toBeNull();
 });
 
+test("finish_review requires a bounded verification receipt for every changed file", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  state.verifications = [];
+  const { run } = harness(state);
+  await run("describe_change", change);
+  const missing = await run("finish_review", finish());
+  expect(missing.isError).toBe(true);
+  expect(missing.output[0].text).toContain("verification receipt");
+  expect(state.verdict).toBeNull();
+
+  const invalid = await run("record_verification", {
+    files: ["src/TypeCollector.cs"],
+    target: "TypeCollector.GetTypeArguments",
+    property: "Closed generic arguments stay in bounds.",
+    harm: "The source generator can throw for a valid user type.",
+    method: "Dafny",
+    checker: "Dafny 4.10",
+    command: "dafny verify verification/TypeArguments.dfy",
+    outcome: "passed",
+    result: "Verified for every modeled input.",
+    scope: "Type arities 0 through 4.",
+    assumptions: ["The model matches the source indexing rules."],
+    limits: ["Does not verify reflection metadata."],
+  });
+  expect(invalid.isError).toBe(true);
+  expect(invalid.output[0].text).toContain("broken_variant");
+
+  const recorded = await run("record_verification", {
+    files: ["src/TypeCollector.cs"],
+    target: "TypeCollector.GetTypeArguments",
+    property: "Closed generic arguments stay in bounds.",
+    harm: "The source generator can throw for a valid user type.",
+    method: "Dafny",
+    checker: "Dafny 4.10",
+    command: "dafny verify verification/TypeArguments.dfy",
+    outcome: "passed",
+    result: "Verified for every modeled input.",
+    scope: "Type arities 0 through 4.",
+    broken_variant: "Removing the arity guard produces a failed bound proof.",
+    assumptions: ["The model matches the source indexing rules."],
+    limits: ["Does not verify reflection metadata."],
+  });
+  expect(recorded.isError).toBeUndefined();
+  await run("finish_review", finish());
+  expect(state.verdict).not.toBeNull();
+});
+
+test("finish gate rejects every incomplete receipt set in a two-file review", async () => {
+  const paths = ["src/TypeCollector.cs", "tests/TypeCollector.test.cs"];
+  for (const covered of [[], [paths[0]], [paths[1]], paths]) {
+    const state = reviewWith(paths);
+    state.verifications = covered.length
+      ? [
+          receiptFrom(`receipt-${covered.length}`, {
+            files: covered,
+            target: "generic type lookup",
+            property:
+              "A review cannot settle before every changed file has a receipt.",
+            harm: "The owner could mistake an uncovered change for checked work.",
+            method: "property test",
+            checker: "Bun 1.4",
+            command: "bun test tests/changes.test.ts",
+            outcome: "passed",
+            result: "Every bounded coverage combination behaved as expected.",
+            scope: "The four receipt subsets of a two-file review.",
+            broken_variant:
+              "Removing the completion check lets a one-file receipt settle the review.",
+            assumptions: [
+              "The Durable Object invokes finish_review once per completion.",
+            ],
+            limits: [
+              "This is a bounded two-file check, not a proof of all runtime failures.",
+            ],
+          }),
+        ]
+      : [];
+    const { run } = harness(state);
+    await run("describe_change", { ...change, files: paths });
+    const result = await run("finish_review", finish());
+    if (covered.length === paths.length) {
+      expect(result.isError).toBeUndefined();
+      expect(state.verdict).not.toBeNull();
+    } else {
+      expect(state.verdict).toBeNull();
+      expect(result.isError).toBe(true);
+      expect(result.output[0].text).toContain("verification receipt");
+    }
+  }
+});
+
 test("describe_change records a change, lowercases tags and replaces by title", async () => {
   const state = reviewWith(["src/TypeCollector.cs", "tests/T.cs"]);
   const { run } = harness(state);
@@ -337,4 +447,42 @@ test("a file named like an Object.prototype member still needs its own plan", ()
   state.readings = {};
   state.readingRefusals = {};
   expect(unabridgedFiles(state)).toEqual(["constructor", "toString"]);
+});
+
+test("missing receipts never bypass the gate after repeated completion attempts", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  state.verifications = [];
+  const { run } = harness(state);
+  await run("describe_change", change);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const result = await run("finish_review", finish());
+    expect(result.isError).toBe(true);
+    expect(state.verdict).toBeNull();
+  }
+});
+
+test("explicit unrun and counterexample receipts persist without becoming passes", async () => {
+  for (const outcome of ["not_run", "counterexample"] as const) {
+    const state = reviewWith(["src/TypeCollector.cs"]);
+    const seed = state.verifications![0];
+    state.verifications = [];
+    const { run } = harness(state);
+    await run("describe_change", change);
+    const result =
+      outcome === "not_run"
+        ? "Not run: the verifier setup failed because the toolchain is unavailable."
+        : "Counterexample trace: the second generic argument indexes beyond the bound.";
+    const { id: _id, brokenVariant: _broken, ...fields } = seed;
+    const recorded = await run("record_verification", {
+      ...fields,
+      outcome,
+      result,
+    });
+    expect(recorded.isError).toBeUndefined();
+    expect(state.verifications?.[0].outcome).toBe(outcome);
+    expect(state.verifications?.[0].result).toBe(result);
+    expect(state.verifications?.[0].brokenVariant).toBeNull();
+    await run("finish_review", finish());
+    expect(state.verdict).not.toBeNull();
+  }
 });

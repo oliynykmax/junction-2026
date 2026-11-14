@@ -3,9 +3,23 @@ name: review-bot
 on:
   push:
     branches: [main]
-    paths: ["review-bot/**", "landing/**", ".github/workflows/review-bot.yml", ".github/actions/setup-celld/**"]
+    paths:
+      [
+        ".agents/skills/verify-pr-change/**",
+        "review-bot/**",
+        "landing/**",
+        ".github/workflows/review-bot.yml",
+        ".github/actions/setup-celld/**",
+      ]
   pull_request:
-    paths: ["review-bot/**", "landing/**", ".github/workflows/review-bot.yml", ".github/actions/setup-celld/**"]
+    paths:
+      [
+        ".agents/skills/verify-pr-change/**",
+        "review-bot/**",
+        "landing/**",
+        ".github/workflows/review-bot.yml",
+        ".github/actions/setup-celld/**",
+      ]
   workflow_dispatch:
 
 permissions: {}

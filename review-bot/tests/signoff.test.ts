@@ -8,6 +8,7 @@ import {
   signOff,
   signOffComment,
   STATUS_CONTEXT,
+  syncOwnerStatus,
 } from "../src/signoff";
 
 const SECRET = "test-session-secret";
@@ -277,11 +278,21 @@ function harness(opts: {
   existing?: SignOff | null;
   statusFails?: boolean;
   recordEchoFails?: boolean;
+  /** PR comments that already exist, as GitHub lists them. */
+  comments?: { id: number; body: string }[];
 }) {
   let stored: SignOff | null = opts.existing ?? null;
-  const writes: { path: string; body: Record<string, unknown> }[] = [];
+  const writes: {
+    method: string;
+    path: string;
+    body: Record<string, unknown>;
+  }[] = [];
+  const comments = [...(opts.comments ?? [])];
+  // Mutable so a test can let a later retry succeed.
+  const github = { statusFails: opts.statusFails ?? false };
   const stub = {
     view: async () => view({ signOff: stored }),
+    getSignOff: async () => stored,
     storeSignOff: async (r: SignOff) => {
       if (stored) return stored;
       stored = r;
@@ -317,17 +328,22 @@ function harness(opts: {
       return opts.permission === "none"
         ? new Response("not found", { status: 404 })
         : Response.json({ permission: opts.permission ?? "write" });
-    if (init?.method === "POST") {
-      writes.push({ path, body: JSON.parse(String(init.body)) });
-      if (path.startsWith("/repos/team/demo/statuses/") && opts.statusFails)
+    if (path === "/repos/team/demo/issues/1/comments?per_page=100")
+      return Response.json(comments);
+    if (init?.method === "POST" || init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body));
+      writes.push({ method: init.method, path, body });
+      if (path.startsWith("/repos/team/demo/statuses/") && github.statusFails)
         return new Response("Resource not accessible by integration", {
           status: 403,
         });
+      if (path === "/repos/team/demo/issues/1/comments")
+        comments.push({ id: comments.length + 100, body: body.body });
       return Response.json({});
     }
     throw new Error(`Unexpected request ${path}`);
   }) as typeof fetch);
-  return { env, writes, stored: () => stored };
+  return { env, writes, github, stored: () => stored };
 }
 
 async function post(
@@ -442,3 +458,134 @@ for (const [name, sealed] of [
     expect(h.stored()).toBeNull();
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
+
+// Finding: a failed GitHub write after the sign-off was stored must be
+// retryable, without changing the record or posting a second comment.
+
+test("a failed status write can be retried; only the failed part is redone", async () => {
+  const h = harness({ statusFails: true });
+  expect((await post(h.env)).status).toBe(200);
+  expect(h.stored()?.echo?.status.ok).toBe(false);
+  const signedAt = h.stored()?.at;
+
+  h.github.statusFails = false;
+  const retry = await post(h.env, {});
+  expect(retry.status).toBe(200);
+  expect(h.stored()?.echo).toEqual({
+    comment: { ok: true },
+    status: { ok: true },
+  });
+  expect(h.stored()?.at).toBe(signedAt);
+  const statuses = h.writes.filter((w) => w.path.includes("/statuses/"));
+  expect(statuses.map((w) => w.body.state)).toEqual(["success", "success"]);
+  // The comment had succeeded, so the retry did not post it again.
+  expect(h.writes.filter((w) => w.path.endsWith("/comments"))).toHaveLength(1);
+});
+
+test("a retry updates this commit's sign-off comment instead of adding one", async () => {
+  const signed = buildSignOff(input, view(), signer, "write", 1);
+  const marked = signOffComment(signed, "#").split("\n")[0]!;
+  const h = harness({
+    existing: { ...signed, echo: null },
+    comments: [{ id: 42, body: `${marked}\nearlier text` }],
+  });
+  expect((await post(h.env, {})).status).toBe(200);
+  expect(h.writes.map((w) => `${w.method} ${w.path}`)).toContain(
+    "PATCH /repos/team/demo/issues/comments/42",
+  );
+  expect(
+    h.writes.some((w) => w.method === "POST" && w.path.endsWith("/comments")),
+  ).toBe(false);
+});
+
+test("sign-off comments are marked per commit, so another commit's is not reused", () => {
+  const a = signOffComment(buildSignOff(input, view(), signer, "write"), "#");
+  const b = signOffComment(
+    {
+      ...buildSignOff(input, view(), signer, "write"),
+      headSha: "b".repeat(40),
+    },
+    "#",
+  );
+  expect(a.split("\n")[0]).not.toBe(b.split("\n")[0]);
+});
+
+test("a read-only user cannot retry the echo", async () => {
+  const signed = buildSignOff(input, view(), signer, "write", 1);
+  const h = harness({
+    existing: { ...signed, echo: null },
+    permission: "read",
+  });
+  expect((await post(h.env, {})).status).toBe(403);
+  expect(h.writes).toHaveLength(0);
+});
+
+// syncOwnerStatus runs on every pull request webhook.
+
+function statusHarness(opts: {
+  configured?: boolean;
+  /** What each successive getSignOff call returns. */
+  reads: (SignOff | null)[];
+}) {
+  const states: string[] = [];
+  const recorded: unknown[] = [];
+  let read = 0;
+  const store = {
+    getSignOff: async () =>
+      opts.reads[Math.min(read++, opts.reads.length - 1)] ?? null,
+    recordEcho: async (e: unknown) => {
+      recorded.push(e);
+    },
+  };
+  const env = {
+    REVIEW_BASE_URL: origin,
+    ...(opts.configured === false
+      ? {}
+      : {
+          GITHUB_CLIENT_ID: "Iv1",
+          GITHUB_CLIENT_SECRET: "s",
+          SESSION_SECRET: SECRET,
+        }),
+  } as unknown as Env;
+  spyOn(globalThis, "fetch").mockImplementation((async (
+    _input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    states.push(JSON.parse(String(init?.body)).state);
+    return Response.json({});
+  }) as typeof fetch);
+  const run = () =>
+    syncOwnerStatus(env, "inst", { ...pr, installationId: 7 }, store);
+  return { run, states, recorded };
+}
+
+test("no sign-off status is written where sign-in is not configured", async () => {
+  const h = statusHarness({ configured: false, reads: [null] });
+  await h.run();
+  expect(h.states).toEqual([]);
+});
+
+test("an unsigned commit waits with a pending status", async () => {
+  const h = statusHarness({ reads: [null, null] });
+  await h.run();
+  expect(h.states).toEqual(["pending"]);
+});
+
+test("a webhook racing a sign-off ends on success, not pending", async () => {
+  // Unsigned when the webhook first reads, signed by the time it re-reads.
+  const signed = buildSignOff(input, view(), signer, "write");
+  const h = statusHarness({ reads: [null, signed] });
+  await h.run();
+  expect(h.states).toEqual(["pending", "success"]);
+});
+
+test("a webhook for a signed commit repairs a status write that failed", async () => {
+  const signed = {
+    ...buildSignOff(input, view(), signer, "write"),
+    echo: { comment: { ok: true }, status: { ok: false, error: "403" } },
+  } as SignOff;
+  const h = statusHarness({ reads: [signed] });
+  await h.run();
+  expect(h.states).toEqual(["success"]);
+  expect(h.recorded).toEqual([{ comment: { ok: true }, status: { ok: true } }]);
+});

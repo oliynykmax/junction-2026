@@ -269,8 +269,8 @@ export class Review extends DurableObject<Env> {
     return null;
   }
 
-  async hasSignOff(): Promise<boolean> {
-    return (await this.ctx.storage.get(SIGNOFF_KEY)) !== undefined;
+  async getSignOff(): Promise<SignOff | null> {
+    return (await this.ctx.storage.get<SignOff>(SIGNOFF_KEY)) ?? null;
   }
 
   async recordEcho(echo: { comment: Echo; status: Echo }): Promise<void> {

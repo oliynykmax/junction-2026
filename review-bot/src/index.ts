@@ -18,7 +18,7 @@ import { type Env, reviewLink } from "./review";
 import { reviewKey } from "./review-key";
 import type { Target } from "./reviewer";
 import { callback, login, logout, me } from "./auth";
-import { setOwnerStatus, signOff } from "./signoff";
+import { signOff, syncOwnerStatus } from "./signoff";
 
 export { ManualGate } from "./manual-gate";
 export { Review } from "./review";
@@ -167,19 +167,11 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     comment,
   );
   await dismissBotApprovals(token, target);
-  // Each new head waits for a named owner. "reopened" and "ready_for_review"
-  // (and webhook redeliveries) can arrive for a commit that is already signed,
-  // so leave its success status alone. A failure here (for example the App
-  // lacking "Commit statuses: write") must not stop the review.
+  // The owner sign-off status follows what is stored for this commit (see
+  // syncOwnerStatus). A failure here (for example the App lacking "Commit
+  // statuses: write") must not stop the review.
   try {
-    if (!(await review.hasSignOff()))
-      await setOwnerStatus(
-        token,
-        target,
-        "pending",
-        "Waiting for a named owner to sign off on the review page",
-        reviewLink(env, target),
-      );
+    await syncOwnerStatus(env, token, target, review);
   } catch (e) {
     console.error("owner sign-off status", e);
   }

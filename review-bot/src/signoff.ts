@@ -9,14 +9,16 @@
 // only this record says a person owns the change.
 
 import { blocks, type Confidence, type Severity } from "./findings";
-import { gh, ghJson, installationToken } from "./github";
+import { gh, ghJson, installationToken, upsertComment } from "./github";
 import type { Env, ReviewView } from "./review";
 import { reviewKey, reviewLink } from "./review-key";
 import type { Target } from "./reviewer";
-import { readSession, type Session } from "./session";
+import { configured, readSession, type Session } from "./session";
 
 export const STATUS_CONTEXT = "bumble-bot/owner-sign-off";
-const COMMENT_MARKER = "<!-- bumble-bot-owner-sign-off -->";
+/** One comment per signed commit, so a retry updates it instead of adding one. */
+const commentMarker = (sha: string) =>
+  `<!-- bumble-bot-owner-sign-off ${sha} -->`;
 const MAX_TEXT = 4000;
 const WRITE = new Set(["admin", "write"]);
 
@@ -165,17 +167,27 @@ export async function signOff(
     const stub = env.REVIEWS.getByName(reviewKey(pr));
     // Typed as manual.ts does: the RPC stub's inferred type collapses here.
     const view: ReviewView = await stub.view();
-    if (view.signOff)
-      throw new SignOffError(
-        `@${view.signOff.signer.login} already signed off on this commit.`,
-        409,
-      );
     const target = view.review.target;
     if (!target || target.mode === "manual")
       throw new SignOffError(
         "Only reviews of installed repositories can be signed.",
         409,
       );
+
+    // Already signed: the record never changes, but GitHub writes that failed
+    // can be retried, by any writer, without the form.
+    if (view.signOff) {
+      const signed = view.signOff;
+      if (signed.echo?.comment.ok && signed.echo.status.ok)
+        throw new SignOffError(
+          `@${signed.signer.login} already signed off on this commit.`,
+          409,
+        );
+      const { token } = await authorize(env, target, session);
+      const retried = await echo(env, token, target, signed, signed.echo);
+      await stub.recordEcho(retried);
+      return json({ ...signed, echo: retried });
+    }
 
     const { token, permission } = await authorize(env, target, session);
     const record = buildSignOff(input, view, session, permission);
@@ -249,31 +261,95 @@ const settle = (p: Promise<unknown>): Promise<Echo> =>
     }),
   );
 
+const done: Echo = { ok: true };
+
+/**
+ * Writes the sign-off to GitHub: the PR comment and the success status. Both
+ * writes can be repeated: the comment is found again by its per-commit marker
+ * and updated. Parts that already succeeded (in `previous`) are skipped.
+ */
 async function echo(
   env: Env,
   token: string,
   t: Target,
   s: SignOff,
+  previous: SignOff["echo"] = null,
 ): Promise<{ comment: Echo; status: Echo }> {
   const link = reviewLink(env, t);
   const [comment, status] = await Promise.all([
-    settle(
-      gh(token, `/repos/${t.owner}/${t.repo}/issues/${t.number}/comments`, {
-        method: "POST",
-        body: { body: signOffComment(s, link) },
-      }),
-    ),
-    settle(
-      setOwnerStatus(
-        token,
-        t,
-        "success",
-        `Signed off by @${s.signer.login}`,
-        link,
-      ),
-    ),
+    previous?.comment.ok
+      ? done
+      : settle(
+          upsertComment(
+            token,
+            t.owner,
+            t.repo,
+            t.number,
+            commentMarker(s.headSha),
+            signOffComment(s, link),
+          ),
+        ),
+    previous?.status.ok
+      ? done
+      : settle(
+          setOwnerStatus(
+            token,
+            t,
+            "success",
+            `Signed off by @${s.signer.login}`,
+            link,
+          ),
+        ),
   ]);
   return { comment, status };
+}
+
+/** The part of a commit's Review object the status sync reads and writes. */
+export type SignOffStore = {
+  getSignOff(): Promise<SignOff | null>;
+  recordEcho(echo: NonNullable<SignOff["echo"]>): Promise<void>;
+};
+
+/**
+ * Brings a commit's owner sign-off status in line with what is stored, on
+ * every pull request webhook for it.
+ * - Sign-in not configured: nobody could sign, so no status is written that
+ *   would wait forever.
+ * - Signed: success, which also repairs a status write that failed when the
+ *   owner signed.
+ * - Not signed: pending, then the sign-off is read again. If the owner signed
+ *   meanwhile, success is written after the pending, so a late or redelivered
+ *   webhook never leaves pending as the newest status.
+ */
+export async function syncOwnerStatus(
+  env: Env,
+  token: string,
+  t: Target,
+  store: SignOffStore,
+): Promise<void> {
+  if (!configured(env)) return;
+  const link = reviewLink(env, t);
+  let record = await store.getSignOff();
+  if (!record) {
+    await setOwnerStatus(
+      token,
+      t,
+      "pending",
+      "Waiting for a named owner to sign off on the review page",
+      link,
+    );
+    record = await store.getSignOff();
+    if (!record) return;
+  }
+  await setOwnerStatus(
+    token,
+    t,
+    "success",
+    `Signed off by @${record.signer.login}`,
+    link,
+  );
+  if (record.echo && !record.echo.status.ok)
+    await store.recordEcho({ ...record.echo, status: done });
 }
 
 /** Marks a commit as waiting for, or holding, a named owner's sign-off. */
@@ -315,7 +391,7 @@ export function signOffComment(s: SignOff, link: string): string {
     ...(s.notChecked ? [quote(s.notChecked)] : []),
   ];
   return [
-    COMMENT_MARKER,
+    commentMarker(s.headSha),
     `### ✍️ @${s.signer.login} signed off on \`${short}\``,
     `They own this change. Bumble Bot's [review of \`${short}\`](${link}) is the evidence they read, not the approval.`,
     "",

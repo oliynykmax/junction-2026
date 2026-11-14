@@ -42,7 +42,7 @@ export function SignOffSection({
   const me = useMe(Boolean(api) && done && !signed);
 
   let body;
-  if (signed) body = <Signed s={signed} />;
+  if (signed) body = <Signed s={signed} api={api} onSigned={onSigned} />;
   else if (!api)
     body = (
       <p class="empty">
@@ -291,13 +291,44 @@ function SignOffForm({
   );
 }
 
-function Signed({ s }: { s: SignOff }) {
+function Signed({
+  s,
+  api,
+  onSigned,
+}: {
+  s: SignOff;
+  api: string | null;
+  onSigned: (s: SignOff) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Re-sends only the GitHub writes that failed; the record itself is fixed.
+  const retry = async () => {
+    if (!api || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(api, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      const body = (await res.json()) as SignOff & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      onSigned(body);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
   const failed = s.echo
     ? [
         !s.echo.comment.ok && `PR comment: ${s.echo.comment.error}`,
         !s.echo.status.ok && `commit status: ${s.echo.status.error}`,
       ].filter(Boolean)
-    : [];
+    : // Stored, but stopped before the GitHub writes finished.
+      ["the PR comment and commit status were not written"];
   return (
     <div class="so-record">
       <p class="so-who">
@@ -361,7 +392,22 @@ function Signed({ s }: { s: SignOff }) {
       </dl>
       {failed.length > 0 && (
         <p class="alert">
-          Saved here, but not echoed to GitHub: {failed.join("; ")}
+          Saved here, but not echoed to GitHub: {failed.join("; ")}.{" "}
+          {api && (
+            <button
+              type="button"
+              class="toggle"
+              disabled={busy}
+              onClick={retry}
+            >
+              {busy ? "Retrying…" : "Retry"}
+            </button>
+          )}
+        </p>
+      )}
+      {error && (
+        <p class="alert" role="alert">
+          {error}
         </p>
       )}
     </div>

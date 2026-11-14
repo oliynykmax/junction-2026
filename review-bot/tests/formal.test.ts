@@ -7,7 +7,8 @@ import {
   verificationProblems,
   type VerificationInput,
 } from "../src/formal";
-import { FormalDemo } from "../web/formal";
+import type { ConversationId } from "@earendil-works/pi-durable";
+import { FormalDemo, VerdictBadge, VerificationReceipts } from "../web/formal";
 
 const valid: VerificationInput = {
   files: ["src/cache.ts"],
@@ -174,14 +175,15 @@ test("finding rendering preserves legacy bodies and shows reason evidence fix an
       after: "Passed with head key.",
     },
   });
-  const tested = renderToString(
-    h(FindingDetails, { f: { ...f, verification } }),
-  );
+  const verdict = {
+    verdict: "reproduced" as const,
+    receiptId: "r",
+    note: "The repro returned the old review.",
+    receipt: verification,
+  };
+  const tested = renderToString(h(FindingDetails, { f: { ...f, verdict } }));
   expect(tested).toContain("Fix tested on scratch copy");
-  expect(tested).toContain("Before fix");
-  expect(tested).toContain("After fix");
-  expect(tested).toContain("Assumptions &amp; limits");
-  expect(tested).toContain("not checker execution or result authenticity");
+  expect(tested).toContain(verdict.note);
   const failedFix = {
     ...verification,
     fixCheck: {
@@ -192,8 +194,51 @@ test("finding rendering preserves legacy bodies and shows reason evidence fix an
     },
   };
   const failed = renderToString(
-    h(FindingDetails, { f: { ...f, verification: failedFix } }),
+    h(FindingDetails, {
+      f: { ...f, verdict: { ...verdict, receipt: failedFix } },
+    }),
   );
   expect(failed).toContain("Proposed fix, scratch check failed");
-  expect(failed).toContain("Fix check failed on scratch copy");
+});
+
+test("a verdict badge links to its receipt in the verifier's section, under its blind checks", () => {
+  const receipt = receiptFrom("call/1", valid);
+  const badge = renderToString(
+    h(VerdictBadge, {
+      verdict: { verdict: "not_reproduced", receiptId: receipt.id, note: "n" },
+    }),
+  );
+  const section = renderToString(
+    h(VerificationReceipts, {
+      receipts: [receipt],
+      running: false,
+      verifier: {
+        status: "done",
+        conversationId: 2 as ConversationId,
+        checks: [
+          {
+            id: "c",
+            requirement: "A new push gets a fresh review.",
+            path: "tests/fresh.test.ts",
+            content: "test()",
+          },
+        ],
+        verdicts: {},
+        summary: "The blind check passes at the head.",
+      },
+    }),
+  );
+  const href = badge.match(/href="#([^"]+)"/)?.[1];
+  expect(badge).toContain("Not reproduced by verifier");
+  expect(section).toContain(`id="${href}"`);
+  expect(section).toContain("What the verifier reports");
+  expect(section).toContain("Checks written before seeing the change");
+  expect(section).toContain("A new push gets a fresh review.");
+  expect(section).toContain("tests/fresh.test.ts");
+  const unchecked = renderToString(
+    h(VerdictBadge, {
+      verdict: { verdict: "not_checked", receiptId: null, note: "n" },
+    }),
+  );
+  expect(unchecked).not.toContain("href");
 });

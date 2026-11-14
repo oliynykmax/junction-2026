@@ -2,7 +2,7 @@
 // note used inside a change, and the finding body and suggested-fix renderers.
 
 import { Fragment } from "preact";
-import { VerificationReceiptCard } from "./formal";
+import { VerdictBadge } from "./formal";
 import { useMemo, useState } from "preact/hooks";
 import { heldBack } from "../src/findings";
 import {
@@ -154,6 +154,7 @@ function FindingRow({ f, href }: { f: Finding; href: string }) {
         <Severity f={f} />
         <h3>{f.title}</h3>
         <Tags f={f} />
+        {f.verdict && <VerdictBadge verdict={f.verdict} />}
         <a class="loc" href={href}>
           {location(f)}
         </a>
@@ -198,6 +199,7 @@ export function FindingNote({
       <p class="note-title">{f.title}</p>
       <div class="note-meta">
         <NoteFacts f={f} />
+        {f.verdict && <VerdictBadge verdict={f.verdict} />}
         {onLocate ? (
           <button
             type="button"
@@ -306,17 +308,20 @@ export function FindingDetails({ f }: { f: Finding }) {
       {f.fix && (
         <p class="body">
           <strong>
-            {f.verification?.fixCheck?.outcome === "passed"
+            {f.verdict?.receipt?.fixCheck?.outcome === "passed"
               ? "Fix tested on scratch copy. "
-              : f.verification?.fixCheck?.outcome === "failed"
+              : f.verdict?.receipt?.fixCheck?.outcome === "failed"
                 ? "Proposed fix, scratch check failed. "
                 : "Proposed fix, not tested. "}
           </strong>
           {f.fix}
         </p>
       )}
-      {f.verification && (
-        <VerificationReceiptCard receipt={f.verification} embedded />
+      {f.verdict && (
+        <p class="body">
+          <strong>Verifier. </strong>
+          {f.verdict.note}
+        </p>
       )}
     </>
   );

@@ -78,6 +78,5 @@ export const EVIDENCE_KINDS = [
 export type FindingEvidence = {
   kind: (typeof EVIDENCE_KINDS)[number];
   detail: string;
-  verificationId?: string;
   supporting?: string[];
 };

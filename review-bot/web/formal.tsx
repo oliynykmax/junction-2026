@@ -1,15 +1,17 @@
 import type { VerificationReceipt } from "../src/formal";
+import type { ViewedVerdict } from "../src/review";
+import type { RequirementCheck, VerifierState } from "../src/verifier";
 
 type DemoScenario = "passed" | "counterexample" | "not-run" | "all";
 
 const OUTCOME = {
   passed: {
     label: "Reported pass",
-    note: "Agent reports no violation in the stated scope.",
+    note: "No violation reported in the stated scope.",
   },
   counterexample: {
     label: "Counterexample",
-    note: "Agent reports a path that breaks the property.",
+    note: "A reported path that breaks the property.",
   },
   not_run: {
     label: "Not verified",
@@ -19,32 +21,51 @@ const OUTCOME = {
 
 export function VerificationReceipts({
   receipts,
+  verifier,
   running,
 }: {
   receipts: readonly VerificationReceipt[] | undefined;
+  verifier?: VerifierState;
   running: boolean;
 }) {
-  if (receipts?.length === 0 && !running) return null;
   if (receipts === undefined) return null;
+  if (receipts.length === 0 && !verifier && !running) return null;
+  // Reviews from before the verifier existed hold reviewer-written receipts.
+  const independent = verifier !== undefined;
   return (
     <section class="verification" aria-labelledby="verification-h">
       <div class="verification-heading">
         <div>
-          <p class="verification-kicker">Verification receipts</p>
-          <h2 id="verification-h">What the reviewer reports</h2>
+          <p class="verification-kicker">
+            {independent
+              ? "Independent verifier · separate agent and container"
+              : "Verification receipts"}
+          </p>
+          <h2 id="verification-h">
+            {independent
+              ? "What the verifier reports"
+              : "What the reviewer reports"}
+          </h2>
         </div>
         <p class="verification-count">
-          {receipts.length} {receipts.length === 1 ? "claim" : "claims"}
+          {receipts.length} {receipts.length === 1 ? "receipt" : "receipts"}
         </p>
       </div>
       <p class="verification-disclosure">
+        {independent
+          ? "Written by the verifier, a second agent that did not write the findings. "
+          : ""}
         Agent-reported evidence. The runtime checks receipt completeness, not
         checker execution or result authenticity.
       </p>
+      {verifier && <p class="verifier-status">{verifierLine(verifier)}</p>}
+      {verifier && verifier.status !== "blind" && (
+        <BlindChecks checks={verifier.checks} />
+      )}
       {receipts.length ? (
         <ol class="verification-list">
           {receipts.map((receipt) => (
-            <li key={receipt.id}>
+            <li key={receipt.id} id={receiptAnchor(receipt.id)}>
               <VerificationReceiptCard receipt={receipt} />
             </li>
           ))}
@@ -53,25 +74,98 @@ export function VerificationReceipts({
         <p class="verification-empty">
           {running
             ? "Every changed file needs a verification receipt or explicit unrun disposition before the review can finish."
-            : "No additional verification receipts. Linked evidence appears with its finding."}
+            : "No verification receipts were recorded."}
         </p>
       )}
     </section>
   );
 }
 
+const receiptAnchor = (id: string) =>
+  `receipt-${id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+
+function verifierLine(verifier: VerifierState): string {
+  switch (verifier.status) {
+    case "blind":
+      return "Writing checks from the stated requirements. The change is not on its disk yet.";
+    case "verifying":
+      return "Running its checks at the head and trying to reproduce each finding.";
+    case "done":
+      return verifier.summary;
+    case "failed":
+      return `Stopped before it finished: ${verifier.error}`;
+  }
+}
+
+/** The checks the verifier saved while only the base commit was on disk. */
+export function BlindChecks({
+  checks,
+}: {
+  checks: readonly RequirementCheck[];
+}) {
+  return (
+    <div class="blind-checks">
+      <h3>Checks written before seeing the change</h3>
+      <p class="blind-checks-note">
+        From the title, description and commit messages, with only the base
+        commit checked out. Saved before the diff and findings were shown.
+      </p>
+      {checks.length ? (
+        <ol>
+          {checks.map((check) => (
+            <li key={check.id}>
+              <p>{check.requirement}</p>
+              <details>
+                <summary>
+                  <code>{check.path}</code>
+                </summary>
+                <pre>{check.content}</pre>
+              </details>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p class="blind-checks-note">
+          The verifier found no stated requirement it could check.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const VERDICT_LABEL = {
+  reproduced: "Reproduced by verifier",
+  not_reproduced: "Not reproduced by verifier",
+  not_checked: "Not checked by verifier",
+} as const;
+
+/** The verifier's verdict on one finding, linked to the receipt behind it. */
+export function VerdictBadge({ verdict }: { verdict: ViewedVerdict }) {
+  const label = VERDICT_LABEL[verdict.verdict];
+  const className = `verdict verdict-${verdict.verdict}`;
+  return verdict.receiptId ? (
+    <a
+      class={className}
+      href={`#${receiptAnchor(verdict.receiptId)}`}
+      title={`${verdict.note} Opens the receipt.`}
+    >
+      {label}
+    </a>
+  ) : (
+    <span class={className} title={verdict.note}>
+      {label}
+    </span>
+  );
+}
+
 export function VerificationReceiptCard({
   receipt,
-  embedded = false,
 }: {
   receipt: VerificationReceipt;
-  embedded?: boolean;
 }) {
   const outcome = OUTCOME[receipt.outcome];
   return (
-    <div
-      class={`verification-receipt outcome-${receipt.outcome}${embedded ? " inline-verification" : ""}`}
-    >
+    <div class={`verification-receipt outcome-${receipt.outcome}`}>
       <div class="verification-state">
         <p>{outcome.label}</p>
         <span>{outcome.note}</span>
@@ -129,12 +223,6 @@ export function VerificationReceiptCard({
           </div>
         )}
       </dl>
-      {embedded && (
-        <p class="verification-disclosure">
-          Agent-reported evidence. The runtime checks structure, not checker
-          execution or result authenticity.
-        </p>
-      )}
       <details class="verification-limits">
         <summary>Assumptions &amp; limits</summary>
         <div>

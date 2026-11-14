@@ -20,7 +20,7 @@ The agent (`src/reviewer.ts`) has read-only GitHub tools: `pr_overview`, `read_p
 The `finish_review` call holds a summary for the human owner, the dismissed scanner diagnostics and a list of what the agent did not check. The advisory decision is derived from the findings, not chosen by the agent: any `critical` or `high` finding rated `verified` or `likely` makes it `changes_requested`. A `possible` one is shown for the owner to check but does not change the decision. These are stored in the `review.state` document.
 
 - **Rubric.** `REVIEW_PROMPT_URL` points at Cursor's [thermo-nuclear code quality review](https://github.com/cursor/plugins/blob/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md) prompt, pinned to a commit. Each review fetches it once and stores the text and its sha256, so the page shows exactly which rubric ran. The prompt is fetched, not copied here, because that repo has no license.
-- **Model.** `MODEL_ID` (`claude-sonnet-5-5`) with `THINKING_LEVEL` `medium`, through the Anthropic API.
+- **Model.** `MODEL_PROVIDER` picks the API and `MODEL_ID` the model, with `THINKING_LEVEL` `medium`. The default is `anthropic` with `claude-sonnet-5-5`. Set `verda` with `kimi-k3-1-pro` to run Kimi K3.1 Pro on Verda's OpenAI-compatible endpoint (`src/verda.ts`). Verda usage is not priced, so the page shows its cost as $0. The page records which provider and model ran each review.
 - **Page.** `/r/<owner>/<repo>/<pr>?sha=<head>` (and `/m/...` for manual reviews) is a Preact + Vite client in `web/`, built into `../landing/review/` and served from the Worker's assets. It shows the status, the advisory decision and a scanner band with each scanner's diagnostics and the agent's dismissals. The **Changes** view lists each described change with its tags, line counts, STAR sentences and the findings in its files; "Show diff" opens the change's patches inline, and selecting a finding's location dims every other line. The **Full diff** view shows every file with finding lines marked. Findings outside any change, what was not checked, docs consulted, cost and the agent's tool calls follow. Reviews stored before changes existed keep a plain findings list. It polls `/api/r/<owner>/<repo>/<pr>/<sha>` every 2 s (manual reviews every 15 s) while the review runs.
 
 ## CI and team standards
@@ -50,7 +50,7 @@ CI (`.github/workflows/review-bot.yml`) runs `bun fmt --check`, `bun lint`, `bun
 
 ## Secrets
 
-`APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY` and `SCANNER_TOKEN` are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
+`APP_ID`, `WEBHOOK_SECRET`, `PRIVATE_KEY` (PKCS#8 PEM), `ANTHROPIC_API_KEY`, `VERDA_API_KEY` and `SCANNER_TOKEN` are Worker secrets, set with `bunx wrangler secret put <NAME>`. Deploys keep them. Max holds local copies outside git.
 
 ## Public landing and manual reviews
 

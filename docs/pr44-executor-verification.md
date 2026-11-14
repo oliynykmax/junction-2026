@@ -72,3 +72,20 @@ formatting also pass. A new comment narration line was removed.
 Worker writable layers have no per-worker disk quota. Logs are disabled and lifetime/concurrency are bounded, but hostile code can still exhaust shared VM disk. Use quota-backed Podman storage or a separate execution host before accepting workloads with disk-exhaustion intent. Full Git history is also bounded only by the manager's memory, tmpfs and fetch timeout. Containers share a kernel. These checks do not prove resistance to kernel escapes, unrestricted public-network abuse or every possible host routing configuration. The deliberately unrestricted shell has no command allow-list.
 
 Official API references checked against the installed major versions are [Node 22 child processes](https://nodejs.org/download/release/latest-v22.x/docs/api/child_process.html), [Podman 6.1.4 run](https://docs.podman.io/en/v6.1.4/markdown/podman-run.1.html), and [Podman 6.1.4 network creation](https://docs.podman.io/en/v6.1.4/markdown/podman-network-create.1.html). Runtime checks, rather than flag names alone, establish the evidence above.
+
+## Latest-head bot follow-up
+
+Bumble Bot completed its review of 2dfca71 with no blockers and three findings.
+All three received fixes with regression checks:
+
+- Cleanup now catches synchronous setup errors as well as promise rejections.
+  The test uses the actual missing-token executor constructor and confirms that
+  finish_review still publishes and returns termination control.
+- Process results disclose stdout/stderr truncation separately. The tool labels
+  truncated streams, and collectors stop copying buffers once full. Real Node
+  subprocesses test oversized and exactly-at-cap output, including both streams.
+- checkout_pr now says the base was fetched with commit history and makes no
+  invented 50-commit claim. The tool-result check covers that message.
+
+The new tests failed before the fixes and pass afterward. These changes do not
+alter per-review container isolation, resource limits or deployment topology.

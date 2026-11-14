@@ -100,6 +100,10 @@ test("the rendered brief carries the PR, its commits, comments, diff and rubric"
     "RUBRIC TEXT",
   ])
     expect(text).toContain(expected);
+  expect(text).toContain("The base commit is not pinned");
+  expect(text).toContain("The checkout holds only the head commit");
+  expect(text).toContain(`HEAD is still ${target.headSha}`);
+  expect(text).not.toContain("no shell");
   expect(text).not.toContain("Merge main");
   expect(text).not.toMatch(/\{[a-z_]+\}/);
   expect(text).not.toContain("Left out of the diff");
@@ -173,6 +177,16 @@ test("comments over the budget keep the newest and count the rest", async () => 
   expect(text).toContain(
     `(${brief.comments.omitted} older comments left out to fit the prompt.)`,
   );
+});
+
+test("a pinned base sha drives the git fallbacks", () => {
+  const pinned: Target = {
+    ...target,
+    base: { owner: "team", repo: "demo", sha: "b".repeat(40) },
+  };
+  expect(
+    renderBrief({ target: pinned, brief: null, files: [], rubric: "r" }),
+  ).toContain(`git diff --numstat ${"b".repeat(40)}...HEAD`);
 });
 
 test("a change over 300 lines asks for a simplification", () => {

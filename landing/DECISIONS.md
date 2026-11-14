@@ -63,4 +63,4 @@ The landing's controls are now `@ui-sdk/web` elements (vercel-labs/ui, 0.1.0-bet
 
 `web/landing.ts` replaces `landing/assets/app.js` and is bundled with the SDK by `vite.landing.config.ts` into `landing/assets/landing.js` (git-ignored build output, made by `bun run build`, which Wrangler runs on deploy). The package is a beta, which is the main risk; the pin and the bundled copy mean a release cannot change the page under us.
 
-Not done: the review page does not read the saved choice, so pinning light on the landing still opens a dark report on a dark OS. Making `review-bot/web/styles.css` honour `data-color-scheme` is a small follow-up.
+The review page honours the same saved choice: `src/page.ts` carries the same pre-paint script and `web/styles.css` keys its dark tokens on `data-color-scheme` as well as the OS query. `tests/landing.test.ts` asserts that the landing, the review shell and the bundle use one storage key, and that the SDK stores a bare `light` or `dark` value, so an SDK change fails a test instead of flashing the wrong theme.

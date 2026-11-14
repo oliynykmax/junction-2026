@@ -1530,39 +1530,89 @@ pre {
   text-align: center;
 }
 
-.agent-dots {
-  display: flex;
-  gap: 18px;
-  margin-bottom: 18px;
+.proof-loader {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
 }
 
-.agent-dots span {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: agent-dot 1.4s ease-in-out infinite;
+.proof-canvas {
+  width: 168px;
+  height: 168px;
+  overflow: visible;
 }
 
-.agent-dots span:nth-child(2) {
-  animation-delay: 0.16s;
+.proof-canvas .pl-ink {
+  fill: var(--ink);
 }
 
-.agent-dots span:nth-child(3) {
-  animation-delay: 0.32s;
+.proof-canvas .pl-accent {
+  fill: var(--accent);
 }
 
-@keyframes agent-dot {
-  0%,
-  80%,
-  100% {
-    transform: translateY(0) scale(0.7);
-    opacity: 0.35;
-  }
-  40% {
-    transform: translateY(-18px) scale(1);
-    opacity: 1;
-  }
+.proof-canvas .pl-dim {
+  fill: color-mix(in srgb, var(--ink) 22%, var(--bg));
+}
+
+.proof-canvas .pl-bg {
+  fill: var(--bg);
+}
+
+.proof-canvas .pl-hollow {
+  fill: none;
+  stroke-width: 1.5;
+  stroke: color-mix(in srgb, var(--ink) 25%, var(--bg));
+}
+
+.proof-canvas .pl-hollow-ink {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 4;
+}
+
+.proof-canvas .pl-stroke-ink {
+  stroke: var(--ink);
+  stroke-linecap: round;
+}
+
+.proof-canvas .pl-stroke-accent {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.proof-canvas .pl-stroke-dim {
+  stroke: color-mix(in srgb, var(--ink) 18%, var(--bg));
+  stroke-linecap: round;
+}
+
+.proof-canvas .pl-text {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 500;
+  text-anchor: middle;
+  fill: var(--ink);
+}
+
+.proof-canvas .pl-dim-text {
+  fill: color-mix(in srgb, var(--ink) 45%, var(--bg));
+}
+
+.proof-canvas .pl-goal {
+  fill: var(--accent-ink);
+}
+
+.proof-canvas .pl-check,
+.proof-canvas .pl-check-small {
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.proof-canvas .pl-check-small {
+  stroke: var(--bg);
+  stroke-width: 1.8;
 }
 
 .agent-wait-title {
@@ -1573,21 +1623,4 @@ pre {
 .agent-wait-note {
   color: color-mix(in srgb, var(--ink) 55%, var(--bg));
   font-size: 14px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-dots span {
-    animation: agent-dot-fade 2.4s ease-in-out infinite;
-    transform: none;
-  }
-
-  @keyframes agent-dot-fade {
-    0%,
-    100% {
-      opacity: 0.35;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
 }

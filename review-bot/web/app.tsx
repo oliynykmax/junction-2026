@@ -18,6 +18,7 @@ import {
   plural,
   type Star,
 } from "./shared";
+import { ProofLoader } from "./proof-loader";
 
 export type PageConfig = {
   api: string;
@@ -242,13 +243,9 @@ function LivePage({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
 function AgentWait() {
   return (
     <section class="agent-wait" role="status" aria-live="polite">
-      <div class="agent-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-      <p class="agent-wait-title">The agent is reviewing this commit</p>
-      <p class="agent-wait-note">Findings appear here when it returns.</p>
+      <ProofLoader />
+      <p class="agent-wait-title">Verifying if your PR is any good</p>
+      <p class="agent-wait-note">Findings will appear here</p>
     </section>
   );
 }

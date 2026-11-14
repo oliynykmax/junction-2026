@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+: "${CELLD_SSH_HOST:?Set a host from your verified SSH known_hosts}"
+: "${CELLD_BUCKET:?Set CELLD_BUCKET}"
+: "${S3_ENDPOINT:?Set S3_ENDPOINT}"
+: "${AWS_REGION:?Set AWS_REGION}"
+: "${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID}"
+: "${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY}"
+: "${CELLD_SECRETS_FILE:?Set a private JSON secrets file}"
+export CELLD_ESBUILD="$PWD/node_modules/.bin/esbuild"
+bun run build
+bun scripts/celld-prepare.mjs --production
+celld deploy celld.json
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$CELLD_SSH_HOST" 'install -d -m 700 /opt/bumble/migrations'
+scp -o BatchMode=yes -o StrictHostKeyChecking=yes celld.json "$CELLD_SSH_HOST:/opt/bumble/wrangler.jsonc"
+scp -o BatchMode=yes -o StrictHostKeyChecking=yes migrations/*.sql "$CELLD_SSH_HOST:/opt/bumble/migrations/"
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$CELLD_SSH_HOST" 'chmod 600 /opt/bumble/wrangler.jsonc; systemctl start bumble-celld; timeout 120 bash -c '\''until curl -fsS http://127.0.0.1:8080/.well-known/celld/health > /dev/null; do sleep 2; done'\''; curl -fsS -X POST http://127.0.0.1:8081/reload > /dev/null; set -a; . /etc/bumble/runtime.env; set +a; CELLD_WATCH=/var/lib/bumble/cells celld d1 migrations apply bumble-review-ledger /opt/bumble'

@@ -5,6 +5,10 @@
   "scripts": {
     "build": "vite build && vite build --config vite.landing.config.ts",
     "deploy": "wrangler deploy",
+    "celld:prepare": "bun scripts/celld-prepare.mjs",
+    "celld:dev": "bun run build && bun run celld:prepare && CELLD_ESBUILD=./node_modules/.bin/esbuild celld dev celld.json",
+    "celld:deploy": "bash scripts/celld-deploy.sh",
+    "celld:verify": "bun scripts/celld-verify.mjs",
     "lint": "oxlint src tests web"
   },
   "devDependencies": {

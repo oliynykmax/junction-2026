@@ -601,18 +601,23 @@ export function reviewerExtension({
       const checkoutPr = checkout;
       if (!checkoutPr) throw new Error("Free shell executor is not configured");
       const { t, tok } = await target(api, context);
+      const baseSha = pinnedBase(t)?.sha;
       const result = await checkoutPr(
         {
           session: String(api.conversationId),
           owner: t.owner,
           repo: t.repo,
           sha: t.headSha,
+          ...(baseSha && { baseSha }),
           githubToken: tok,
         },
         context.abortSignal,
       );
       return text(
         `Checked out ${t.owner}/${t.repo}@${result.commit} at ${result.workspace}. ` +
+          (result.base
+            ? `Fetched base ${result.base} with 50 commits of history on each side. `
+            : "") +
           "Use shell with that path, or omit cwd to use it by default.",
       );
     },

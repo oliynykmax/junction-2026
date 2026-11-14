@@ -24,7 +24,12 @@ import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
 import { Ledger, type RunSnapshot } from "./ledger";
 import { interruptedTasks, Lifecycle } from "./lifecycle";
-import { type AppSecrets, publishReview, installationToken } from "./github";
+import {
+  type PublicAppSecrets,
+  publishReview,
+  installationToken,
+  publicInstallationToken,
+} from "./github";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { ManualGate } from "./manual-gate";
 import { reviewKey } from "./review-key";
@@ -40,7 +45,7 @@ import {
   type Target,
 } from "./reviewer";
 
-export interface Env extends AppSecrets {
+export interface Env extends PublicAppSecrets {
   WEBHOOK_SECRET: string;
   REVIEW_BASE_URL: string;
   REVIEW_PROMPT_URL: string;
@@ -86,7 +91,7 @@ export function reviewLink(env: Env, t: Target) {
 export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
-  #tokens = new Map<number, { token: string; expiresAt: number }>();
+  #tokens = new Map<number | "public", { token: string; expiresAt: number }>();
   #issuedAlarm: number | null = null;
   #lifecycle!: Lifecycle;
   readonly #ledger: Ledger;
@@ -399,7 +404,7 @@ export class Review extends DurableObject<Env> {
     this.#ledger.flush();
   }
 
-  async #token(installationId: number): Promise<string> {
+  async #token(installationId: number | "public"): Promise<string> {
     const cached = this.#tokens.get(installationId);
     if (cached && cached.expiresAt - Date.now() > 5 * 60_000) {
       this.#ledger.event({
@@ -411,17 +416,19 @@ export class Review extends DurableObject<Env> {
       return cached.token;
     }
     const started = Date.now();
-    const fresh = await installationToken(this.env, installationId).catch(
-      (error) => {
-        this.#ledger.event({
-          kind: "github_token",
-          name: "miss",
-          ok: false,
-          ms: Date.now() - started,
-        });
-        throw error;
-      },
-    );
+    const issuing =
+      installationId === "public"
+        ? publicInstallationToken(this.env)
+        : installationToken(this.env, installationId);
+    const fresh = await issuing.catch((error) => {
+      this.#ledger.event({
+        kind: "github_token",
+        name: "miss",
+        ok: false,
+        ms: Date.now() - started,
+      });
+      throw error;
+    });
     this.#ledger.event({
       kind: "github_token",
       name: "miss",

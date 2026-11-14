@@ -49,23 +49,19 @@ export function mcpNamespaces(servers: Server[]): CodemodeNamespace[] {
   }));
 }
 
-class Connection {
-  #client: Promise<McpClient> | null = null;
-
-  constructor(readonly server: Server) {}
-
-  client(): Promise<McpClient> {
-    if (!this.#client) {
-      const { config } = this.server;
-      const client = new McpClient({
+function connector({ config }: Server): () => Promise<McpClient> {
+  let client: Promise<McpClient> | null = null;
+  return () => {
+    if (!client) {
+      const mcp = new McpClient({
         name: "j26-review-bot",
         version: "1.0.0",
         requestTimeoutMs: (config.timeout ?? CALL_TIMEOUT_S) * 1000,
       });
-      client.onClose(() => {
-        this.#client = null;
+      mcp.onClose(() => {
+        client = null;
       });
-      this.#client = client
+      client = mcp
         .connect(
           new StreamableHttpTransport({
             url: config.url,
@@ -73,41 +69,52 @@ class Connection {
             openGetStream: false,
           }),
         )
-        .then(() => client);
-      this.#client.catch(() => {
-        this.#client = null;
-      });
+        .then(
+          () => mcp,
+          (error) => {
+            client = null;
+            throw error;
+          },
+        );
     }
-    return this.#client;
-  }
+    return client;
+  };
+}
 
-  async listTools(): Promise<Tool[]> {
-    const client = await this.client();
-    return client.listTools({ timeoutMs: CONNECT_TIMEOUT_MS });
-  }
+/** Rejects once `ms` passes; a connect that hangs ends later at its request timeout. */
+function within<T>(ms: number, work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer in ${ms} ms`)), ms);
+  });
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
 
 /**
  * Connects to every server and lists its tools. A server that does not answer
- * is left out of this run's tools; the review goes on without it.
+ * within CONNECT_TIMEOUT_MS is left out of this run's tools.
  */
 export async function mcpExtension(servers: Server[]): Promise<Extension> {
   const taken = new Set<string>();
   const listed = await Promise.all(
     servers.map(async (server) => {
-      const connection = new Connection(server);
+      const client = connector(server);
       try {
-        return { connection, tools: await connection.listTools() };
+        const tools = await within(
+          CONNECT_TIMEOUT_MS,
+          client().then((c) => c.listTools()),
+        );
+        return { server, client, tools };
       } catch (error) {
         console.warn(`mcp ${server.name}: tools unavailable: ${error}`);
-        return { connection, tools: [] };
+        return { server, client, tools: [] as Tool[] };
       }
     }),
   );
 
-  const tools = listed.flatMap(({ connection, tools }) =>
+  const tools = listed.flatMap(({ server, client, tools }) =>
     tools.map((tool) => {
-      const name = createMcpToolName(connection.server.name, tool.name, (n) =>
+      const name = createMcpToolName(server.name, tool.name, (n) =>
         taken.has(n),
       );
       taken.add(name);
@@ -118,8 +125,8 @@ export async function mcpExtension(servers: Server[]): Promise<Extension> {
         callers: ["tools"],
         replay: tool.annotations?.readOnlyHint ? "safe" : "unsafe",
         execute: async (args, _api, context) => {
-          const client = await connection.client();
-          const result = await client.callTool(
+          const mcp = await client();
+          const result = await mcp.callTool(
             tool.name,
             args as Record<string, unknown>,
             { signal: context.abortSignal },

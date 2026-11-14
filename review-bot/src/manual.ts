@@ -112,7 +112,7 @@ export async function startManual(
     const reader = request.body?.getReader();
     if (!reader) throw new ManualError("Enter a pull request URL.");
     let size = 0;
-    const chunks: Uint8Array[] = [];
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;

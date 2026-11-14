@@ -1,0 +1,737 @@
+// The review page: status and the AI's advice, the scanner band, findings
+// with their evidence, what the AI did not check, docs it consulted and the
+// agent's activity. It polls the review's JSON view while the review runs.
+
+import type { ComponentChildren } from "preact";
+import { useEffect, useMemo, useState } from "preact/hooks";
+import {
+  blocks,
+  CONFIDENCES,
+  heldBack,
+  SEVERITIES,
+  type Severity,
+} from "../src/findings";
+import type { Activity, ReviewView } from "../src/review";
+import type { Diagnostic, ScanResult, ScanState } from "../src/scanners";
+
+export type PageConfig = {
+  api: string;
+  pollMs: number;
+  prUrl: string;
+  owner: string;
+  repo: string;
+  number: string;
+};
+
+type Finding = ReviewView["review"]["findings"][number];
+type Dismissal = NonNullable<
+  ReviewView["review"]["verdict"]
+>["dismissed"][number];
+
+const LIVE = new Set<ReviewView["status"]>([
+  "running",
+  "scanning",
+  "not_started",
+]);
+
+const STATUS_LABEL: Record<ReviewView["status"], string> = {
+  not_started: "Not started",
+  scanning: "Scanning",
+  running: "Reviewing",
+  done: "Review finished",
+  failed: "Review failed",
+};
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`;
+
+function useReview(api: string, pollMs: number) {
+  const [view, setView] = useState<ReviewView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(api, { cache: "no-store" });
+        const body = (await res.json()) as ReviewView & { error?: string };
+        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        if (stopped) return;
+        setView(body);
+        setError(null);
+        if (LIVE.has(body.status)) timer = setTimeout(tick, pollMs);
+      } catch (e) {
+        if (stopped) return;
+        setError(e instanceof Error ? e.message : String(e));
+        timer = setTimeout(tick, 5000);
+      }
+    };
+    tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [api, pollMs]);
+
+  return { view, error };
+}
+
+export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
+  const { view, error } = useReview(api, pollMs);
+  const repoUrl = prUrl.replace(/\/pull\/\d+$/, "");
+  const sha = view?.review.target?.headSha ?? null;
+  const lineUrl = (path: string, line: number | null) =>
+    sha ? `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}` : prUrl;
+
+  return (
+    <>
+      <header class="bar">
+        <div class="grid bar-inner">
+          <span class="brand">
+            <img src="/favicon.svg" alt="" width="24" height="24" />
+            Bumble Bot
+          </span>
+          {view && <Status status={view.status} />}
+        </div>
+      </header>
+      <main class="page">
+        <section class="grid title">
+          <div class="lede">
+            <h1>
+              <a href={prUrl}>
+                {repo} <span class="num">#{number}</span>
+              </a>
+            </h1>
+            {view ? (
+              <Advice view={view} />
+            ) : (
+              <p class="muted">{error ? null : "Loading the review…"}</p>
+            )}
+          </div>
+          <Facts view={view} owner={owner} error={error} />
+        </section>
+        {view && (
+          <>
+            <Scanners
+              scan={view.review.scan}
+              dismissed={view.review.verdict?.dismissed ?? []}
+              lineUrl={lineUrl}
+            />
+            <Findings view={view} lineUrl={lineUrl} />
+            <NotChecked view={view} />
+            <Docs view={view} />
+            <ActivityFeed
+              activity={view.activity}
+              live={LIVE.has(view.status)}
+            />
+          </>
+        )}
+      </main>
+    </>
+  );
+}
+
+function Status({ status }: { status: ReviewView["status"] }) {
+  return (
+    <span class={`status status-${status}`} role="status">
+      {LIVE.has(status) && <span class="pulse" aria-hidden="true" />}
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function Advice({ view }: { view: ReviewView }) {
+  const v = view.review.verdict;
+  if (!v)
+    return (
+      <p class="muted advice-wait">
+        {view.status === "failed"
+          ? "The review stopped before it gave advice."
+          : "The AI's advice appears here when the review finishes."}
+      </p>
+    );
+  const changes = v.decision === "changes_requested";
+  return (
+    <div class="advice">
+      <p class={`decision${changes ? " alert" : ""}`}>
+        AI advice: {changes ? "changes requested" : "no blockers found"}
+      </p>
+      <p class="summary">{v.summary}</p>
+      {view.heldBack > 0 && (
+        <p class="note">
+          {plural(view.heldBack, "critical or high finding")} rated possible.
+          The agent could not confirm{" "}
+          {view.heldBack === 1 ? "it, so it does" : "them, so they do"} not
+          count toward this advice. Check {view.heldBack === 1 ? "it" : "them"}{" "}
+          yourself.
+        </p>
+      )}
+      <p class="muted">
+        This is advice. A named human owns the merge decision.
+      </p>
+    </div>
+  );
+}
+
+function Facts({
+  view,
+  owner,
+  error,
+}: {
+  view: ReviewView | null;
+  owner: string;
+  error: string | null;
+}) {
+  const r = view?.review;
+  return (
+    <dl class="facts">
+      <div>
+        <dt>Repository owner</dt>
+        <dd>{owner}</dd>
+      </div>
+      {r?.target && (
+        <div>
+          <dt>Commit</dt>
+          <dd>
+            <code>{r.target.headSha.slice(0, 7)}</code>
+          </dd>
+        </div>
+      )}
+      {r?.model && (
+        <div>
+          <dt>Model</dt>
+          <dd>
+            <code>{r.model}</code>
+          </dd>
+        </div>
+      )}
+      {r?.prompt && (
+        <div>
+          <dt>Rubric</dt>
+          <dd>
+            <a href={r.prompt.url}>prompt</a>{" "}
+            <code>sha256:{r.prompt.sha256.slice(0, 12)}</code>
+          </dd>
+        </div>
+      )}
+      {view && view.costUsd > 0 && (
+        <div>
+          <dt>Cost</dt>
+          <dd>
+            <code>${view.costUsd.toFixed(4)}</code>
+          </dd>
+        </div>
+      )}
+      {(error || view?.failure) && (
+        <div class="alert">
+          <dt>{error ? "Could not load" : "Failure"}</dt>
+          <dd>
+            {error ? `${error}. Retrying every 5 seconds.` : view?.failure}
+          </dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
+// Scanners
+
+type Flagged = { diag: Diagnostic; dismissal: Dismissal | undefined };
+
+function flag(result: ScanResult, dismissed: Dismissal[]): Flagged[] {
+  return result.diagnostics.map((diag) => ({
+    diag,
+    dismissal: dismissed.find(
+      (m) =>
+        m.tool === result.tool && m.rule === diag.rule && m.path === diag.path,
+    ),
+  }));
+}
+
+// A scanner needs attention when it failed to run, or reported an error or
+// warning the agent did not dismiss.
+const needsAttention = (result: ScanResult, flagged: Flagged[]) =>
+  result.status === "error" ||
+  flagged.some((f) => !f.dismissal && f.diag.severity !== "info");
+
+function Scanners({
+  scan,
+  dismissed,
+  lineUrl,
+}: {
+  scan: ScanState | null;
+  dismissed: Dismissal[];
+  lineUrl: (path: string, line: number | null) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  let summary: string;
+  let body: ComponentChildren = null;
+
+  if (!scan) summary = "No scan for this review";
+  else if (scan.status === "pending")
+    summary = "Running zizmor, ty and oxlint on the changed files…";
+  else if (scan.status === "skipped")
+    summary = "No scanner applies to the changed files";
+  else if (scan.status === "failed") {
+    summary = "Did not run";
+    body = (
+      <div class="flag">
+        <p class="flag-title">The scanners did not run</p>
+        <p>{scan.error}</p>
+      </div>
+    );
+  } else {
+    const rows = scan.results.map((r) => ({ r, flagged: flag(r, dismissed) }));
+    const bad = rows.filter(({ r, flagged }) => needsAttention(r, flagged));
+    const clean = rows.filter((x) => !bad.includes(x));
+    const total = rows.reduce((n, x) => n + x.flagged.length, 0);
+    summary = bad.length
+      ? `${bad.length} of ${rows.length} need attention`
+      : `${plural(rows.length, "scanner")}, nothing to act on`;
+    body = (
+      <>
+        <div class="flags">
+          {bad.map(({ r, flagged }) => (
+            <div class="flag" key={r.tool}>
+              <p class="flag-title">
+                {r.status === "error"
+                  ? `${r.tool} failed`
+                  : `${r.tool}: ${plural(
+                      flagged.filter(
+                        (f) => !f.dismissal && f.diag.severity !== "info",
+                      ).length,
+                      "open diagnostic",
+                    )}`}
+              </p>
+              {r.status === "error" ? <p>{r.error}</p> : <ToolMeta r={r} />}
+            </div>
+          ))}
+        </div>
+        {clean.length > 0 && (
+          <ul class="clean">
+            {clean.map(({ r, flagged }) => (
+              <li key={r.tool}>
+                <strong>{r.tool}</strong>{" "}
+                {flagged.length
+                  ? `${plural(flagged.length, "diagnostic")}, all dismissed or informational`
+                  : "clean"}
+                <ToolMeta r={r} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {total > 0 && (
+          <>
+            <button
+              type="button"
+              class="toggle"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
+            >
+              {open ? "Hide" : "Show"} {plural(total, "diagnostic")}
+            </button>
+            {open && (
+              <table class="diags">
+                <thead>
+                  <tr>
+                    <th scope="col">Severity</th>
+                    <th scope="col">Rule</th>
+                    <th scope="col">Location</th>
+                    <th scope="col">Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.flatMap(({ flagged }) =>
+                    flagged.map(({ diag: d, dismissal }) => (
+                      <tr
+                        key={`${d.tool}${d.rule}${d.path}${d.line}`}
+                        class={
+                          !dismissal && d.severity !== "info"
+                            ? "open"
+                            : "settled"
+                        }
+                      >
+                        <td class="sev">{d.severity}</td>
+                        <td>
+                          <span class="tool">{d.tool}</span>{" "}
+                          {d.url ? (
+                            <a href={d.url}>
+                              <code>{d.rule}</code>
+                            </a>
+                          ) : (
+                            <code>{d.rule}</code>
+                          )}
+                        </td>
+                        <td>
+                          <a class="loc" href={lineUrl(d.path, d.line)}>
+                            {d.path}
+                            {d.line ? `:${d.line}` : ""}
+                          </a>
+                        </td>
+                        <td>
+                          {d.message}
+                          {dismissal && (
+                            <span class="dismissed">
+                              Dismissed by the agent: {dismissal.reason}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )),
+                  )}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <section class="grid band" aria-labelledby="scanners-h">
+      <div class="band-label">
+        <h2 id="scanners-h">Scanners</h2>
+        <p>{summary}</p>
+      </div>
+      <div class="band-body">{body}</div>
+    </section>
+  );
+}
+
+function ToolMeta({ r }: { r: ScanResult }) {
+  return (
+    <span class="meta">
+      {r.version} · {plural(r.paths.length, "file")} · {r.durationMs} ms
+    </span>
+  );
+}
+
+// Findings
+
+function Findings({
+  view,
+  lineUrl,
+}: {
+  view: ReviewView;
+  lineUrl: (path: string, line: number | null) => string;
+}) {
+  const [cls, setCls] = useState<string | null>(null);
+  const findings = useMemo(
+    () =>
+      [...view.review.findings].sort(
+        (a, b) =>
+          SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) ||
+          CONFIDENCES.indexOf(a.confidence ?? "verified") -
+            CONFIDENCES.indexOf(b.confidence ?? "verified") ||
+          String(a.class ?? "").localeCompare(String(b.class ?? "")),
+      ),
+    [view.review.findings],
+  );
+  const classes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of findings)
+      if (f.class) counts.set(f.class, (counts.get(f.class) ?? 0) + 1);
+    return [...counts];
+  }, [findings]);
+  const shown = cls ? findings.filter((f) => f.class === cls) : findings;
+  const bySeverity = SEVERITIES.map(
+    (s) => [s, findings.filter((f) => f.severity === s).length] as const,
+  ).filter(([, n]) => n > 0);
+
+  return (
+    <section class="section" aria-labelledby="findings-h">
+      <div class="section-head">
+        <h2 id="findings-h">Findings</h2>
+        {bySeverity.length > 0 && (
+          <p class="counts">
+            {bySeverity.map(([s, n]) => (
+              <span
+                key={s}
+                class={s === "critical" || s === "high" ? "alert" : ""}
+              >
+                {n} {s}
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+      {findings.length === 0 ? (
+        <p class="empty">
+          {view.status === "done"
+            ? "The AI reported no findings."
+            : view.status === "failed"
+              ? "No findings were recorded before the review stopped."
+              : "None yet. Findings appear here as the agent confirms them."}
+        </p>
+      ) : (
+        <>
+          {classes.length > 1 && (
+            <div
+              class="filter"
+              role="group"
+              aria-label="Filter findings by class"
+            >
+              <button
+                type="button"
+                aria-pressed={cls === null}
+                onClick={() => setCls(null)}
+              >
+                All <span>{findings.length}</span>
+              </button>
+              {classes.map(([c, n]) => (
+                <button
+                  type="button"
+                  key={c}
+                  aria-pressed={cls === c}
+                  onClick={() => setCls(cls === c ? null : c)}
+                >
+                  {c.replace("-", " ")} <span>{n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <ol class="rows">
+            {shown.map((f) => (
+              <FindingRow key={f.id} f={f} href={lineUrl(f.path, f.line)} />
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
+
+const QUIET: ReadonlySet<Severity> = new Set(["low", "info"]);
+
+function FindingRow({ f, href }: { f: Finding; href: string }) {
+  const [open, setOpen] = useState(false);
+  const severe = blocks(f) || heldBack(f);
+  const loc = f.path + (f.line ? `:${f.line}` : "");
+  return (
+    <li class={`grid row${QUIET.has(f.severity) ? " quiet" : ""}`}>
+      <div class="row-head">
+        <p class={`sev${severe ? " alert" : ""}`}>
+          {f.severity}
+          {heldBack(f) && <span class="held"> · possible, not counted</span>}
+        </p>
+        <h3>{f.title}</h3>
+        <p class="tags">
+          {f.class && <span class="tag">{f.class.replace("-", " ")}</span>}
+          {f.confidence && <span class="tag">{f.confidence}</span>}
+          {f.source && f.source !== "agent" && (
+            <span class="tag source">from {f.source}</span>
+          )}
+        </p>
+        <a class="loc" href={href}>
+          {loc}
+        </a>
+        {f.suggestedPatch && (
+          <button
+            type="button"
+            class="toggle"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? "Hide suggested fix" : "Show suggested fix"}
+          </button>
+        )}
+      </div>
+      <div class="row-body">
+        <Body text={f.body} />
+        {open && f.suggestedPatch && (
+          <div class="fix">
+            <Patch text={f.suggestedPatch} />
+            <button type="button" disabled title="Not wired up yet">
+              Open fix PR (coming soon)
+            </button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+// Finding bodies end with "Docs: <url>" lines for the pages they rely on.
+function Body({ text }: { text: string }) {
+  const docs: string[] = [];
+  const prose = text
+    .split("\n")
+    .filter((line) => {
+      const m = line.match(/^\s*Docs:\s*(https?:\/\/\S+)\s*$/);
+      if (m) docs.push(m[1]);
+      return !m;
+    })
+    .join("\n")
+    .trim();
+  return (
+    <>
+      <p class="body">
+        {prose
+          .split(/(`[^`\n]+`)/)
+          .map((part, i) =>
+            part.length > 2 && part.startsWith("`") && part.endsWith("`") ? (
+              <code key={i}>{part.slice(1, -1)}</code>
+            ) : (
+              part
+            ),
+          )}
+      </p>
+      {docs.length > 0 && (
+        <ul class="doc-links">
+          {docs.map((u) => (
+            <li key={u}>
+              Docs: <a href={u}>{u}</a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function Patch({ text }: { text: string }) {
+  return (
+    <pre class="patch">
+      {text.split("\n").map((line, i) => (
+        <span
+          key={i}
+          class={
+            line.startsWith("+") && !line.startsWith("+++")
+              ? "add"
+              : line.startsWith("-") && !line.startsWith("---")
+                ? "del"
+                : line.startsWith("@@")
+                  ? "hunk"
+                  : undefined
+          }
+        >
+          {line}
+          {"\n"}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+// What the AI did not check
+
+function NotChecked({ view }: { view: ReviewView }) {
+  const v = view.review.verdict;
+  return (
+    <section class="section" aria-labelledby="nc-h">
+      <div class="section-head">
+        <h2 id="nc-h">Not checked by the AI</h2>
+      </div>
+      {!v ? (
+        <p class="empty">Listed when the review finishes.</p>
+      ) : v.notChecked.length === 0 ? (
+        <p class="empty">The AI listed nothing it left unchecked.</p>
+      ) : (
+        <ul class="notes">
+          {v.notChecked.map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Docs({ view }: { view: ReviewView }) {
+  const ls = view.review.lookups ?? [];
+  return (
+    <section class="section" aria-labelledby="docs-h">
+      <div class="section-head">
+        <h2 id="docs-h">Docs consulted</h2>
+        {ls.length > 0 && <p class="counts">{plural(ls.length, "lookup")}</p>}
+      </div>
+      {ls.length === 0 ? (
+        <p class="empty">
+          {view.review.verdict
+            ? "None. The agent's library and platform claims come from memory."
+            : "No documentation looked up yet."}
+        </p>
+      ) : (
+        <ul class="lookups">
+          {ls.map((l) => (
+            <li key={`${l.at}${l.args}`}>
+              <code class="tool">
+                {l.tool.replace(/^mcp__/, "").replace("__", " ")}
+              </code>
+              <code>{l.args}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ActivityFeed({
+  activity,
+  live,
+}: {
+  activity: Activity[];
+  live: boolean;
+}) {
+  const [open, setOpen] = useState<boolean | null>(null);
+  const shown = open ?? live;
+  return (
+    <section class="section" aria-labelledby="act-h">
+      <div class="section-head">
+        <h2 id="act-h">Agent activity</h2>
+        {activity.length > 0 && (
+          <button
+            type="button"
+            class="toggle"
+            aria-expanded={shown}
+            onClick={() => setOpen(!shown)}
+          >
+            {shown ? "Hide" : "Show"} {plural(activity.length, "step")}
+          </button>
+        )}
+      </div>
+      {activity.length === 0 ? (
+        <p class="empty">No activity yet.</p>
+      ) : (
+        shown && (
+          <ol class="feed">
+            {activity.map((a, i) => (
+              <li
+                key={i}
+                class={a.kind === "result" && a.isError ? "err" : undefined}
+              >
+                <span class="kind">
+                  {a.kind === "say"
+                    ? "agent"
+                    : a.kind === "call"
+                      ? "call"
+                      : a.isError
+                        ? "error"
+                        : "result"}
+                </span>
+                <div>
+                  {a.kind === "say" && <p>{a.text}</p>}
+                  {a.kind === "call" && (
+                    <p>
+                      <code>{a.name}</code>{" "}
+                      <code class="args">{JSON.stringify(a.args)}</code>
+                    </p>
+                  )}
+                  {a.kind === "result" && (
+                    <>
+                      <code>{a.name}</code>
+                      <pre>{a.text}</pre>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )
+      )}
+    </section>
+  );
+}

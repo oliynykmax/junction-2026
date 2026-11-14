@@ -124,7 +124,8 @@ const CS_USING =
 export function automaticHidden(path: string, lines: PatchLine[]): boolean[] {
   const csharp = /\.cs$/i.test(path);
   return lines.map(
-    (l) => csharp && l.kind !== "hunk" && l.kind !== "eof" && CS_USING.test(l.text),
+    (l) =>
+      csharp && l.kind !== "hunk" && l.kind !== "eof" && CS_USING.test(l.text),
   );
 }
 
@@ -144,7 +145,12 @@ export function compileReadingPlan(
   const protectedNew = new Set(options.protectedLines ?? []);
   const isProtected = (i: number) => {
     const l = lines[i]!;
-    return l.kind !== "hunk" && l.kind !== "eof" && l.new !== null && protectedNew.has(l.new);
+    return (
+      l.kind !== "hunk" &&
+      l.kind !== "eof" &&
+      l.new !== null &&
+      protectedNew.has(l.new)
+    );
   };
   const auto = automaticHidden(options.path, lines).map(
     (hidden, i) => hidden && !isProtected(i),
@@ -154,12 +160,21 @@ export function compileReadingPlan(
   const folds: Extract<ReadingRow, { kind: "fold" }>[] = [];
 
   const inBounds = (label: string, r: LineRange) => {
-    if (!Number.isInteger(r.start_line) || !Number.isInteger(r.end_line) || r.start_line < 1 || r.start_line > r.end_line) {
-      problems.push(`${label}: ${r.start_line}-${r.end_line} is not an inclusive 1-based range.`);
+    if (
+      !Number.isInteger(r.start_line) ||
+      !Number.isInteger(r.end_line) ||
+      r.start_line < 1 ||
+      r.start_line > r.end_line
+    ) {
+      problems.push(
+        `${label}: ${r.start_line}-${r.end_line} is not an inclusive 1-based range.`,
+      );
       return false;
     }
     if (r.end_line > n) {
-      problems.push(`${label}: line ${r.end_line} is past the end of the patch (${n} lines).`);
+      problems.push(
+        `${label}: line ${r.end_line} is past the end of the patch (${n} lines).`,
+      );
       return false;
     }
     return true;
@@ -174,7 +189,9 @@ export function compileReadingPlan(
     if (!inBounds(label, r)) return;
     const cited = protectedIn(r.start_line, r.end_line);
     if (cited) {
-      problems.push(`${label}: line ${cited} is cited by a finding and must stay visible.`);
+      problems.push(
+        `${label}: line ${cited} is cited by a finding and must stay visible.`,
+      );
       return;
     }
     for (let i = r.start_line - 1; i < r.end_line; i++) {
@@ -190,7 +207,9 @@ export function compileReadingPlan(
     const label = `fold[${k}]`;
     if (!inBounds(label, r)) return;
     if (r.end_line - r.start_line < 1) {
-      problems.push(`${label}: a fold needs at least two lines; use remove for one.`);
+      problems.push(
+        `${label}: a fold needs at least two lines; use remove for one.`,
+      );
       return;
     }
     const first = lines[r.start_line - 1]!;
@@ -204,11 +223,15 @@ export function compileReadingPlan(
     for (let i = r.start_line - 1; i < r.end_line; i++) {
       const l = lines[i]!;
       if (l.kind !== sign) {
-        problems.push(`${label}: line ${i + 1} is not a ${sign} line like line ${r.start_line}; a fold covers one kind of line inside one hunk.`);
+        problems.push(
+          `${label}: line ${i + 1} is not a ${sign} line like line ${r.start_line}; a fold covers one kind of line inside one hunk.`,
+        );
         return;
       }
       if (removed[i] || foldAt[i] >= 0) {
-        problems.push(`${label}: overlaps a ${removed[i] ? "remove" : "fold"} at line ${i + 1}.`);
+        problems.push(
+          `${label}: overlaps a ${removed[i] ? "remove" : "fold"} at line ${i + 1}.`,
+        );
         return;
       }
       if (auto[i]) autoCount++;
@@ -217,12 +240,16 @@ export function compileReadingPlan(
     const length = r.end_line - r.start_line + 1;
     if (autoCount === length) return; // Already hidden; nothing to fold.
     if (autoCount > 0) {
-      problems.push(`${label}: mixes using directives, which are hidden automatically, with other lines; fold only the other lines.`);
+      problems.push(
+        `${label}: mixes using directives, which are hidden automatically, with other lines; fold only the other lines.`,
+      );
       return;
     }
     const cited = protectedIn(r.start_line, r.end_line);
     if (cited) {
-      problems.push(`${label}: line ${cited} is cited by a finding and must stay visible.`);
+      problems.push(
+        `${label}: line ${cited} is cited by a finding and must stay visible.`,
+      );
       return;
     }
     const index = folds.length;
@@ -236,7 +263,10 @@ export function compileReadingPlan(
     for (let i = r.start_line - 1; i < r.end_line; i++) foldAt[i] = index;
   });
 
-  const elisions = new Map<number, { start: number; end: number; new: string }[]>();
+  const elisions = new Map<
+    number,
+    { start: number; end: number; new: string }[]
+  >();
   plan.replace.forEach((r, k) => {
     const label = `replace[${k}]`;
     if (!Number.isInteger(r.line) || r.line < 1 || r.line > n) {
@@ -251,28 +281,44 @@ export function compileReadingPlan(
     }
     if (auto[i]) return; // Already hidden; the elision is moot.
     if (removed[i] || foldAt[i] >= 0) {
-      problems.push(`${label}: line ${r.line} is also ${removed[i] ? "removed" : "folded"}.`);
+      problems.push(
+        `${label}: line ${r.line} is also ${removed[i] ? "removed" : "folded"}.`,
+      );
       return;
     }
     if (isProtected(i)) {
-      problems.push(`${label}: line ${r.line} is cited by a finding and must stay verbatim.`);
+      problems.push(
+        `${label}: line ${r.line} is cited by a finding and must stay verbatim.`,
+      );
       return;
     }
-    if (r.old.length > MAX_REPLACEMENT_CHARS || r.new.length > MAX_REPLACEMENT_CHARS || /[\r\n]/.test(r.old + r.new)) {
-      problems.push(`${label}: old and new must each be one line under ${MAX_REPLACEMENT_CHARS} characters.`);
+    if (
+      r.old.length > MAX_REPLACEMENT_CHARS ||
+      r.new.length > MAX_REPLACEMENT_CHARS ||
+      /[\r\n]/.test(r.old + r.new)
+    ) {
+      problems.push(
+        `${label}: old and new must each be one line under ${MAX_REPLACEMENT_CHARS} characters.`,
+      );
       return;
     }
     if (r.old === "" || r.new === r.old) {
-      problems.push(`${label}: old must be non-empty and new must elide part of it.`);
+      problems.push(
+        `${label}: old must be non-empty and new must elide part of it.`,
+      );
       return;
     }
     const start = l.text.indexOf(r.old);
     if (start < 0 || l.text.indexOf(r.old, start + 1) >= 0) {
-      problems.push(`${label}: old must occur exactly once on line ${r.line}, after the +, - or space marker.`);
+      problems.push(
+        `${label}: old must occur exactly once on line ${r.line}, after the +, - or space marker.`,
+      );
       return;
     }
     if (!isElision(r.old, r.new)) {
-      problems.push(`${label}: new must keep every character of old except spans replaced by ... or …, and each ... must stand for at least one character.`);
+      problems.push(
+        `${label}: new must keep every character of old except spans replaced by ... or …, and each ... must stand for at least one character.`,
+      );
       return;
     }
     const spans = elisions.get(i) ?? [];
@@ -322,7 +368,12 @@ export function compileReadingPlan(
   };
   const pushGap = (reason: GapReason, line: number) => {
     const last = rows.at(-1);
-    if (last?.kind === "gap" && last.reason === reason && last.end_line === line - 1) last.end_line = line;
+    if (
+      last?.kind === "gap" &&
+      last.reason === reason &&
+      last.end_line === line - 1
+    )
+      last.end_line = line;
     else rows.push({ kind: "gap", reason, start_line: line, end_line: line });
   };
   for (let i = 0; i < n; i++) {
@@ -336,9 +387,11 @@ export function compileReadingPlan(
     if (l.kind === "eof") {
       // The marker belongs to the line before it.
       const prev = rows.at(-1);
-      if (prev && prev.kind !== "gap" && prev.kind !== "fold") rows.push({ kind: "eof", line, text: l.text });
+      if (prev && prev.kind !== "gap" && prev.kind !== "fold")
+        rows.push({ kind: "eof", line, text: l.text });
       else if (prev?.kind === "gap") prev.end_line = line;
-      else if (prev?.kind === "fold" && prev.end_line === line - 1) prev.end_line = line;
+      else if (prev?.kind === "fold" && prev.end_line === line - 1)
+        prev.end_line = line;
       continue;
     }
     const isChange = l.kind !== "ctx";
@@ -397,7 +450,8 @@ export function readingText(rows: readonly ReadingRow[]): string {
 /** `kept 12/40 changed lines`, computed from the plan, never from the agent's claims. */
 export function keptLine(stats: ReadingStats): string {
   if (stats.changed === 0) return "no changed lines";
-  if (stats.visibleChanged === 0) return `hid all ${stats.changed} changed lines`;
+  if (stats.visibleChanged === 0)
+    return `hid all ${stats.changed} changed lines`;
   return `kept ${stats.visibleChanged}/${stats.changed} changed lines`;
 }
 
@@ -415,7 +469,10 @@ export function isElision(old: string, next: string): boolean {
   return new RegExp(`^${pattern}$`).test(old);
 }
 
-function applyElisions(text: string, spans: { start: number; end: number; new: string }[]) {
+function applyElisions(
+  text: string,
+  spans: { start: number; end: number; new: string }[],
+) {
   let out = "";
   let at = 0;
   for (const s of [...spans].sort((a, b) => a.start - b.start)) {

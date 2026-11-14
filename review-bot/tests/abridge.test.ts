@@ -57,7 +57,10 @@ function harness(state: ReviewState) {
     const tool = extension.tools.find((t) => t.name === name);
     if (!tool) throw new Error(`no tool ${name}`);
     const res = await (tool.execute as any)(args, api(), {});
-    return { isError: res.isError === true, text: res.output[0].text as string };
+    return {
+      isError: res.isError === true,
+      text: res.output[0].text as string,
+    };
   };
 }
 
@@ -85,7 +88,10 @@ const finding = (line: number): Finding => ({
 test("abridge_file records the plan and shows the agent its reading view", async () => {
   const state = reviewWith({ "src/W.cs": PATCH });
   const run = harness(state);
-  const res = await run("abridge_file", plan({ fold: [{ start_line: 6, end_line: 7 }] }));
+  const res = await run(
+    "abridge_file",
+    plan({ fold: [{ start_line: 6, end_line: 7 }] }),
+  );
   expect(res.isError).toBe(false);
   expect(res.text).toBe(
     [
@@ -98,7 +104,9 @@ test("abridge_file records the plan and shows the agent its reading view", async
       "+    ...",
     ].join("\n"),
   );
-  expect(state.readings?.["src/W.cs"]?.fold).toEqual([{ start_line: 6, end_line: 7 }]);
+  expect(state.readings?.["src/W.cs"]?.fold).toEqual([
+    { start_line: 6, end_line: 7 },
+  ]);
 });
 
 test("calling abridge_file again replaces the file's plan", async () => {
@@ -119,13 +127,21 @@ test("abridge_file refuses to hide a line a finding cites, then stops retries", 
   state.findings = [finding(5)];
   const run = harness(state);
   for (let i = 0; i < 2; i++) {
-    const res = await run("abridge_file", plan({ fold: [{ start_line: 6, end_line: 7 }] }));
+    const res = await run(
+      "abridge_file",
+      plan({ fold: [{ start_line: 6, end_line: 7 }] }),
+    );
     expect(res.isError).toBe(true);
     expect(res.text).toMatch(/Fix every problem[\s\S]*cited by a finding/);
   }
-  const last = await run("abridge_file", plan({ fold: [{ start_line: 6, end_line: 7 }] }));
+  const last = await run(
+    "abridge_file",
+    plan({ fold: [{ start_line: 6, end_line: 7 }] }),
+  );
   expect(last.isError).toBe(true);
-  expect(last.text).toMatch(/no more attempts for src\/W\.cs: the owner sees its full diff/);
+  expect(last.text).toMatch(
+    /no more attempts for src\/W\.cs: the owner sees its full diff/,
+  );
   expect(state.readings).toEqual({});
   expect(state.readingRefusals).toEqual({ "src/W.cs": 3 });
 });
@@ -150,8 +166,20 @@ afterEach(() => {
 
 test("read_patch numbers patch lines only when asked", async () => {
   globalThis.fetch = (async () =>
-    Response.json([{ filename: "src/W.cs", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b" }])) as unknown as typeof fetch;
+    Response.json([
+      {
+        filename: "src/W.cs",
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+        patch: "@@ -1 +1 @@\n-a\n+b",
+      },
+    ])) as unknown as typeof fetch;
   const run = harness(reviewWith({ "src/W.cs": PATCH }));
-  expect((await run("read_patch", { path: "src/W.cs" })).text).toBe("@@ -1 +1 @@\n-a\n+b");
-  expect((await run("read_patch", { path: "src/W.cs", numbered: true })).text).toBe("1|@@ -1 +1 @@\n2|-a\n3|+b");
+  expect((await run("read_patch", { path: "src/W.cs" })).text).toBe(
+    "@@ -1 +1 @@\n-a\n+b",
+  );
+  expect(
+    (await run("read_patch", { path: "src/W.cs", numbered: true })).text,
+  ).toBe("1|@@ -1 +1 @@\n2|-a\n3|+b");
 });

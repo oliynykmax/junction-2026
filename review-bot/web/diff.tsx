@@ -124,8 +124,7 @@ function FileDiff({
     (f) => !f.line || !lines.some((l) => isSource(l) && l.new === f.line),
   );
 
-  const open = (start: number) =>
-    setOpened((prev) => new Set(prev).add(start));
+  const open = (start: number) => setOpened((prev) => new Set(prev).add(start));
 
   const lineRow = (l: PatchLine, key: string, elided = false) => {
     if (!isSource(l))
@@ -189,9 +188,7 @@ function FileDiff({
 
   /** Patch lines start..end (1-based, inclusive), as an expanded hidden run. */
   const expanded = (start: number, end: number) =>
-    lines
-      .slice(start - 1, end)
-      .map((l, k) => lineRow(l, `x${start + k}`));
+    lines.slice(start - 1, end).map((l, k) => lineRow(l, `x${start + k}`));
 
   const readingRow = (r: ReadingRow) => {
     switch (r.kind) {
@@ -200,8 +197,7 @@ function FileDiff({
         return lineRow(r, `r${r.line}`);
       case "fold":
       case "gap": {
-        if (opened.has(r.start_line))
-          return expanded(r.start_line, r.end_line);
+        if (opened.has(r.start_line)) return expanded(r.start_line, r.end_line);
         const hidden = lines
           .slice(r.start_line - 1, r.end_line)
           .filter(isSource);
@@ -241,10 +237,7 @@ function FileDiff({
             ? `${plural(hidden.length, "using directive")} hidden automatically. Show`
             : `${plural(changed, "changed line")} hidden by the AI. Show`;
         return (
-          <tr
-            key={`r${r.start_line}`}
-            class={`d-gap${quiet ? " quiet" : ""}`}
-          >
+          <tr key={`r${r.start_line}`} class={`d-gap${quiet ? " quiet" : ""}`}>
             <td colSpan={2} />
             <td>
               <button

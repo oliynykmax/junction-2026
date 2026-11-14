@@ -19,7 +19,12 @@ export interface Env {
 }
 
 const MARKER = "<!-- earned-trust-review-link -->";
-const PR_ACTIONS = new Set(["opened", "reopened", "synchronize", "ready_for_review"]);
+const PR_ACTIONS = new Set([
+  "opened",
+  "reopened",
+  "synchronize",
+  "ready_for_review",
+]);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -31,12 +36,22 @@ export default {
 
     const icon = ICONS[url.pathname];
     if (request.method === "GET" && icon) {
-      return new Response(icon[0], { headers: { "content-type": icon[1], "cache-control": "public, max-age=86400" } });
+      return new Response(icon[0], {
+        headers: {
+          "content-type": icon[1],
+          "cache-control": "public, max-age=86400",
+        },
+      });
     }
 
     const m = url.pathname.match(/^\/r\/([\w.-]+)\/([\w.-]+)\/(\d+)\/?$/);
     if (request.method === "GET" && m) {
-      return placeholderPage(m[1], m[2], Number(m[3]), url.searchParams.get("sha"));
+      return placeholderPage(
+        m[1],
+        m[2],
+        Number(m[3]),
+        url.searchParams.get("sha"),
+      );
     }
 
     if (url.pathname === "/") return new Response("review bot ok\n");
@@ -73,9 +88,18 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   return new Response("commented\n");
 }
 
-async function upsertComment(token: string, owner: string, repo: string, number: number, body: string) {
+async function upsertComment(
+  token: string,
+  owner: string,
+  repo: string,
+  number: number,
+  body: string,
+) {
   const base = `https://api.github.com/repos/${owner}/${repo}/issues`;
-  const comments = (await gh(token, `${base}/${number}/comments?per_page=100`)) as { id: number; body: string }[];
+  const comments = (await gh(
+    token,
+    `${base}/${number}/comments?per_page=100`,
+  )) as { id: number; body: string }[];
   const existing = comments.find((c) => c.body.startsWith(MARKER));
   if (existing) {
     await gh(token, `${base}/comments/${existing.id}`, "PATCH", { body });
@@ -84,7 +108,12 @@ async function upsertComment(token: string, owner: string, repo: string, number:
   }
 }
 
-async function gh(token: string, url: string, method = "GET", body?: unknown): Promise<unknown> {
+async function gh(
+  token: string,
+  url: string,
+  method = "GET",
+  body?: unknown,
+): Promise<unknown> {
   const res = await fetch(url, {
     method,
     headers: {
@@ -95,45 +124,76 @@ async function gh(token: string, url: string, method = "GET", body?: unknown): P
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${method} ${url} -> ${res.status}: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`${method} ${url} -> ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
-async function installationToken(env: Env, installationId: number): Promise<string> {
+async function installationToken(
+  env: Env,
+  installationId: number,
+): Promise<string> {
   const jwt = await appJwt(env.APP_ID, env.PRIVATE_KEY);
-  const res = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${jwt}`,
-      accept: "application/vnd.github+json",
-      "user-agent": "earned-trust-review-bot",
+  const res = await fetch(
+    `https://api.github.com/app/installations/${installationId}/access_tokens`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "earned-trust-review-bot",
+      },
     },
-  });
-  if (!res.ok) throw new Error(`installation token -> ${res.status}: ${await res.text()}`);
+  );
+  if (!res.ok)
+    throw new Error(`installation token -> ${res.status}: ${await res.text()}`);
   return ((await res.json()) as { token: string }).token;
 }
 
 async function appJwt(appId: string, pem: string): Promise<string> {
-  const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----|\s/g, "")), (c) => c.charCodeAt(0));
-  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, [
-    "sign",
-  ]);
+  const der = Uint8Array.from(
+    atob(pem.replace(/-----[^-]+-----|\s/g, "")),
+    (c) => c.charCodeAt(0),
+  );
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    der,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
   const now = Math.floor(Date.now() / 1000);
-  const enc = (o: unknown) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+  const enc = (o: unknown) =>
+    b64url(new TextEncoder().encode(JSON.stringify(o)));
   const unsigned = `${enc({ alg: "RS256", typ: "JWT" })}.${enc({ iat: now - 60, exp: now + 540, iss: appId })}`;
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sig = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(unsigned),
+  );
   return `${unsigned}.${b64url(new Uint8Array(sig))}`;
 }
 
 function b64url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
-async function validSignature(secret: string, body: string, header: string): Promise<boolean> {
+async function validSignature(
+  secret: string,
+  body: string,
+  header: string,
+): Promise<boolean> {
   if (!header.startsWith("sha256=")) return false;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-    "verify",
-  ]);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
   const hex = header.slice(7);
   if (!/^[0-9a-f]{64}$/.test(hex)) return false;
   const sig = Uint8Array.from(hex.match(/../g)!, (h) => parseInt(h, 16));
@@ -141,8 +201,14 @@ async function validSignature(secret: string, body: string, header: string): Pro
 }
 
 // Stand-in until the real review view is built.
-function placeholderPage(owner: string, repo: string, number: number, sha: string | null): Response {
-  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+function placeholderPage(
+  owner: string,
+  repo: string,
+  number: number,
+  sha: string | null,
+): Response {
+  const esc = (s: string) =>
+    s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const prUrl = `https://github.com/${owner}/${repo}/pull/${number}`;
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Review session</title>
@@ -154,5 +220,7 @@ function placeholderPage(owner: string, repo: string, number: number, sha: strin
 <p>Pull request: <a href="${esc(prUrl)}">${esc(owner)}/${esc(repo)}#${number}</a></p>
 <p>Commit: <code>${esc(sha ?? "unknown")}</code></p>
 <p>The review view for this PR is not built yet.</p>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }

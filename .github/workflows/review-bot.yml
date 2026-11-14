@@ -1,0 +1,46 @@
+name: review-bot
+
+on:
+  push:
+    branches: [main]
+    paths: ["review-bot/**", ".github/workflows/review-bot.yml"]
+  pull_request:
+    paths: ["review-bot/**", ".github/workflows/review-bot.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: review-bot-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: review-bot
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
+      - run: bun --revision
+      - run: bun install --frozen-lockfile
+      - run: bun fmt --check
+      - run: bun lint
+      - run: bun check
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
+      - run: bun install --frozen-lockfile
+      - run: bunx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

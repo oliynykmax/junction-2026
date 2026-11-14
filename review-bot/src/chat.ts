@@ -42,7 +42,8 @@ export type Mention = {
     }
 );
 
-const RATE_PER_HOUR = 12;
+const AUTHOR_PER_HOUR = 12;
+const REPO_PER_HOUR = 40;
 
 /** The mention a webhook delivery carries, or null when the bot should stay quiet. */
 export function mentionFrom(event: string | null, p: any): Mention | null {
@@ -122,8 +123,11 @@ export type ChatDeps = {
   startReview: (t: Target) => Promise<"started" | "exists">;
   notes: () => Promise<HiveNote[]>;
   remember: (note: HiveNote) => Promise<void>;
-  /** Counts one reply to the author for this comment; false once they are over the hourly limit. */
-  allow: (author: string, commentId: number) => Promise<boolean>;
+  /**
+   * Counts one reply for this comment against the author's and the repo's
+   * hourly limits. "notify" is the first refusal in a window, "silent" a later one.
+   */
+  allow: (author: string, commentId: number) => Promise<Admission>;
   now: () => number;
 };
 
@@ -149,6 +153,7 @@ type Comment = {
 };
 
 type Pr = {
+  user: { login: string } | null;
   title: string;
   body: string | null;
   head: { sha: string };
@@ -247,15 +252,21 @@ export const noteText = (raw: string) =>
   raw.replace(/\s+/g, " ").trim().slice(0, MAX_NOTE);
 
 export type RateEntry = { id: number; at: number };
+export type Admission = "ok" | "notify" | "silent";
 
 /**
- * Admits one reply per comment against the hourly limit. A retry of the same
- * comment is admitted again without spending more of the author's quota.
+ * Admits one reply per comment against an hourly limit. A retry of the same
+ * comment is admitted again without spending more of the quota.
  */
-export function admit(entries: RateEntry[], id: number, now: number) {
+export function admit(
+  entries: RateEntry[],
+  id: number,
+  now: number,
+  limit: number,
+) {
   const recent = entries.filter((e) => e.at > now - 3_600_000);
   if (recent.some((e) => e.id === id)) return { ok: true, entries: recent };
-  if (recent.length >= RATE_PER_HOUR) return { ok: false, entries: recent };
+  if (recent.length >= limit) return { ok: false, entries: recent };
   return { ok: true, entries: [...recent, { id, at: now }] };
 }
 
@@ -345,21 +356,27 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
     );
     if (root.user?.login !== BOT_LOGIN && !MENTION.test(m.body)) return;
   }
-  if (!(await deps.allow(m.author, m.commentId)))
+  const pr = await ghJson<Pr>(
+    token,
+    `/repos/${m.owner}/${m.repo}/pulls/${m.number}`,
+  );
+  // Every answer spends model tokens, so only the PR's author and people who
+  // can push get one. Anyone else is ignored without a reply.
+  const writer = await canWrite(token, m);
+  if (!writer && pr.user?.login !== m.author) return;
+  const admission = await deps.allow(m.author, m.commentId);
+  if (admission === "silent") return;
+  if (admission === "notify")
     return post(
       token,
       m,
       chatReply(
         m.author,
-        `You have reached ${RATE_PER_HOUR} replies this hour. I will answer again later.`,
+        `I have reached my reply limit for now. I will answer again within the hour.`,
       ),
     );
   await react(token, m);
 
-  const pr = await ghJson<Pr>(
-    token,
-    `/repos/${m.owner}/${m.repo}/pulls/${m.number}`,
-  );
   const target: Target = {
     owner: m.owner,
     repo: m.repo,
@@ -393,7 +410,7 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
         notesList(await deps.notes()),
       ]);
     case "remember": {
-      if (!(await canWrite(token, m)))
+      if (!writer)
         return reply(
           `Only people with write access to this repository can add to the hive.`,
         );
@@ -409,7 +426,7 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
       );
     }
     case "review": {
-      if (!(await canWrite(token, m)))
+      if (!writer)
         return reply(
           `Only people with write access to this repository can start a review.`,
         );
@@ -554,15 +571,34 @@ export class Hive extends DurableObject<Env> {
     );
   }
 
-  async #withinRate(author: string, commentId: number): Promise<boolean> {
-    const key = `rate:${author.toLowerCase()}`;
-    const { ok, entries } = admit(
-      (await this.ctx.storage.get<RateEntry[]>(key)) ?? [],
+  async #admit(author: string, commentId: number): Promise<Admission> {
+    const now = Date.now();
+    const authorKey = `rate:${author.toLowerCase()}`;
+    const mine = admit(
+      (await this.ctx.storage.get<RateEntry[]>(authorKey)) ?? [],
       commentId,
-      Date.now(),
+      now,
+      AUTHOR_PER_HOUR,
     );
-    await this.ctx.storage.put(key, entries);
-    return ok;
+    const repo = admit(
+      (await this.ctx.storage.get<RateEntry[]>("rate")) ?? [],
+      commentId,
+      now,
+      REPO_PER_HOUR,
+    );
+    if (mine.ok && repo.ok) {
+      await this.ctx.storage.put({
+        [authorKey]: mine.entries,
+        rate: repo.entries,
+      });
+      return "ok";
+    }
+    // One notice per author per hour; after that the bot stays quiet.
+    const noticeKey = `notice:${author.toLowerCase()}`;
+    const last = (await this.ctx.storage.get<number>(noticeKey)) ?? 0;
+    if (now - last < 3_600_000) return "silent";
+    await this.ctx.storage.put(noticeKey, now);
+    return "notify";
   }
 
   async #answer(m: Mention) {
@@ -594,7 +630,7 @@ export class Hive extends DurableObject<Env> {
           const notes = [...(await this.notes()), note].slice(-MAX_NOTES);
           await this.ctx.storage.put("notes", notes);
         },
-        allow: (author, id) => this.#withinRate(author, id),
+        allow: (author, id) => this.#admit(author, id),
         now: () => Date.now(),
       },
       m,

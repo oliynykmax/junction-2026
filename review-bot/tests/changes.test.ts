@@ -182,6 +182,23 @@ test("finish_review stores the PR's STAR on the verdict", async () => {
   expect(state.verdict?.star).toEqual(star);
 });
 
+test("finish_review refuses an invalid STAR twice, then finishes without it", async () => {
+  const state = reviewWith(["src/TypeCollector.cs"]);
+  const { run } = harness(state);
+  await run("describe_change", change);
+  for (let i = 0; i < 2; i++) {
+    const res = await run("finish_review", finish({ result: "I checked it." }));
+    expect(res.isError).toBe(true);
+    expect(state.verdict).toBeNull();
+  }
+  const res = await run("finish_review", finish({ result: "I checked it." }));
+  expect(res.isError).toBeUndefined();
+  expect(state.verdict?.star).toBeUndefined();
+  expect(state.verdict?.notChecked.join(" ")).toContain(
+    "result speaks in the first person",
+  );
+});
+
 test("finish_review refuses an invalid STAR without finishing", async () => {
   const state = reviewWith(["src/TypeCollector.cs"]);
   const { run } = harness(state);

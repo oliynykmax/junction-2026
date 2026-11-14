@@ -1,15 +1,13 @@
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import type { Env, ReviewView } from "../src/review";
+import { callback, login, logout } from "../src/auth";
+import { seal, unseal } from "../src/session";
 import {
   buildSignOff,
-  login,
-  logout,
-  seal,
   type SignOff,
   signOff,
   signOffComment,
   STATUS_CONTEXT,
-  unseal,
 } from "../src/signoff";
 
 const SECRET = "test-session-secret";
@@ -154,7 +152,9 @@ test("the comment names the owner, quotes their words and lists what was not che
   const body = signOffComment(s, "https://review.example/r");
   expect(body).toContain("@alice signed off on `aaaaaaa`");
   expect(body).toContain("> Read TypeCollector.cs");
-  expect(body).toContain("Risk accepted: Drops diagnostics");
+  expect(body).toContain(
+    "- **Risk accepted:** Drops diagnostics\n  > Covered by a follow-up",
+  );
   expect(body).toContain("- Tests were not run. _(listed by the AI)_");
   expect(body).toContain("> Analyzer warnings may be missing");
 });
@@ -190,11 +190,66 @@ test("login and logout only return to review pages", async () => {
 
 // The endpoint, against a fake review object and a fake GitHub.
 
+test("the comment quotes multi-line reasons inside the list item and pings nobody", () => {
+  const s = buildSignOff(
+    {
+      ...input,
+      checked: "Asked @bob and @team/core",
+      dispositions: [
+        { findingId: "f1", decision: "dismiss", reason: "Line one\ncc @carol" },
+      ],
+    },
+    view({
+      review: {
+        ...view().review,
+        findings: [{ ...blocker, title: "Ping @dave\nnow" }],
+      },
+    }),
+    signer,
+    "write",
+  );
+  const body = signOffComment(s, "https://review.example/r");
+  expect(body).toContain(
+    "- **Dismissed:** Ping @\u200bdave now\n  > Line one\n  > cc @\u200bcarol",
+  );
+  expect(body).toContain("> Asked @\u200bbob and @\u200bteam/core");
+  // The signer is named on purpose.
+  expect(body).toContain("@alice signed off");
+});
+
+test("a GitHub failure during sign-in is a readable 502, not a crash", async () => {
+  const env = {
+    GITHUB_CLIENT_ID: "Iv1",
+    GITHUB_CLIENT_SECRET: "s",
+    SESSION_SECRET: SECRET,
+  } as Env;
+  const state = await seal(
+    SECRET,
+    { state: "st", back: `/r/team/demo/1?sha=${sha}` },
+    60,
+  );
+  spyOn(globalThis, "fetch").mockImplementation((async (
+    input: RequestInfo | URL,
+  ) =>
+    String(input).includes("access_token")
+      ? Response.json({ access_token: "user" })
+      : new Response("boom", { status: 500 })) as typeof fetch);
+  const res = await callback(
+    new Request(`${origin}/auth/callback?code=c&state=st`, {
+      headers: { cookie: `bb_oauth=${state}` },
+    }),
+    env,
+  );
+  expect(res.status).toBe(502);
+  expect(res.headers.get("set-cookie")).toBeNull();
+});
+
 function harness(opts: {
   head?: string;
   permission?: string;
   existing?: SignOff | null;
   statusFails?: boolean;
+  recordEchoFails?: boolean;
 }) {
   let stored: SignOff | null = opts.existing ?? null;
   const writes: { path: string; body: Record<string, unknown> }[] = [];
@@ -206,6 +261,7 @@ function harness(opts: {
       return null;
     },
     recordEcho: async (echo: SignOff["echo"]) => {
+      if (opts.recordEchoFails) throw new Error("storage unavailable");
       if (stored) stored = { ...stored, echo };
     },
   };
@@ -321,4 +377,14 @@ test("the first sign-off wins", async () => {
   const again = await post(h.env);
   expect(again.status).toBe(409);
   expect(((await again.json()) as { error: string }).error).toContain("@alice");
+});
+
+test("once stored, the sign-off is reported as signed even if recording the echo fails", async () => {
+  const h = harness({ recordEchoFails: true });
+  const res = await post(h.env);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as SignOff;
+  expect(body.signer.login).toBe("alice");
+  expect(body.echo).toEqual({ comment: { ok: true }, status: { ok: true } });
+  expect(h.stored()?.signer.login).toBe("alice");
 });

@@ -2,7 +2,13 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { h } from "preact";
 import { renderToString } from "preact-render-to-string";
 import { EvidencePanel } from "../web/evidence";
-import { EMPTY_REVIEW, reviewerExtension } from "../src/reviewer";
+import {
+  capCodemodeOutput,
+  EMPTY_REVIEW,
+  MAX_CODEMODE_OUTPUT_TOKENS,
+  readBudget,
+  reviewerExtension,
+} from "../src/reviewer";
 import { evidenceHtml } from "../src/evidence";
 import { reviewPage } from "../src/page";
 
@@ -244,4 +250,78 @@ test("manual evidence uses anonymous reads and never publishes to GitHub", async
   expect(calls.some((u) => u.pathname.endsWith("CODING_STANDARDS.md"))).toBe(
     true,
   );
+});
+
+test("codemode output budget is capped on the options line and left alone otherwise", () => {
+  const script =
+    'const out = await tools.read_file({ path: "a" });\ntext(out);';
+  expect(capCodemodeOutput(script)).toBe(script);
+  const small = `// @options: {"max_output_tokens": 2000}\n${script}`;
+  expect(capCodemodeOutput(small)).toBe(small);
+  const capped = capCodemodeOutput(
+    `// @options: {"max_output_tokens": 40000, "timeout_ms": 60000}\n${script}`,
+  );
+  const [line, ...rest] = capped.split("\n");
+  expect(JSON.parse(line.slice("// @options:".length))).toEqual({
+    max_output_tokens: MAX_CODEMODE_OUTPUT_TOKENS,
+    timeout_ms: 60000,
+  });
+  expect(rest.join("\n")).toBe(script);
+  const indented = capCodemodeOutput(
+    ` \t// @options: {"max_output_tokens": 40000}\n${script}`,
+  );
+  expect(indented).toBe(
+    `// @options: {"max_output_tokens":${MAX_CODEMODE_OUTPUT_TOKENS}}\n${script}`,
+  );
+  const invalid = `// @options: {oops\n${script}`;
+  expect(capCodemodeOutput(invalid)).toBe(invalid);
+});
+
+test("the codemode wrap passes the capped script to the tool", async () => {
+  const { reviewer } = review();
+  const wrap = reviewer.extension.wraps.find((w) => w.tool === "codemode");
+  const seen = [];
+  const tool = wrap.wrap({
+    name: "codemode",
+    execute: async (args) => (seen.push(args.code), { output: [] }),
+  });
+  await tool.execute(
+    { code: '// @options: {"max_output_tokens": 35000}\ntext(1);' },
+    {},
+    {},
+  );
+  expect(seen).toEqual([
+    `// @options: {"max_output_tokens":${MAX_CODEMODE_OUTPUT_TOKENS}}\ntext(1);`,
+  ]);
+});
+
+test("read_file and list_dir share a read budget that grows with the PR", async () => {
+  const { state, reviewer, api } = review();
+  state.files = [
+    { path: "a.ts", status: "modified", additions: 1, deletions: 0, patch: "" },
+    { path: "b.ts", status: "added", additions: 1, deletions: 0, patch: "" },
+  ];
+  const budget = readBudget(2);
+  let fetches = 0;
+  spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    fetches++;
+    return String(input).includes("/contents/src?")
+      ? Response.json([{ name: "a.ts", type: "file" }])
+      : new Response("content");
+  });
+  const read = reviewer.extension.tools.find((t) => t.name === "read_file");
+  const list = reviewer.extension.tools.find((t) => t.name === "list_dir");
+  for (let i = 0; i < budget - 1; i++)
+    await read.execute({ path: "a.ts" }, api, {});
+  await list.execute({ path: "src" }, api, {});
+  expect(state.reads).toBe(budget);
+  expect(fetches).toBe(budget);
+  await expect(read.execute({ path: "a.ts" }, api, {})).rejects.toThrow(
+    /Read budget spent/,
+  );
+  await expect(list.execute({ path: "src" }, api, {})).rejects.toThrow(
+    /Read budget spent/,
+  );
+  expect(fetches).toBe(budget);
+  expect(state.reads).toBe(budget);
 });

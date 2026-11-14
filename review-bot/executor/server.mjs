@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./process.mjs";
 
 const PORT = Number(process.env.EXECUTOR_PORT ?? 8787);
@@ -252,12 +253,21 @@ async function bodyOf(request) {
   }
   return JSON.parse(Buffer.concat(parts));
 }
-const server = createServer(async (request, response) => {
+const inflight = new Set();
+let closing = false;
+const server = createServer((request, response) => {
   const controller = new AbortController();
+  const handled = handle(request, response, controller);
+  const entry = { controller, handled };
+  inflight.add(entry);
+  void handled.finally(() => inflight.delete(entry));
+});
+async function handle(request, response, controller) {
   response.on("close", () => {
     if (!response.writableEnded) controller.abort();
   });
   try {
+    if (closing) throw new Error("executor shutting down");
     const authorization = request.headers.authorization ?? "";
     const actual = Buffer.from(
       authorization.startsWith("Bearer ") ? authorization.slice(7) : "",
@@ -293,7 +303,7 @@ const server = createServer(async (request, response) => {
       .writeHead(400, { "content-type": "application/json" })
       .end(JSON.stringify({ error: error.message }));
   }
-});
+}
 await mkdir(ROOT, { recursive: true, mode: 0o700 });
 await cleanup();
 await rm(ROOT, { recursive: true, force: true });
@@ -312,8 +322,15 @@ const reaper = setInterval(
   Math.min(IDLE_MS, 30_000),
 );
 async function shutdown() {
+  closing = true;
   clearInterval(reaper);
   server.close();
+  // A checkout still provisioning would create its worker after cleanup's snapshot.
+  for (const { controller } of inflight) controller.abort();
+  await Promise.race([
+    Promise.allSettled([...inflight].map(({ handled }) => handled)),
+    delay(5_000),
+  ]);
   await cleanup();
   process.exit(0);
 }

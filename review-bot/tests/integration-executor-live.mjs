@@ -226,8 +226,29 @@ try {
   console.log(
     "PASS capacity bound and explicit same-session checkout/shell race rejection",
   );
-  // The 3 s idle limit can reap "first" during slower steps; a re-checkout must wait for it.
-  await checkout("first");
+  const recheckouts = await Promise.all(
+    [0, 1].map(() =>
+      fetch(`http://127.0.0.1:${port}/v1/checkout`, {
+        method: "POST",
+        headers: { authorization: "Bearer live-test-broker-secret" },
+        body: JSON.stringify({ ...input, session: "first" }),
+      }).then(async (r) => ({ status: r.status, body: await r.json() })),
+    ),
+  );
+  assert.deepEqual(
+    recheckouts.map((r) => r.status).sort(),
+    [200, 400],
+    JSON.stringify(recheckouts),
+  );
+  assert.equal(
+    recheckouts.find((r) => r.status === 400).body.error,
+    "session busy",
+  );
+  assert.ok(
+    podman("ps", "-aq", "--filter", label).split(/\s+/).length <= 2,
+    "re-checkouts stayed within the two-worker capacity",
+  );
+  console.log("PASS concurrent re-checkouts register one worker");
   const started = Date.now();
   result = await shell("first", "setsid bash -c 'sleep 300 & wait' & wait", {
     timeoutMs: 250,
@@ -284,6 +305,37 @@ try {
   await ready();
   assert.equal(podman("ps", "-aq", "--filter", label), "");
   assert.equal(podman("container", "exists", `${scope}-unrelated`), "");
+  const timed = Date.now();
+  await checkout("timed");
+  const took = Date.now() - timed;
+  await call("release", { session: "timed" });
+  // Aim SIGTERM into the provisioning steps at the end of a checkout, after the fetch.
+  for (const wait of Array.from({ length: 24 }, (_, i) => 0.5 + i * 0.025).map(
+    (f) => Math.round(f * took),
+  )) {
+    const pending = fetch(`http://127.0.0.1:${port}/v1/checkout`, {
+      method: "POST",
+      headers: { authorization: "Bearer live-test-broker-secret" },
+      body: JSON.stringify({ ...input, session: `shutdown-${wait}` }),
+    }).catch(() => null);
+    await delay(wait);
+    stop("SIGTERM");
+    await new Promise((r) => broker.once("exit", r));
+    await pending;
+    assert.equal(
+      podman("ps", "-aq", "--filter", label),
+      "",
+      `SIGTERM after ${wait} ms`,
+    );
+    assert.equal(
+      podman("network", "ls", "-q", "--filter", label),
+      "",
+      `SIGTERM after ${wait} ms`,
+    );
+    start();
+    await ready();
+  }
+  console.log("PASS SIGTERM during checkout leaves no worker or network");
   console.log(
     "PASS disconnect, reset, terminal release, idle expiry, restart and shutdown cleanup with unrelated container preserved",
   );

@@ -96,15 +96,22 @@ const input = {
 };
 const signer = { login: "alice", id: 1 };
 
-test("a sealed value round-trips, and tampering or expiry rejects it", async () => {
-  const token = await seal(SECRET, signer, 60);
-  expect(await unseal(SECRET, token)).toEqual(signer);
-  expect(await unseal("other", token)).toBeNull();
+test("a sealed value round-trips, and tampering, expiry or another purpose rejects it", async () => {
+  const token = await seal(SECRET, "session", signer, 60);
+  expect(await unseal(SECRET, "session", token)).toEqual(signer);
+  expect(await unseal(SECRET, "oauth", token)).toBeNull();
+  expect(await unseal("other", "session", token)).toBeNull();
   expect(
-    await unseal(SECRET, `${token.split(".")[0]}x.${token.split(".")[1]}`),
+    await unseal(
+      SECRET,
+      "session",
+      `${token.split(".")[0]}x.${token.split(".")[1]}`,
+    ),
   ).toBeNull();
-  expect(await unseal(SECRET, await seal(SECRET, signer, -1))).toBeNull();
-  expect(await unseal(SECRET, "garbage")).toBeNull();
+  expect(
+    await unseal(SECRET, "session", await seal(SECRET, "session", signer, -1)),
+  ).toBeNull();
+  expect(await unseal(SECRET, "session", "garbage")).toBeNull();
 });
 
 test("builds a record with the AI's not-checked list and only blocking dispositions", () => {
@@ -225,6 +232,7 @@ test("a GitHub failure during sign-in is a readable 502, not a crash", async () 
   } as Env;
   const state = await seal(
     SECRET,
+    "oauth",
     { state: "st", back: `/r/team/demo/1?sha=${sha}` },
     60,
   );
@@ -308,7 +316,7 @@ async function post(
   body: unknown = input,
   headers: HeadersInit = {},
 ) {
-  const cookie = `bb_session=${await seal(SECRET, signer, 60)}`;
+  const cookie = `bb_session=${await seal(SECRET, "session", signer, 60)}`;
   return signOff(
     new Request(api, {
       method: "POST",
@@ -388,3 +396,30 @@ test("once stored, the sign-off is reported as signed even if recording the echo
   expect(body.echo).toEqual({ comment: { ok: true }, status: { ok: true } });
   expect(h.stored()?.signer.login).toBe("alice");
 });
+
+for (const [name, sealed] of [
+  [
+    "an OAuth state cookie",
+    () =>
+      seal(
+        SECRET,
+        "oauth",
+        { state: "st", back: `/r/team/demo/1?sha=${sha}` },
+        60,
+      ),
+  ],
+  ["a session without a login", () => seal(SECRET, "session", { id: 1 }, 60)],
+  [
+    "a session with a malformed login",
+    () => seal(SECRET, "session", { login: "a/../b", id: 1 }, 60),
+  ],
+] as const)
+  test(`refuses ${name} used as a session, and asks GitHub nothing`, async () => {
+    const h = harness({});
+    const res = await post(h.env, input, {
+      cookie: `bb_session=${await sealed()}`,
+    });
+    expect(res.status).toBe(401);
+    expect(h.stored()).toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });

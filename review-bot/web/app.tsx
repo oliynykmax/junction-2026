@@ -9,6 +9,7 @@ import type { Activity, ReviewView } from "../src/review";
 import type { Diagnostic, ScanResult, ScanState } from "../src/scanners";
 import { Changes, findingsByChange } from "./changes";
 import { FileDiffs } from "./diff";
+import { EvidencePanel } from "./evidence";
 import { Findings } from "./findings";
 import { BLOCKING_RULE, type Focus, plural } from "./shared";
 import { blocks } from "../src/findings";
@@ -142,6 +143,7 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
           </div>
           <Facts view={view} owner={owner} error={error} />
         </section>
+        {view && <EvidencePanel html={view.evidenceHtml} />}
         {view && tab === "diff" && (
           <section class="section" aria-labelledby="diff-h">
             <div class="section-head">

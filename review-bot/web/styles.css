@@ -1117,3 +1117,15 @@ pre {
     grid-column: 1 / -1;
   }
 }
+
+.evidence-report .card {
+  border-top: 1px solid var(--rule);
+  padding-block: 16px;
+}
+.evidence-report .loc {
+  overflow-wrap: anywhere;
+}
+.evidence-report pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

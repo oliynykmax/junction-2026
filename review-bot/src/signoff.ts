@@ -175,30 +175,7 @@ export async function signOff(
         409,
       );
 
-    const { token } = await installationToken(env, target.installationId);
-    const base = `/repos/${target.owner}/${target.repo}`;
-    const head = await ghJson<{ head: { sha: string } }>(
-      token,
-      `${base}/pulls/${target.number}`,
-    );
-    if (head.head.sha !== target.headSha)
-      throw new SignOffError(
-        `This commit is no longer the head of the PR. Sign the review of ${head.head.sha.slice(0, 7)} instead.`,
-        409,
-      );
-    const permission = await ghJson<{ permission: string }>(
-      token,
-      `${base}/collaborators/${encodeURIComponent(session.login)}/permission`,
-    ).then(
-      (p) => p.permission,
-      () => "none",
-    );
-    if (!WRITE.has(permission))
-      throw new SignOffError(
-        `@${session.login} has ${permission} access to ${target.owner}/${target.repo}. Signing needs write access.`,
-        403,
-      );
-
+    const { token, permission } = await authorize(env, target, session);
     const record = buildSignOff(input, view, session, permission);
     const earlier = await stub.storeSignOff(record);
     if (earlier)
@@ -221,6 +198,42 @@ export async function signOff(
     console.error("sign-off failed", e);
     return json({ error: "The sign-off could not be saved. Try again." }, 500);
   }
+}
+
+/**
+ * Whether this person may sign this commit now: it must still be the PR head,
+ * and they need write access. Checked with the App's installation token, never
+ * with anything the browser sends.
+ */
+async function authorize(
+  env: Env,
+  target: Target & { mode?: "webhook"; installationId: number },
+  session: Session,
+): Promise<{ token: string; permission: string }> {
+  const { token } = await installationToken(env, target.installationId);
+  const base = `/repos/${target.owner}/${target.repo}`;
+  const head = await ghJson<{ head: { sha: string } }>(
+    token,
+    `${base}/pulls/${target.number}`,
+  );
+  if (head.head.sha !== target.headSha)
+    throw new SignOffError(
+      `This commit is no longer the head of the PR. Sign the review of ${head.head.sha.slice(0, 7)} instead.`,
+      409,
+    );
+  const permission = await ghJson<{ permission: string }>(
+    token,
+    `${base}/collaborators/${encodeURIComponent(session.login)}/permission`,
+  ).then(
+    (p) => p.permission,
+    () => "none",
+  );
+  if (!WRITE.has(permission))
+    throw new SignOffError(
+      `@${session.login} has ${permission} access to ${target.owner}/${target.repo}. Signing needs write access.`,
+      403,
+    );
+  return { token, permission };
 }
 
 // Echo to GitHub

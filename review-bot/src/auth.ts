@@ -8,6 +8,7 @@ import {
   b64url,
   configured,
   cookie,
+  isSession,
   readSession,
   seal,
   type Session,
@@ -47,7 +48,7 @@ export async function login(request: Request, env: Env): Promise<Response> {
       location: authorize.toString(),
       "set-cookie": setCookie(
         STATE_COOKIE,
-        await seal(env.SESSION_SECRET!, { state, back }, STATE_TTL_S),
+        await seal(env.SESSION_SECRET!, "oauth", { state, back }, STATE_TTL_S),
         STATE_TTL_S,
         "/auth",
       ),
@@ -58,12 +59,20 @@ export async function login(request: Request, env: Env): Promise<Response> {
 export async function callback(request: Request, env: Env): Promise<Response> {
   if (!configured(env)) return plain(NOT_CONFIGURED, 503);
   const url = new URL(request.url);
-  const saved = await unseal<{ state: string; back: string }>(
+  const saved = (await unseal(
     env.SESSION_SECRET!,
+    "oauth",
     cookie(request, STATE_COOKIE),
-  );
+  )) as { state?: unknown; back?: unknown } | null;
   const code = url.searchParams.get("code");
-  if (!saved || !code || url.searchParams.get("state") !== saved.state)
+  if (
+    !saved ||
+    !code ||
+    typeof saved.state !== "string" ||
+    url.searchParams.get("state") !== saved.state ||
+    typeof saved.back !== "string" ||
+    !RETURN_PATH.test(saved.back)
+  )
     return plain(
       "Sign-in expired or did not start here. Go back to the review and try again.",
       400,
@@ -94,7 +103,8 @@ export async function callback(request: Request, env: Env): Promise<Response> {
         `GitHub sign-in failed: ${grant.error_description ?? `HTTP ${res.status}`}. Go back to the review and try again.`,
         502,
       );
-    const me = await ghJson<Session>(grant.access_token, "/user");
+    const me: unknown = await ghJson(grant.access_token, "/user");
+    if (!isSession(me)) throw new Error("GitHub /user returned no login");
     user = { login: me.login, id: me.id };
   } catch (e) {
     console.error("GitHub sign-in", e);
@@ -109,7 +119,7 @@ export async function callback(request: Request, env: Env): Promise<Response> {
     "set-cookie",
     setCookie(
       SESSION_COOKIE,
-      await seal(env.SESSION_SECRET!, user, SESSION_TTL_S),
+      await seal(env.SESSION_SECRET!, "session", user, SESSION_TTL_S),
       SESSION_TTL_S,
     ),
   );

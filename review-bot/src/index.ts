@@ -138,7 +138,8 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     headSha: pr.head.sha,
     installationId: payload.installation.id,
   };
-  await env.REVIEWS.getByName(reviewKey(target)).start(target);
+  const review = env.REVIEWS.getByName(reviewKey(target));
+  await review.start(target);
 
   const { token } = await installationToken(env, target.installationId);
   const comment = `${MARKER}\n🐝 [Bumble Bot review](${reviewLink(env, target)})`;
@@ -151,14 +152,21 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     comment,
   );
   await dismissStaleApprovals(token, target);
-  // Each new head waits for a named owner. A failure here (for example the App
+  // Each new head waits for a named owner. "reopened" and "ready_for_review"
+  // (and webhook redeliveries) can arrive for a commit that is already signed,
+  // so leave its success status alone. A failure here (for example the App
   // lacking "Commit statuses: write") must not stop the review.
-  await setOwnerStatus(
-    token,
-    target,
-    "pending",
-    "Waiting for a named owner to sign off on the review page",
-    reviewLink(env, target),
-  ).catch((e) => console.error("owner sign-off status", e));
+  try {
+    if (!(await review.hasSignOff()))
+      await setOwnerStatus(
+        token,
+        target,
+        "pending",
+        "Waiting for a named owner to sign off on the review page",
+        reviewLink(env, target),
+      );
+  } catch (e) {
+    console.error("owner sign-off status", e);
+  }
   return new Response("review started\n");
 }

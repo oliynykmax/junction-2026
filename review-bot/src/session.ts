@@ -33,10 +33,25 @@ function hmacKey(secret: string) {
   );
 }
 
-export async function seal(secret: string, value: unknown, ttlS: number) {
+/**
+ * What a sealed value is for. It is signed with the value, so a cookie sealed
+ * for one purpose (say the OAuth state) is never accepted as another (a session).
+ */
+export type Purpose = "session" | "oauth";
+
+export async function seal(
+  secret: string,
+  purpose: Purpose,
+  value: unknown,
+  ttlS: number,
+) {
   const body = b64url(
     enc.encode(
-      JSON.stringify({ v: value, exp: Math.floor(Date.now() / 1000) + ttlS }),
+      JSON.stringify({
+        p: purpose,
+        v: value,
+        exp: Math.floor(Date.now() / 1000) + ttlS,
+      }),
     ),
   );
   const sig = await crypto.subtle.sign(
@@ -47,10 +62,11 @@ export async function seal(secret: string, value: unknown, ttlS: number) {
   return `${body}.${b64url(new Uint8Array(sig))}`;
 }
 
-export async function unseal<T>(
+export async function unseal(
   secret: string,
+  purpose: Purpose,
   token: string | undefined,
-): Promise<T | null> {
+): Promise<unknown> {
   if (!token) return null;
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
@@ -62,8 +78,10 @@ export async function unseal<T>(
       enc.encode(body),
     );
     if (!ok) return null;
-    const { v, exp } = JSON.parse(new TextDecoder().decode(unb64url(body)));
-    return typeof exp === "number" && exp > Date.now() / 1000 ? (v as T) : null;
+    const { p, v, exp } = JSON.parse(new TextDecoder().decode(unb64url(body)));
+    return p === purpose && typeof exp === "number" && exp > Date.now() / 1000
+      ? v
+      : null;
   } catch {
     return null;
   }
@@ -91,7 +109,24 @@ export const configured = (env: Env) =>
     env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.SESSION_SECRET,
   );
 
-export function readSession(request: Request, env: Env) {
-  if (!env.SESSION_SECRET) return Promise.resolve(null);
-  return unseal<Session>(env.SESSION_SECRET, cookie(request, SESSION_COOKIE));
+export const isSession = (v: unknown): v is Session =>
+  typeof v === "object" &&
+  v !== null &&
+  "login" in v &&
+  typeof v.login === "string" &&
+  /^[A-Za-z0-9-]{1,39}$/.test(v.login) &&
+  "id" in v &&
+  typeof v.id === "number";
+
+export async function readSession(
+  request: Request,
+  env: Env,
+): Promise<Session | null> {
+  if (!env.SESSION_SECRET) return null;
+  const v = await unseal(
+    env.SESSION_SECRET,
+    "session",
+    cookie(request, SESSION_COOKIE),
+  );
+  return isSession(v) ? { login: v.login, id: v.id } : null;
 }

@@ -246,7 +246,7 @@ h1 .num {
 
 .facts {
   grid-column: 9 / 13;
-  align-self: end;
+  align-self: start;
   font-size: 14px;
 }
 
@@ -745,12 +745,8 @@ pre {
   margin-bottom: 2px;
 }
 
-.change.quiet h3,
-.change.quiet .star dd {
-  color: var(--ink-2);
-}
-
 .change.quiet h3 {
+  color: var(--ink-2);
   font-weight: 600;
 }
 
@@ -769,8 +765,9 @@ pre {
 
 .star {
   display: grid;
-  gap: 4px;
+  gap: 12px;
   max-width: 80ch;
+  margin: 18px 0 8px;
 }
 
 .star div {
@@ -788,22 +785,33 @@ pre {
   padding-top: 2px;
 }
 
+.change-summary {
+  max-width: 80ch;
+}
+
+.change.quiet .change-summary {
+  color: var(--ink-2);
+}
+
+.change-summary + .notes-findings {
+  margin-top: 12px;
+}
+
 .notes-findings {
   list-style: none;
   padding: 0;
-  margin-top: 16px;
   display: grid;
-  gap: 8px;
+  gap: 14px;
   max-width: 80ch;
 }
 
 .note-finding {
-  background: var(--code-bg);
-  padding: 10px 14px;
+  border-left: 2px solid var(--rule);
+  padding: 2px 0 2px 14px;
 }
 
 .note-finding.attention {
-  background: var(--red-bg);
+  border-left-color: var(--red);
 }
 
 .note-finding.focused {
@@ -811,23 +819,36 @@ pre {
   outline-offset: -2px;
 }
 
-.note-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .note-title {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .note-meta {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 6px;
+  gap: 4px 14px;
+  margin-top: 2px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.note-facts [title] {
+  cursor: help;
+}
+
+.note-sev {
+  text-transform: capitalize;
+}
+
+.note-sev.notable {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.note-facts .alert {
+  color: var(--red);
+  font-weight: 600;
 }
 
 .note-meta .toggle {
@@ -1062,8 +1083,8 @@ pre {
     gap: 0;
   }
 
-  .star div + div {
-    margin-top: 6px;
+  .star {
+    gap: 14px;
   }
 
   .status {

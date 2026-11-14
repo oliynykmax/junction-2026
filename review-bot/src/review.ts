@@ -15,11 +15,15 @@ import {
   ToolResultEntry,
   type Wake,
 } from "@earendil-works/pi-durable";
+import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
+import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { type AppSecrets, installationToken } from "./github";
+import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Check, ScanResult } from "./scanners";
 import {
   EMPTY_REVIEW,
+  recordLookup,
   ReviewDoc,
   reviewerExtension,
   type ReviewState,
@@ -35,6 +39,8 @@ export interface Env extends AppSecrets {
   ANTHROPIC_API_KEY: string;
   SCANNER_URL: string;
   SCANNER_TOKEN: string;
+  MCP_SERVERS?: Record<string, unknown>;
+  CONTEXT_DEV_API_KEY?: string;
   REVIEWS: DurableObjectNamespace<Review>;
 }
 
@@ -94,6 +100,18 @@ export class Review extends DurableObject<Env> {
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);
+      const servers = mcpServers(
+        env.MCP_SERVERS,
+        env as unknown as Record<string, unknown>,
+      );
+      registry.install(await mcpExtension(servers, recordLookup));
+      registry.install(
+        createCodemodeExtension({
+          sandbox: createInlineCodemodeSandbox(),
+          namespaces: mcpNamespaces(servers),
+          models: false,
+        }),
+      );
 
       this.#harness = await Harness.open(
         await openDurableObjectSqliteStorage(state.storage),

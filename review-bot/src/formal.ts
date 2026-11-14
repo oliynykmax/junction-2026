@@ -93,7 +93,6 @@ function listProblems(
   }
 }
 
-/** Reject receipts that look confident but leave their actual evidence vague. */
 export function verificationProblems(
   input: VerificationInput,
   changed: readonly string[],

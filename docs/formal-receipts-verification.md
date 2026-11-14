@@ -129,8 +129,33 @@ verification evidence. No independent runtime verification agent, orchestration
 change, trust/probation mechanism or permanent regression-test PR was added.
 The named human remains accountable for the merge.
 
-No external verifier installation, live model review, public deployment or
-browser layout walkthrough ran. UI evidence is rendered markup and a production
-build. The Vite landing build still emits its existing inlineDynamicImports
-deprecation warning and succeeds. Independent review belongs to the parent.
-Nothing was pushed, deployed or merged.
+No external verifier installation, live model review or public deployment ran.
+The implementation checks covered rendered markup and a production build.
+The Vite landing build still emits its existing inlineDynamicImports deprecation
+warning and succeeds.
+
+## Parent review and layout correction
+
+A fresh Codex GPT-6.1 Sol reviewer independently ran the full 252-test suite,
+three controlled variants, type checking, lint and formatting. It found one
+reproducible layout defect. Embedded receipts declared one grid column, but
+their limits section retained placement in column two. Chromium created an
+implicit second column and compressed the checker output in a narrow panel.
+
+The parent reproduced the defect using the actual VerificationReceiptCard and
+repository stylesheet at a 1280px viewport inside a 400px container. Setting
+the embedded limits section to grid-column 1 / -1 restored one column.
+The corrected component has one column and no horizontal overflow for 400px
+and 700px containers at a 1280px viewport, and a 350px container at a 390px
+viewport. The parent inspected a screenshot with assumptions and limits open.
+This checks the component layout, not a deployed live-page interaction.
+
+The parent also reran the 36 focused tests and all three controlled variants.
+After the CSS correction and removal of eleven narration comment lines, the
+nine rendering and skill-installation tests, formatting and production build
+passed. The retained Kani/rustup comment explains an external tool dependency.
+
+Claude and DeepSeek review attempts failed on usage limits and supplied no
+completed review. The completed review used a fresh Codex agent, the same model
+family as implementation. No cross-family review or merge-ready claim is made.
+The separate runtime verifier discussed with the user remains a follow-up.

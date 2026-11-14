@@ -222,7 +222,6 @@ const DEMOS: Record<Exclude<DemoScenario, "all">, VerificationReceipt> = {
   },
 };
 
-/** Synthetic layouts for the walkthrough: passed, failed, and deliberately absent proof. */
 export function FormalDemo({ scenario }: { scenario: string | null }) {
   const selected: DemoScenario =
     scenario === "passed" ||

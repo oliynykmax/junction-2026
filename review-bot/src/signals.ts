@@ -128,163 +128,149 @@ export function testChange(file: File): TestChange {
   return t;
 }
 
-/** The rules, each returning a reason when it fires. Order is display order. */
-const RULES: ((
-  files: readonly File[],
-  tests: TestChange[],
-) => RiskReason | null)[] = [
-  (_, tests) => {
-    const weak = tests.filter((t) => t.weakened.length);
-    return weak.length
-      ? {
-          rule: "tests-weakened",
-          tier: "high",
-          text: "Tests were deleted, skipped or lost assertions. Coding agents most often cheat by editing tests, so a human checks each of these against the requirement.",
-          paths: weak.map((t) => t.path),
-        }
-      : null;
+/** What every rule may consult besides the file it is matching. */
+type Ctx = {
+  weak: ReadonlySet<string>;
+  hasTests: boolean;
+  files: number;
+  lines: number;
+};
+
+/**
+ * One rule. It fires when `when` holds (default: always) and, if it has a
+ * `match`, at least one changed file matches; the matching files become its
+ * paths. Order is display order. The path rules below are tuned for this repo
+ * and MessagePack-CSharp; this table is where to retune them.
+ */
+type Rule = {
+  rule: string;
+  tier: RiskTier;
+  text: string | ((ctx: Ctx) => string);
+  match?: (f: File, ctx: Ctx) => boolean;
+  when?: (ctx: Ctx) => boolean;
+};
+
+const isCode = (f: File) =>
+  CODE_PATH.test(f.path) && !isTestPath(f.path) && !DOC_PATH.test(f.path);
+const BUILD_FILE =
+  /\.(cs|fs|vb)proj$|(^|\/)Directory\.(Build|Packages)\.(props|targets)$|(^|\/)(global\.json|nuget\.config|package\.json|package-lock\.json|bun\.lock|yarn\.lock|pnpm-lock\.yaml|pyproject\.toml|uv\.lock|requirements[^/]*\.txt|go\.mod|Cargo\.toml)$/i;
+
+const RULES: Rule[] = [
+  {
+    rule: "tests-weakened",
+    tier: "high",
+    text: "Tests were deleted, skipped or lost assertions. Coding agents most often cheat by editing tests, so a human checks each of these against the requirement.",
+    match: (f, ctx) => ctx.weak.has(f.path),
   },
-  (files) => {
-    const hit = files.filter(
-      (f) =>
-        !isTestPath(f.path) &&
-        (/(^|\/)(Formatters?|Resolvers?)\//i.test(f.path) ||
-          /(Formatter|Resolver)[^/]*\.(cs|tt)$/i.test(f.path)),
-    );
-    return hit.length
-      ? {
-          rule: "serializer-core",
-          tier: "high",
-          text: "Serializer formatters or resolvers changed. They define the wire format, so a mistake corrupts data other systems read.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "serializer-core",
+    tier: "high",
+    text: "Serializer formatters or resolvers changed. They define the wire format, so a mistake corrupts data other systems read.",
+    match: (f) =>
+      !isTestPath(f.path) &&
+      (/(^|\/)(Formatters?|Resolvers?)\//i.test(f.path) ||
+        /(Formatter|Resolver)[^/]*\.(cs|tt)$/i.test(f.path)),
   },
-  (files) => {
-    const hit = files.filter(
-      (f) =>
-        !isTestPath(f.path) &&
-        f.patch !== null &&
-        patchLines(f.patch).added.some((l) => UNSAFE.test(l)),
-    );
-    return hit.length
-      ? {
-          rule: "unsafe-memory",
-          tier: "high",
-          text: "Added lines use unsafe code, stackalloc, pointer pinning or raw memory APIs, where a bug corrupts memory instead of throwing.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "unsafe-memory",
+    tier: "high",
+    text: "Added lines use unsafe code, stackalloc, pointer pinning or raw memory APIs, where a bug corrupts memory instead of throwing.",
+    match: (f) =>
+      !isTestPath(f.path) &&
+      f.patch !== null &&
+      patchLines(f.patch).added.some((l) => UNSAFE.test(l)),
   },
-  (files) => {
-    const hit = files.filter(
-      (f) =>
-        f.path.startsWith(".github/workflows/") ||
-        /(^|\/)(auth|crypto|security|secrets?)(\/|[^/]*\.\w+$)/i.test(f.path),
-    );
-    return hit.length
-      ? {
-          rule: "security-surface",
-          tier: "high",
-          text: "CI workflows or security-related code changed, where a mistake can leak secrets or let untrusted code run.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "security-surface",
+    tier: "high",
+    text: "CI workflows or security-related code changed, where a mistake can leak secrets or let untrusted code run.",
+    // The keyword must be a whole path segment or file stem, so AUTHORS.md
+    // and author.cs do not count.
+    match: (f) =>
+      f.path.startsWith(".github/workflows/") ||
+      (!DOC_PATH.test(f.path) &&
+        /(^|\/)(auth|authentication|authorization|crypto|security|secrets?)(\/|\.\w+$)/i.test(
+          f.path,
+        )),
   },
-  (files) => {
-    const hit = files.filter(
-      (f) =>
-        !isTestPath(f.path) &&
-        /(^|\/)[^/]*(SourceGenerator|Analyzers?)[^/]*\//.test(f.path),
-    );
-    return hit.length
-      ? {
-          rule: "code-generator",
-          tier: "medium",
-          text: "A source generator or analyzer changed. It emits code or diagnostics into every consumer's build, so a mistake spreads beyond this repository.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "code-generator",
+    tier: "medium",
+    text: "A source generator or analyzer changed. It emits code or diagnostics into every consumer's build, so a mistake spreads beyond this repository.",
+    match: (f) =>
+      !isTestPath(f.path) &&
+      /(^|\/)[^/]*(SourceGenerator|Analyzers?)[^/]*\//.test(f.path),
   },
-  (files) => {
-    const hit = files.filter((f) => /(^|\/)PublicAPI\.\w+\.txt$/.test(f.path));
-    return hit.length
-      ? {
-          rule: "public-api",
-          tier: "medium",
-          text: "The declared public API changed, so callers outside this repository may break.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "public-api",
+    tier: "medium",
+    text: "The declared public API changed, so callers outside this repository may break.",
+    match: (f) => /(^|\/)PublicAPI\.\w+\.txt$/.test(f.path),
   },
-  (files) => {
-    const hit = files.filter((f) =>
-      /\.(cs|fs|vb)proj$|(^|\/)Directory\.(Build|Packages)\.(props|targets)$|(^|\/)(global\.json|nuget\.config|package\.json|package-lock\.json|bun\.lock|yarn\.lock|pnpm-lock\.yaml|pyproject\.toml|uv\.lock|requirements[^/]*\.txt|go\.mod|Cargo\.toml)$/i.test(
-        f.path,
-      ),
-    );
-    return hit.length
-      ? {
-          rule: "build-deps",
-          tier: "medium",
-          text: "Build settings or dependencies changed. Check that every new package exists, is the intended one and is not brand new.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "build-deps",
+    tier: "medium",
+    text: "Build settings or dependencies changed. Check that every new package exists, is the intended one and is not brand new.",
+    match: (f) => BUILD_FILE.test(f.path),
   },
-  (files) => {
-    const code = files.filter(
-      (f) =>
-        CODE_PATH.test(f.path) &&
-        !isTestPath(f.path) &&
-        !DOC_PATH.test(f.path) &&
-        f.status !== "removed",
-    );
-    return code.length && !files.some((f) => isTestPath(f.path))
-      ? {
-          rule: "untested",
-          tier: "medium",
-          text: "Production code changed and no test file did, so nothing in this PR shows the new behaviour works.",
-          paths: code.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "untested",
+    tier: "medium",
+    text: "Production code changed and no test file did, so nothing in this PR shows the new behaviour works.",
+    when: (ctx) => !ctx.hasTests,
+    match: (f) => isCode(f) && f.status !== "removed",
   },
-  (files) => {
-    const lines = files.reduce((n, f) => n + f.additions + f.deletions, 0);
-    return lines > 500 || files.length > 25
-      ? {
-          rule: "large",
-          tier: "medium",
-          text: `Large change: ${plural(files.length, "file")}, ${plural(lines, "changed line")}.`,
-          paths: [],
-        }
-      : null;
+  {
+    rule: "large",
+    tier: "medium",
+    text: (ctx) =>
+      `Large change: ${plural(ctx.files, "file")}, ${plural(ctx.lines, "changed line")}.`,
+    when: (ctx) => ctx.lines > 500 || ctx.files > 25,
   },
-  (files) => {
-    const hit = files.filter((f) => f.patch === null && f.status !== "removed");
-    return hit.length
-      ? {
-          rule: "no-patch",
-          tier: "medium",
-          text: "GitHub sent no diff for these files (too large or binary), so these checks could not inspect them.",
-          paths: hit.map((f) => f.path),
-        }
-      : null;
+  {
+    rule: "no-patch",
+    tier: "medium",
+    text: "GitHub sent no diff for these files (too large or binary), so these checks could not inspect them.",
+    match: (f) => f.patch === null && f.status !== "removed",
   },
 ];
 
 export function assessRisk(files: readonly File[]): Risk {
   const tests = files.filter((f) => isTestPath(f.path)).map(testChange);
-  const reasons = RULES.flatMap((rule) => rule(files, tests) ?? []);
-  if (!reasons.length)
+  const ctx: Ctx = {
+    weak: new Set(tests.filter((t) => t.weakened.length).map((t) => t.path)),
+    hasTests: tests.length > 0,
+    files: files.length,
+    lines: files.reduce((n, f) => n + f.additions + f.deletions, 0),
+  };
+  const reasons: RiskReason[] = RULES.flatMap(
+    ({ rule, tier, text, match, when }) => {
+      if (when && !when(ctx)) return [];
+      const paths = match
+        ? files.filter((f) => match(f, ctx)).map((f) => f.path)
+        : [];
+      if (match && !paths.length) return [];
+      return [
+        {
+          rule,
+          tier,
+          text: typeof text === "string" ? text : text(ctx),
+          paths,
+        },
+      ];
+    },
+  );
+  if (!reasons.length) {
+    const docsOnly = files.every((f) => DOC_PATH.test(f.path));
     reasons.push({
-      rule: files.every((f) => DOC_PATH.test(f.path)) ? "docs-only" : "none",
+      rule: docsOnly ? "docs-only" : "none",
       tier: "low",
-      text: files.every((f) => DOC_PATH.test(f.path))
+      text: docsOnly
         ? "Only documentation changed."
         : "No risk rule matched these files.",
       paths: [],
     });
+  }
   const tier = reasons.reduce<RiskTier>(
     (t, r) => (RISK_TIERS.indexOf(r.tier) > RISK_TIERS.indexOf(t) ? r.tier : t),
     "low",

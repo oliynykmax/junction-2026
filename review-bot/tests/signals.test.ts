@@ -137,3 +137,24 @@ test("source generator changes are medium even with tests", () => {
     "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
   ]);
 });
+
+test("security paths need the keyword as a whole segment or stem", () => {
+  for (const p of [
+    "AUTHORS.md",
+    "src/author.cs",
+    "docs/securityGuide.md",
+    "src/Authority/X.cs",
+  ])
+    expect(
+      assessRisk([file(p, "@@\n+x")]).reasons.map((r) => r.rule),
+    ).not.toContain("security-surface");
+  for (const p of [
+    "src/auth/login.ts",
+    "src/Security.cs",
+    ".github/workflows/ci.yml",
+    "src/secrets/store.py",
+  ])
+    expect(
+      assessRisk([file(p, "@@\n+x")]).reasons.map((r) => r.rule),
+    ).toContain("security-surface");
+});

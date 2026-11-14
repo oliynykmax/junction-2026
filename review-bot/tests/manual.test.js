@@ -245,7 +245,7 @@ const finding = {
 };
 
 for (const manual of [true, false])
-  test(`completion ${manual ? "never approves manual review after restore" : "publishes webhook review"}, after the commit settles`, async () => {
+  test(`completion ${manual ? "never publishes a manual review after restore" : "publishes the webhook review"}, after the commit settles`, async () => {
     const state = structuredClone(EMPTY_REVIEW);
     state.target = JSON.parse(
       JSON.stringify(

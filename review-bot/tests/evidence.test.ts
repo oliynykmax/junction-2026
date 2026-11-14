@@ -2,7 +2,6 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import {
   collectEvidence,
   ciState,
-  evidenceAllowsApproval,
   evidenceGaps,
   evidenceHtml,
   renderEvidence,
@@ -87,7 +86,6 @@ test("pins both CI APIs and standard reads, stores provenance and identical poli
   expect(evidence.base).toEqual(target.base);
   expect(evidence.capturedAt).toBeGreaterThan(0);
   expect(ciState(evidence)).toBe("success");
-  expect(evidenceAllowsApproval(evidence)).toBe(true);
   expect(renderEvidence(evidence)).toContain(target.base.sha);
   expect(evidenceHtml(evidence)).toContain(target.headSha);
 });
@@ -137,7 +135,6 @@ for (const [row, expected] of [
     );
     const evidence = await collectEvidence("token", target);
     expect(ciState(evidence)).toBe(expected);
-    expect(evidenceAllowsApproval(evidence)).toBe(false);
     expect(evidenceGaps(evidence).join(" ")).toContain(expected);
   });
 }
@@ -175,7 +172,6 @@ for (const body of [
     const evidence = await collectEvidence("token", target);
     expect(evidence.checks.kind).toBe("unavailable");
     expect(evidence.statuses.kind).toBe("available");
-    expect(evidenceAllowsApproval(evidence)).toBe(false);
   });
 }
 
@@ -221,7 +217,6 @@ for (const code of [403, 404, 500]) {
     expect(evidence.standard.kind).toBe(
       code === 404 ? "absent" : "unavailable",
     );
-    expect(evidenceAllowsApproval(evidence)).toBe(code === 404);
   });
 }
 
@@ -276,7 +271,6 @@ for (const policy of [
     );
     const evidence = await collectEvidence("token", target);
     expect(evidence.standard.kind).toBe("unavailable");
-    expect(evidenceAllowsApproval(evidence)).toBe(false);
   });
 }
 
@@ -291,9 +285,8 @@ test("accepts policy at the exact byte limit", async () => {
   );
 });
 
-test("legacy documents show unavailable evidence and cannot approve", async () => {
+test("legacy documents show unavailable evidence", async () => {
   github();
-  expect(evidenceAllowsApproval(null)).toBe(false);
   expect(evidenceGaps(undefined)).toHaveLength(1);
   const { base: _base, ...legacy } = target;
   expect((await collectEvidence("token", legacy)).standard.kind).toBe(

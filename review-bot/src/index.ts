@@ -60,11 +60,7 @@ export default {
       if (!/^[0-9a-f]{40}$/.test(sha))
         return new Response("sha query parameter required\n", { status: 400 });
       const [, owner, repo, number] = m;
-      return reviewPage(
-        `/api/r/${owner}/${repo}/${number}/${sha}`,
-        `https://github.com/${owner}/${repo}/pull/${number}`,
-        `${owner}/${repo}#${number}`,
-      );
+      return reviewPage({ owner, repo, number, headSha: sha });
     }
 
     m = url.pathname.match(VIEW);

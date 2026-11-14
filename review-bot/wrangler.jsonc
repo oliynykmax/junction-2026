@@ -7,6 +7,9 @@
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true },
+  // The review page client (web/), built by Vite into dist/review/.
+  "build": { "command": "bun run build", "watch_dir": "web" },
+  "assets": { "directory": "./dist" },
   "rules": [
     { "type": "Text", "globs": ["**/*.svg"], "fallthrough": true },
     { "type": "Data", "globs": ["**/*.ico", "**/*.png"], "fallthrough": true },

@@ -137,6 +137,8 @@ export type ReviewState = {
   changeRefusals?: number;
   /** Times finish_review refused an invalid STAR. */
   starRefusals?: number;
+  /** Times describe_change refused an invalid summary sentence. */
+  summaryRefusals?: number;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -156,6 +158,7 @@ export const EMPTY_REVIEW: ReviewState = {
   changes: [],
   changeRefusals: 0,
   starRefusals: 0,
+  summaryRefusals: 0,
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -172,6 +175,7 @@ const MAX_LOOKUP_ARGS = 300;
 const MAX_DOCS_REFUSALS = 2;
 const MAX_CHANGE_REFUSALS = 2;
 const MAX_STAR_REFUSALS = 2;
+const MAX_SUMMARY_REFUSALS = 2;
 // Patches are stored in the review document, so their size is capped.
 const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
@@ -233,20 +237,10 @@ export function starProblems(star: Star): string[] {
 
 /** Problems with a describe_change call, or an empty list when it is valid. */
 export function changeProblems(
-  args: { tags: readonly string[]; summary: string; files: readonly string[] },
+  args: { tags: readonly string[]; files: readonly string[] },
   changed: readonly string[],
 ): string[] {
   const problems: string[] = [];
-  const length = args.summary.trim().length;
-  if (length === 0) problems.push("Write the summary sentence.");
-  else if (length > MAX_CHANGE_SUMMARY_CHARS)
-    problems.push(
-      `summary is ${length} characters; keep it to one sentence under ${MAX_CHANGE_SUMMARY_CHARS}.`,
-    );
-  if (FIRST_PERSON.test(args.summary))
-    problems.push(
-      "summary speaks in the first person. Describe the change in the third person.",
-    );
   if (args.tags.length === 0 || args.tags.length > MAX_TAGS)
     problems.push(`Give 1 to ${MAX_TAGS} tags.`);
   for (const tag of args.tags)
@@ -258,6 +252,22 @@ export function changeProblems(
   if (unknown.length && changed.length)
     problems.push(
       `Not changed in this pull request: ${unknown.join(", ")}. Use paths exactly as pr_overview lists them.`,
+    );
+  return problems;
+}
+
+/** Problems with a change's summary sentence, or an empty list when it is valid. */
+export function summaryProblems(summary: string): string[] {
+  const problems: string[] = [];
+  const length = summary.trim().length;
+  if (length === 0) problems.push("Write the summary sentence.");
+  else if (length > MAX_CHANGE_SUMMARY_CHARS)
+    problems.push(
+      `summary is ${length} characters; keep it to one sentence under ${MAX_CHANGE_SUMMARY_CHARS}.`,
+    );
+  if (FIRST_PERSON.test(summary))
+    problems.push(
+      "summary speaks in the first person. Describe the change in the third person.",
     );
   return problems;
 }
@@ -489,11 +499,20 @@ export function reviewerExtension({
           (state.files ?? []).map((f) => f.path),
         );
         if (problems.length) return;
+        // Summary refusals are capped across the review; past the cap the
+        // change is recorded without its sentence.
+        const bad = summaryProblems(args.summary);
+        const summaryRefusals = state.summaryRefusals ?? 0;
+        if (bad.length && summaryRefusals < MAX_SUMMARY_REFUSALS) {
+          state.summaryRefusals = summaryRefusals + 1;
+          problems = bad;
+          return;
+        }
         const change: Change = {
           id: api.callId,
           title: args.title,
           tags: args.tags.map((t) => t.toLowerCase()),
-          summary: args.summary.trim(),
+          ...(bad.length ? {} : { summary: args.summary.trim() }),
           files: [...new Set(args.files)],
         };
         const others = (state.changes ?? []).filter(

@@ -39,6 +39,7 @@
     <link rel="stylesheet" href="/assets/style.css" />
     <script type="module" src="/assets/landing.js"></script>
   </head>
+
   <body>
     <ui-preferences></ui-preferences>
     <a class="skip" href="#review">Skip to review form</a>
@@ -60,22 +61,16 @@
           >Junction 2026</a
         >
       </div>
-      <nav aria-label="Main navigation">
-        <a class="nav-how" href="#how-it-works">How it works</a>
-        <a class="nav-cta" href="#review"
-          >Review a PR <span aria-hidden="true">↗</span></a
-        >
-        <label class="theme">
-          <span class="theme-label">Dark mode</span>
-          <ui-switch id="theme-switch">
-            <ui-switch-thumb></ui-switch-thumb>
-          </ui-switch>
-        </label>
-      </nav>
+      <label class="theme">
+        <span class="theme-label">Dark mode</span>
+        <ui-switch id="theme-switch">
+          <ui-switch-thumb></ui-switch-thumb>
+        </ui-switch>
+      </label>
     </header>
     <main>
       <section class="hero wrap" aria-labelledby="hero-title">
-        <div class="hero-copy">
+        <div class="hero-inner">
           <p class="intro">
             <span class="status-dot" aria-hidden="true"></span> Evidence before
             approval
@@ -85,9 +80,9 @@
             <span class="accent">decision.</span>
           </h1>
           <p class="lede">
-            Give your next pull request a second set of eyes. Get findings you
-            can trace, assumptions you can question, and a clear view of what
-            wasn't checked.
+            Give your next pull request a second set of eyes. <br />
+            Get findings you can trace, assumptions you can question, and a
+            clear view of what wasn't checked.
           </p>
           <form id="review" class="review-form" novalidate>
             <ui-field name="url">
@@ -123,53 +118,47 @@
               >
             </ui-field>
             <p id="form-status" role="status" aria-live="polite"></p>
-            <noscript><p>Enable JavaScript to start a review.</p></noscript>
+            <noscript>
+              <p>Enable JavaScript to start a review.</p>
+            </noscript>
           </form>
+          <nav class="examples" aria-labelledby="examples-title">
+            <h2 id="examples-title">Or open a finished review</h2>
+            <ul>
+              <li>
+                <a
+                  href="/r/oliynykmax/junction-2026/27?sha=3ed6fe6499fdb93acfbec6c14dd3ce157a539dc5"
+                  ><strong>Owner sign-off gate</strong
+                  ><span>3 findings</span></a
+                >
+              </li>
+              <li>
+                <a
+                  href="/m/oliynykmax/junction26-messagepack-csharp/1?sha=9df83c38409c8bfad0517aebffe48211eda4a5b4"
+                  ><strong>Generic types from other assemblies</strong
+                  ><span>1 finding</span></a
+                >
+              </li>
+              <li>
+                <a
+                  href="/m/oliynykmax/junction26-messagepack-csharp/3?sha=1130036350278926d39d35e559fa5b05dc4d8574"
+                  ><strong>New CI workflow</strong
+                  ><span>scanner failed</span></a
+                >
+              </li>
+              <li>
+                <a
+                  href="/m/oliynykmax/junction26-messagepack-csharp/4?sha=2168aebc502d2b68c5f468d1cbcf01fee5fa2ba3"
+                  ><strong>Docs typo fix</strong><span>no findings</span></a
+                >
+              </li>
+            </ul>
+            <p>
+              Agent-written pull requests on this project and on our copy of
+              MessagePack-CSharp, the challenge's sample code.
+            </p>
+          </nav>
         </div>
-        <figure class="report-figure" aria-labelledby="report-caption">
-          <div class="orange-sheet" aria-hidden="true">
-            <span>LOOK CLOSER.</span><span class="cross">+</span>
-          </div>
-          <div class="report-sheet">
-            <div class="report-top">
-              <span class="report-symbol" aria-hidden="true">↳</span
-              ><span>Pull request review</span
-              ><span class="sample-tag">Illustration</span>
-            </div>
-            <div class="report-title">
-              The evidence.<br />The unknowns.<br /><span>Your call.</span>
-            </div>
-            <div class="commit">
-              <span class="branch-icon" aria-hidden="true">⑂</span> A report
-              tied to one commit
-            </div>
-            <div class="evidence-row">
-              <span class="evidence-mark" aria-hidden="true">↗</span>
-              <div>
-                <strong>Trace each finding</strong>
-                <p>Source lines, severity, and the reason it matters.</p>
-              </div>
-            </div>
-            <div class="evidence-row">
-              <span class="evidence-mark" aria-hidden="true">?</span>
-              <div>
-                <strong>See the limits</strong>
-                <p>What the reviewer couldn't check, and why.</p>
-              </div>
-            </div>
-            <div class="owner-line">
-              <span class="human-icon" aria-hidden="true">◎</span>
-              <div>
-                <strong>Decision owner</strong
-                ><span>A named human. Always.</span>
-              </div>
-              <span class="owner-arrow" aria-hidden="true">↗</span>
-            </div>
-          </div>
-          <figcaption id="report-caption">
-            Report anatomy, not a live review result.
-          </figcaption>
-        </figure>
       </section>
       <section class="ownership" aria-label="Our principle">
         <div class="wrap ownership-inner">
@@ -248,8 +237,9 @@
           alt=""
         />Bumble Bot</a
       >
-      <p>Built for Tieto's Earned Trust in AI Code challenge.</p>
-      <a href="#review">Put evidence first <span aria-hidden="true">↑</span></a>
+      <p>
+        Built at Junction 2026 for Tieto's Earned Trust in AI Code challenge.
+      </p>
     </footer>
   </body>
 </html>

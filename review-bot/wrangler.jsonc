@@ -23,9 +23,12 @@
     "REVIEW_BASE_URL": "https://review.oliinyk.dev",
     // Pinned to a commit so every review records exactly which rubric it ran.
     "REVIEW_PROMPT_URL": "https://raw.githubusercontent.com/cursor/plugins/6e3d2ea56d7d446b955eaae6ac4c8eef8bf504cf/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
-    // "anthropic" (ANTHROPIC_API_KEY) or "verda" (VERDA_API_KEY, MODEL_ID "kimi-k3-1-pro").
-    "MODEL_PROVIDER": "anthropic",
-    "MODEL_ID": "claude-sonnet-5-5",
+    // Each review runs on one entry, picked from its Durable Object id, so
+    // reviews split evenly. "anthropic" uses ANTHROPIC_API_KEY, "verda" VERDA_API_KEY.
+    "MODELS": [
+      { "provider": "anthropic", "id": "claude-sonnet-5-5" },
+      { "provider": "verda", "id": "kimi-k3-1-pro" },
+    ],
     "THINKING_LEVEL": "medium",
     "MCP_SERVERS": {
       "mslearn": {

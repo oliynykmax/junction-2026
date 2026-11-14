@@ -77,8 +77,18 @@ export function App({ api, pollMs, prUrl, owner, repo, number }: PageConfig) {
   const { view, error } = useReview(api, pollMs);
   const repoUrl = prUrl.replace(/\/pull\/\d+$/, "");
   const sha = view?.review.target?.headSha ?? null;
+  // A removed file does not exist at the head, so it links to the PR's diff.
+  const removed = new Set(
+    (view?.review.files ?? [])
+      .filter((f) => f.status === "removed")
+      .map((f) => f.path),
+  );
   const lineUrl = (path: string, line: number | null) =>
-    sha ? `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}` : prUrl;
+    !sha
+      ? prUrl
+      : removed.has(path)
+        ? `${prUrl}/files`
+        : `${repoUrl}/blob/${sha}/${path}${line ? `#L${line}` : ""}`;
   const [tab, setTab] = useState<"changes" | "diff">("changes");
   const [focus, setFocus] = useState<Focus>(null);
   const r = view?.review;

@@ -218,7 +218,7 @@ const RULES: Rule[] = [
     tier: "medium",
     text: "Production code changed and no test file did, so nothing in this PR shows the new behaviour works.",
     when: (ctx) => !ctx.hasTests,
-    match: (f) => isCode(f) && f.status !== "removed",
+    match: isCode,
   },
   {
     rule: "large",
@@ -280,6 +280,24 @@ export function assessRisk(files: readonly File[]): Risk {
   ].sort();
   return { tier, reasons, tests, mustRead };
 }
+
+/** A test file the owner should look at, with what is wrong with it. */
+export type TestAttention = { path: string; removed: boolean; notes: string[] };
+
+/**
+ * Test files that need the owner's attention: weakened ones, and ones GitHub
+ * sent no diff for, which this lane could not inspect.
+ */
+export const testAttention = (tests: readonly TestChange[]): TestAttention[] =>
+  tests
+    .filter((t) => t.weakened.length || t.patchMissing)
+    .map((t) => ({
+      path: t.path,
+      removed: t.status === "removed",
+      notes: t.patchMissing
+        ? ["No diff to inspect, so this lane could not check it."]
+        : t.weakened,
+    }));
 
 /** The signals as the agent sees them, or undefined before they exist. */
 export function renderRisk(risk: Risk | null | undefined): string | undefined {

@@ -2,7 +2,12 @@
 // reads at that tier, the files to read in full, and the test-change lane.
 // It routes attention; it never blocks, so it uses no red.
 
-import { DEPTH, type Risk, type TestChange } from "../src/signals";
+import {
+  DEPTH,
+  type Risk,
+  type TestChange,
+  testAttention,
+} from "../src/signals";
 import { plural, type LineUrl } from "./shared";
 
 export function RiskBand({
@@ -13,8 +18,7 @@ export function RiskBand({
   lineUrl: LineUrl;
 }) {
   if (!risk) return null;
-  const weak = risk.tests.filter((t) => t.weakened.length);
-  const unread = risk.tests.filter((t) => t.patchMissing);
+  const attention = testAttention(risk.tests);
   return (
     <section class="grid band" aria-labelledby="risk-h">
       <div class="band-label">
@@ -55,19 +59,18 @@ export function RiskBand({
           <p class="sub-h">Test changes</p>
           {risk.tests.length === 0 ? (
             <p class="muted">No test file changed.</p>
-          ) : weak.length === 0 ? (
+          ) : attention.length === 0 ? (
             <p class="muted">
               {plural(risk.tests.length, "test file")} changed; none lost tests
               or assertions, gained a skip or was deleted.
-              {unread.length > 0 &&
-                ` ${plural(unread.length, "file")} had no diff to inspect.`}
             </p>
           ) : (
             <ul class="reasons">
-              {weak.map((t) => (
-                <li key={t.path}>
-                  <a href={lineUrl(t.path, null)}>{t.path}</a>{" "}
-                  {t.weakened.join(" ")} <TestCounts t={t} />
+              {attention.map((a) => (
+                <li key={a.path}>
+                  <a href={lineUrl(a.path, null)}>{a.path}</a>{" "}
+                  {a.notes.join(" ")}{" "}
+                  <TestCounts t={risk.tests.find((t) => t.path === a.path)!} />
                 </li>
               ))}
             </ul>
@@ -79,7 +82,7 @@ export function RiskBand({
 }
 
 function TestCounts({ t }: { t: TestChange }) {
-  if (t.status === "removed") return null;
+  if (t.status === "removed" || t.patchMissing) return null;
   return (
     <span class="meta">
       tests +{t.testsAdded} −{t.testsRemoved} · asserts +{t.assertionsAdded} −

@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "lint": "oxlint src tests"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261114.1",
+    "oxlint": "^1.93.0",
     "typescript": "^7.0.2",
     "wrangler": "^4.162.0"
   },

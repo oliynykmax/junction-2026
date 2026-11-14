@@ -1,3 +1,5 @@
+import type { Target } from "./reviewer";
+
 // GitHub App auth and the REST calls the bot and the reviewer make.
 
 import { fromStored, SEVERITIES, type Severity } from "./findings";
@@ -25,7 +27,7 @@ export async function gh(
     headers: {
       ...HEADERS,
       ...(init.accept ? { accept: init.accept } : {}),
-      authorization: `Bearer ${token}`,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
@@ -218,10 +220,14 @@ export type PrFile = {
   patch?: string;
 };
 
-export async function prFiles(
-  token: string,
-  pr: { owner: string; repo: string; number: number },
-): Promise<PrFile[]> {
+export async function prFiles(token: string, pr: Target): Promise<PrFile[]> {
+  if (pr.mode === "manual") {
+    const comparison = await ghJson<{ files: PrFile[] }>(
+      token,
+      `/repos/${pr.owner}/${pr.repo}/compare/${pr.baseSha}...${pr.headSha}`,
+    );
+    return comparison.files;
+  }
   const files: PrFile[] = [];
   for (let page = 1; page <= 30; page++) {
     const batch = await ghJson<PrFile[]>(

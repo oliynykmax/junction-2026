@@ -62,7 +62,7 @@ async function tick(){
   try{const r=await fetch(API,{cache:"no-store"});v=await r.json();if(!r.ok)throw new Error(v.error||r.status)}
   catch(e){$("meta").innerHTML='<span class="err">'+esc(e.message)+'</span>';timer=setTimeout(tick,5000);return}
   render(v);
-  if(["running","scanning","not_started"].includes(v.status))timer=setTimeout(tick,2000);
+  if(["running","scanning","not_started"].includes(v.status))timer=setTimeout(tick,API.startsWith("/api/m/")?15000:2000);
 }
 function linkDocs(html){return html.replace(/Docs: (https?:\\/\\/[^\\s<]+)/g,(_,u)=>'Docs: <a href="'+u+'">'+u+'</a>')}
 function render(v){

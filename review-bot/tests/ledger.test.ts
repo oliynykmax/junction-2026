@@ -169,3 +169,34 @@ test("recovery detection writes an open row, and a done settle resolves it", asy
     .filter((s) => s.sql.startsWith("INSERT INTO recoveries"));
   expect(rows.map((r) => r.values.at(-1))).toEqual(["open", "recovered"]);
 });
+
+test("a failed batch is retried: the snapshot is rewritten and its events are not lost", async () => {
+  const batches: Call[][] = [];
+  let down = true;
+  const db = {
+    prepare: (sql: string) => ({
+      bind: (...values: unknown[]) => ({ sql, values }),
+    }),
+    batch: async (statements: Call[]) => {
+      if (down) throw new Error("D1 down");
+      batches.push(statements);
+      return [];
+    },
+  } as unknown as D1Database;
+  const { l, settled } = ledger(db);
+  l.event(event);
+  l.event(event);
+  l.record(async () => snapshot({ status: "done" }));
+  await settled();
+  expect(batches).toHaveLength(0);
+  down = false;
+  l.record(async () => snapshot({ status: "done" }));
+  await settled();
+  expect(batches).toHaveLength(1);
+  const sql = batches[0].map((s) => s.sql);
+  expect(sql.some((q) => q.startsWith("INSERT INTO runs"))).toBe(true);
+  expect(sql.filter((q) => q.startsWith("INSERT INTO events")).length).toBe(3);
+  l.record(async () => snapshot({ status: "done" }));
+  await settled();
+  expect(batches).toHaveLength(1);
+});

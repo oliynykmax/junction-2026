@@ -65,6 +65,7 @@ const DETAIL_MAX = 512;
 
 type Ids = { objectId: string; bootId: string };
 type Pending = LedgerEvent & { at: number };
+type Taken = { events: Pending[]; dropped: number };
 
 export class Ledger {
   readonly #db: D1Database | undefined;
@@ -157,7 +158,6 @@ export class Ledger {
       if (!s) return;
       const json = JSON.stringify(s);
       if (json === this.#lastSnapshot) return;
-      this.#lastSnapshot = json;
       const terminal = s.status === "done" || s.status === "failed";
       const status = s.status === "scanning" ? "running" : s.status;
       const statements = [
@@ -199,15 +199,23 @@ export class Ledger {
         const outcome = resolveRecovery(this.#recovery, s.status);
         statements.push(this.#recoveryRow(outcome));
       }
-      statements.push(...this.#drain());
-      await this.#db!.batch(statements);
+      const taken = this.#take();
+      statements.push(...this.#eventRows(taken));
+      try {
+        await this.#db!.batch(statements);
+      } catch (error) {
+        this.#restore(taken);
+        throw error;
+      }
+      this.#lastSnapshot = json;
     });
   }
 
   flush(): void {
     if (!this.#db || (!this.#buffer.length && !this.#dropped)) return;
     // Drained now, so events arriving before the write runs start a new buffer.
-    const statements = this.#drain();
+    const taken = this.#take();
+    const statements = this.#eventRows(taken);
     statements.push(
       this.#prepare(
         "UPDATE runs SET last_seen_at = ? WHERE object_id = ?",
@@ -215,22 +223,43 @@ export class Ledger {
         this.#ids.objectId,
       ),
     );
-    this.#write("flush", statements);
+    this.#enqueue("flush", async () => {
+      try {
+        await this.#db!.batch(statements);
+      } catch (error) {
+        this.#restore(taken);
+        throw error;
+      }
+    });
   }
 
-  #drain(): D1PreparedStatement[] {
-    const events = this.#buffer;
+  #take(): Taken {
+    const taken = { events: this.#buffer, dropped: this.#dropped };
     this.#buffer = [];
-    if (this.#dropped) {
+    this.#dropped = 0;
+    return taken;
+  }
+
+  /** A batch is atomic, so a failed one wrote nothing: put its events back, within the cap. */
+  #restore(taken: Taken): void {
+    const room = Math.max(0, BUFFER_CAP - this.#buffer.length);
+    this.#buffer = [...taken.events.slice(0, room), ...this.#buffer];
+    this.#dropped +=
+      taken.dropped +
+      (taken.events.length - Math.min(room, taken.events.length));
+  }
+
+  #eventRows(taken: Taken): D1PreparedStatement[] {
+    const events = [...taken.events];
+    if (taken.dropped) {
       events.push({
         kind: "lifecycle",
         name: "ledger.events_dropped",
         ok: false,
         ms: null,
         at: Date.now(),
-        detail: { n: this.#dropped },
+        detail: { n: taken.dropped },
       });
-      this.#dropped = 0;
     }
     return events.map((e) =>
       this.#prepare(

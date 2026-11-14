@@ -267,6 +267,12 @@ test("codemode output budget is capped on the options line and left alone otherw
     timeout_ms: 60000,
   });
   expect(rest.join("\n")).toBe(script);
+  const indented = capCodemodeOutput(
+    ` \t// @options: {"max_output_tokens": 40000}\n${script}`,
+  );
+  expect(indented).toBe(
+    `// @options: {"max_output_tokens":${MAX_CODEMODE_OUTPUT_TOKENS}}\n${script}`,
+  );
   const invalid = `// @options: {oops\n${script}`;
   expect(capCodemodeOutput(invalid)).toBe(invalid);
 });

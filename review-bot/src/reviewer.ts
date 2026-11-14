@@ -339,11 +339,15 @@ export function readBudget(changedFiles: number): number {
 // tool sets no ceiling. Kimi raised it to 40,000 tokens to dump whole files.
 export const MAX_CODEMODE_OUTPUT_TOKENS = 10_000;
 
-/** The script with `max_output_tokens` on its options line lowered to the cap. */
+/**
+ * The script with `max_output_tokens` on its options line lowered to the cap.
+ * Like pi-codemode, the first line counts as the options line after leading
+ * whitespace.
+ */
 export function capCodemodeOutput(source: string): string {
-  if (!source.startsWith(CODEMODE_OPTIONS_PREFIX)) return source;
   const end = source.indexOf("\n");
-  const line = end === -1 ? source : source.slice(0, end);
+  const line = (end === -1 ? source : source.slice(0, end)).trimStart();
+  if (!line.startsWith(CODEMODE_OPTIONS_PREFIX)) return source;
   let options: unknown;
   try {
     options = JSON.parse(line.slice(CODEMODE_OPTIONS_PREFIX.length));

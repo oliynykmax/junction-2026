@@ -1263,6 +1263,59 @@ pre {
   justify-self: start;
 }
 
+/* The final action acknowledges that ownership was recorded before the form
+   changes into its read-only record. */
+.so-submit {
+  position: relative;
+  min-width: 176px;
+  min-height: 42px;
+  border: 0;
+  cursor: pointer;
+  transition: background-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.so-submit:not(:disabled):hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--ink) 84%, var(--bg));
+}
+
+.so-submit-label,
+.so-submit-check {
+  transition:
+    opacity 180ms cubic-bezier(0.25, 1, 0.5, 1),
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.so-submit-check {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  transform: translate(-50%, -35%) scale(0.65);
+}
+
+.so-submit.is-signed {
+  background: #168062;
+  color: #fff;
+}
+
+.so-submit.is-signed:disabled {
+  background: #168062;
+  color: #fff;
+}
+
+.so-submit.is-signed .so-submit-label {
+  opacity: 0;
+  transform: translateY(-7px);
+}
+
+.so-submit.is-signed .so-submit-check {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 .so-record {
   border-top: 1px solid var(--rule-strong);
   padding-top: 14px;
@@ -1297,7 +1350,10 @@ pre {
 
 @media (prefers-reduced-motion: reduce) {
   .file,
-  .diff tr {
+  .diff tr,
+  .so-submit,
+  .so-submit-label,
+  .so-submit-check {
     transition: none;
   }
 }

@@ -188,3 +188,16 @@ test("a turn limit does not send the review to Kimi", async () => {
   expect(await r.fall()).toBeNull();
   expect(r.calls()).toEqual({ anthropic: 1, verda: 0 });
 });
+
+test("simultaneous recovery attempts start only one Kimi continuation", async () => {
+  const r = await review({
+    anthropic: [failed()],
+    verda: [fauxAssistantMessage("No blockers found.")],
+  });
+  const attempts = await Promise.all([r.fall(), r.fall(), r.fall()]);
+  expect(attempts.filter((model) => model !== null)).toEqual([
+    { provider: "verda", id: "kimi-k3-1-pro" },
+  ]);
+  expect(r.calls()).toEqual({ anthropic: 1, verda: 1 });
+  expect((await r.state()).failure).toBeNull();
+});

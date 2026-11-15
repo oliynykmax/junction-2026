@@ -1,0 +1,7 @@
+{
+  "name": "review-scanner-tools",
+  "private": true,
+  "devDependencies": {
+    "oxfmt": "0.78.0"
+  }
+}

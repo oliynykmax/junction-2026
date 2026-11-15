@@ -109,6 +109,11 @@ test("scan replay reuses persisted evidence; prompt and coverage consume it; pub
   );
   expect(prompt).toContain(target.headSha);
   expect(prompt).toContain('"kind":"absent"');
+  const brief = await reviewer.extension.sections
+    .find((s) => s.key === "review_brief")
+    .render({ read: runtime, conversationId: "test" }, {});
+  expect(brief).toContain(`head ${target.headSha}`);
+  expect(brief).toContain("could not be read when the review started");
   expect(evidenceHtml(state.evidence)).toContain(target.headSha);
   const finish = reviewer.extension.tools.find(
     (t) => t.name === "finish_review",

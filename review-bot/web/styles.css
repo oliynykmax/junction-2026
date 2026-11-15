@@ -1,24 +1,25 @@
-/* Review page. Swiss documentation: one grotesk on a 12-column grid, ink and
-   greys, and red only where something needs the owner's attention. */
+/* Review page palette from the Max Oliinyk presentation style. */
 
 :root {
   /* Each colour is one light-dark() pair. Dark follows the OS unless the
      landing page's switch pinned a scheme (data-color-scheme, set before
      paint by the script in src/theme.ts). */
   color-scheme: light dark;
-  --bg: light-dark(#ffffff, #131313);
-  --ink: light-dark(#111111, #ececec);
-  --ink-2: light-dark(#5c5c5c, #a4a4a4);
-  --rule: light-dark(#e2e2e2, #2d2d2d);
-  --rule-strong: light-dark(#111111, #ececec);
-  --tag: light-dark(#efefef, #262626);
-  --tag-ink: light-dark(#2b2b2b, #dcdcdc);
-  --code-bg: light-dark(#f6f6f6, #1c1c1c);
-  --add: light-dark(#e8f0e6, #1d2a1b);
-  --del: light-dark(#f2f2f2, #1f1f1f);
-  --mark: light-dark(#8a8a8a, #777777);
-  --red: light-dark(#c4261b, #ff7468);
-  --red-bg: light-dark(#fdeceb, #3a1714);
+  --bg: light-dark(#ffffff, #000000);
+  --ink: light-dark(#000000, #ffffff);
+  --ink-2: light-dark(#000000, #ffffff);
+  --rule: light-dark(#000000, #ffffff);
+  --rule-strong: light-dark(#000000, #ffffff);
+  --tag: light-dark(#ffffff, #000000);
+  --tag-ink: light-dark(#000000, #ffffff);
+  --code-bg: light-dark(#ffffff, #000000);
+  --accent: #f5c400;
+  --accent-ink: #000000;
+  --add: var(--accent);
+  --del: light-dark(#000000, #ffffff);
+  --mark: var(--accent);
+  --red: light-dark(#000000, #ffffff);
+  --red-bg: var(--accent);
   --sans: "Hanken Grotesk", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --gutter: clamp(16px, 3.4vw, 48px);
@@ -1401,4 +1402,427 @@ pre {
 .evidence-report pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.pr-header {
+  --pr-muted: color-mix(in srgb, var(--ink) 55%, var(--bg));
+  border-bottom: 1px solid var(--rule);
+}
+
+.pr-header-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 32px var(--gutter) 24px;
+  display: grid;
+  gap: 14px;
+}
+
+.pr-title {
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.pr-body {
+  max-width: calc(660px + 2 * var(--gutter));
+}
+
+.pr-alert {
+  background: var(--red-bg);
+  color: var(--accent-ink);
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+
+.pr-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pr-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  color: var(--pr-muted);
+}
+
+.pr-github:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.pr-number {
+  color: var(--pr-muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.pr-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  font-size: 15px;
+}
+
+.pr-author,
+.pr-branches,
+.pr-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pr-muted {
+  color: var(--pr-muted);
+}
+
+.pr-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pr-author-name {
+  font-weight: 600;
+}
+
+.pr-checkout,
+.pr-branches,
+.pr-stats {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.pr-checkout {
+  color: var(--pr-muted);
+}
+
+.pr-branches {
+  overflow-wrap: anywhere;
+}
+
+.pr-base {
+  color: light-dark(#8a6d00, var(--accent));
+}
+
+.pr-add {
+  color: light-dark(#168062, #45d9b0);
+}
+
+.pr-del {
+  color: light-dark(#cf222e, #ff7b72);
+}
+
+@media (max-width: 600px) {
+  .pr-header-inner {
+    padding-top: 24px;
+    padding-bottom: 20px;
+  }
+
+  .pr-title {
+    font-size: 22px;
+  }
+}
+
+.d-del .code,
+.d-del .ln {
+  color: var(--bg);
+}
+
+.d-add .code,
+.d-add .ln {
+  color: var(--accent-ink);
+}
+
+.ci-block {
+  --ci-muted: color-mix(in srgb, var(--ink) 60%, var(--bg));
+  --ci-green: light-dark(#168062, #45d9b0);
+  --ci-blue: light-dark(#0969da, #58a6ff);
+  color: var(--ink);
+  width: min(100%, 660px);
+  margin: 0 0 28px;
+  font-size: 14px;
+}
+
+.ci-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0 8px;
+  color: var(--ci-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.ci-heading::-webkit-details-marker {
+  display: none;
+}
+.ci-heading > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ci-chevron {
+  transform: rotate(-90deg);
+}
+.ci-block[open] > .ci-heading .ci-chevron {
+  transform: none;
+}
+.ci-demo-label {
+  font-size: 11px;
+}
+.ci-results {
+  padding-top: 3px;
+}
+
+.ci-result {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 8px;
+  margin-inline: -8px;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.ci-result:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--bg));
+  text-decoration: none;
+}
+.ci-result:hover .ci-result-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ci-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.ci-passed {
+  color: var(--ci-green);
+}
+.ci-running {
+  color: var(--ci-blue);
+}
+.ci-queued,
+.ci-skipped {
+  color: var(--ci-muted);
+}
+.ci-failed {
+  color: light-dark(#cf222e, #ff7b72);
+}
+.ci-result-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.ci-origin {
+  color: var(--ci-muted);
+  font-size: 11px;
+}
+.ci-result-status {
+  color: var(--ci-muted);
+  font-size: 13px;
+}
+
+.bot-check-page {
+  width: min(100%, 820px);
+  margin: 0 auto;
+  padding: 32px var(--gutter) 64px;
+}
+.bot-check-back {
+  font-size: 13px;
+}
+.bot-check-source {
+  color: var(--ci-muted);
+  font-size: 12px;
+  margin: 32px 0 12px;
+}
+.bot-check-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bot-check-title h1 {
+  font-size: 26px;
+  margin: 0;
+}
+.bot-check-title .ci-icon {
+  width: 24px;
+  height: 24px;
+}
+.bot-check-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.bot-check-meta > span + span {
+  color: var(--ci-muted);
+}
+.bot-check-summary {
+  margin: 24px 0;
+  max-width: 65ch;
+}
+.bot-check-output {
+  border-block: 1px solid color-mix(in srgb, var(--ink) 25%, var(--bg));
+  padding: 16px 0;
+}
+.bot-check-output h2 {
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-bottom: 16px;
+}
+.bot-check-output pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.bot-check-disclaimer {
+  font-size: 12px;
+  color: var(--ci-muted);
+  margin-top: 20px;
+}
+
+@media (max-width: 480px) {
+  .ci-result-name {
+    display: block;
+  }
+  .ci-origin {
+    display: block;
+  }
+  .ci-result {
+    min-height: 44px;
+  }
+}
+
+.agent-wait {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 56px 0 24px;
+  text-align: center;
+}
+
+.proof-loader {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.proof-canvas {
+  width: 168px;
+  height: 168px;
+  overflow: visible;
+}
+
+.proof-canvas .pl-ink {
+  fill: var(--ink);
+}
+
+.proof-canvas .pl-accent {
+  fill: var(--accent);
+}
+
+.proof-canvas .pl-dim {
+  fill: color-mix(in srgb, var(--ink) 22%, var(--bg));
+}
+
+.proof-canvas .pl-bg {
+  fill: var(--bg);
+}
+
+.proof-canvas .pl-hollow {
+  fill: none;
+  stroke-width: 1.5;
+  stroke: color-mix(in srgb, var(--ink) 25%, var(--bg));
+}
+
+.proof-canvas .pl-hollow-ink {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 4;
+}
+
+.proof-canvas .pl-stroke-ink {
+  stroke: var(--ink);
+  stroke-linecap: round;
+}
+
+.proof-canvas .pl-stroke-accent {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.proof-canvas .pl-stroke-dim {
+  stroke: color-mix(in srgb, var(--ink) 18%, var(--bg));
+  stroke-linecap: round;
+}
+
+.proof-canvas .pl-text {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 500;
+  text-anchor: middle;
+  fill: var(--ink);
+}
+
+.proof-canvas .pl-dim-text {
+  fill: color-mix(in srgb, var(--ink) 45%, var(--bg));
+}
+
+.proof-canvas .pl-goal {
+  fill: var(--accent-ink);
+}
+
+.proof-canvas .pl-check,
+.proof-canvas .pl-check-small {
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.proof-canvas .pl-check-small {
+  stroke: var(--bg);
+  stroke-width: 1.8;
+}
+
+.agent-wait-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.agent-wait-note {
+  color: color-mix(in srgb, var(--ink) 55%, var(--bg));
+  font-size: 14px;
 }

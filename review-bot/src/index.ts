@@ -13,6 +13,7 @@ import {
 } from "./github";
 import { dashboardApi, dashboardPage, pruneLedger } from "./dashboard";
 import { manualView, startManual } from "./manual";
+import { type PrLive, prLive } from "./pr-live";
 import { reviewPage } from "./page";
 import { type Env, reviewLink } from "./review";
 import { reviewKey } from "./review-key";
@@ -38,6 +39,9 @@ const PR_ACTIONS = new Set([
 ]);
 const NAME = "[\\w.-]+";
 const PAGE = new RegExp(`^/(r|m)/(${NAME})/(${NAME})/(\\d+)/?$`);
+const LIVE_PR = new RegExp(
+  `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})/pr$`,
+);
 const VIEW = new RegExp(
   `^/api/(r|m)/(${NAME})/(${NAME})/(\\d+)/([0-9a-f]{40})$`,
 );
@@ -103,6 +107,27 @@ export default {
       });
     }
 
+    m = url.pathname.match(LIVE_PR);
+    if (m) {
+      const [, path, owner, repo, number, headSha] = m;
+      const target = {
+        owner,
+        repo,
+        number: Number(number),
+        headSha,
+        mode: path === "m" ? ("manual" as const) : ("webhook" as const),
+      };
+      // Only commits with a stored review reach GitHub, so made-up targets
+      // cannot spend the installation's API quota.
+      if (!(await env.REVIEWS.getByName(reviewKey(target)).hasStarted()))
+        return Response.json(
+          { error: "Review not found." },
+          { status: 404, headers: { "cache-control": "no-store" } },
+        );
+      const live = await cachedPrLive(env, url.pathname, target);
+      return Response.json(live, { headers: { "cache-control": "no-store" } });
+    }
+
     m = url.pathname.match(VIEW);
     if (m) {
       const [, mode, owner, repo, number, headSha] = m;
@@ -125,6 +150,26 @@ export default {
     if (env.LEDGER) ctx.waitUntil(pruneLedger(env.LEDGER, Date.now()));
   },
 } satisfies ExportedHandler<Env>;
+
+// GitHub is read at most once per 15 seconds per commit and isolate, however many pages poll.
+const LIVE_TTL_MS = 15_000;
+const liveCache = new Map<string, { at: number; value: Promise<PrLive> }>();
+
+function cachedPrLive(
+  env: Env,
+  key: string,
+  target: Parameters<typeof prLive>[1],
+): Promise<PrLive> {
+  const now = Date.now();
+  for (const [k, v] of liveCache)
+    if (now - v.at > LIVE_TTL_MS) liveCache.delete(k);
+  const hit = liveCache.get(key);
+  if (hit) return hit.value;
+  const value = prLive(env, target);
+  liveCache.set(key, { at: now, value });
+  value.catch(() => liveCache.delete(key));
+  return value;
+}
 
 async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const body = await request.text();

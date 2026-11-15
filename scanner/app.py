@@ -218,17 +218,50 @@ def oxlint(paths: list[str], cwd: str) -> list[Diagnostic]:
     ]
 
 
-def ruff_format(paths: list[str], cwd: str) -> list[Diagnostic]:
-    run(["ruff", "format", "--check", *paths], cwd, ok={0})
+class CommandFailure(RuntimeError):
+    def __init__(self, message: str, returncode: int):
+        super().__init__(message)
+        self.returncode = returncode
+
+
+def check_format(
+    tool: Tool, command: list[str], paths: list[str], cwd: str
+) -> list[Diagnostic]:
+    try:
+        run(command, cwd, ok={0})
+    except CommandFailure as error:
+        if error.returncode != 1:
+            raise
+        return [
+            Diagnostic(
+                tool=tool,
+                rule="format",
+                severity="error",
+                path=paths[0] if paths else ".",
+                line=None,
+                message=str(error),
+                url=None,
+            )
+        ]
     return []
+
+
+def ruff_format(paths: list[str], cwd: str) -> list[Diagnostic]:
+    return check_format(
+        "ruff-format", ["ruff", "format", "--check", "--", *paths], paths, cwd
+    )
 
 
 def oxfmt(paths: list[str], cwd: str) -> list[Diagnostic]:
     with tempfile.TemporaryDirectory() as config_dir:
         config = Path(config_dir, "oxfmt.json")
         config.write_text("{}")
-        run(["oxfmt", "--check", "--config", str(config), *paths], cwd, ok={0})
-    return []
+        return check_format(
+            "oxfmt",
+            ["oxfmt", "--check", "--config", str(config), "--", *paths],
+            paths,
+            cwd,
+        )
 
 
 def dotnet_targets(cwd: str) -> list[str]:
@@ -336,7 +369,9 @@ def run(cmd: list[str], cwd: str, ok: set[int], timeout: int = TIMEOUT_S) -> str
     )
     if proc.returncode not in ok:
         output = "\n".join(part for part in (proc.stderr, proc.stdout) if part).strip()
-        raise RuntimeError(f"{cmd[0]} exited {proc.returncode}: {output[-800:]}")
+        raise CommandFailure(
+            f"{cmd[0]} exited {proc.returncode}: {output[-800:]}", proc.returncode
+        )
     return proc.stdout
 
 

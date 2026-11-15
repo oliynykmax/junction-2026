@@ -103,7 +103,7 @@ for (const error of [
     expect(rendered).toContain(
       `dotnet-format 8.0.402 on global.json\nfailed: ${error}`,
     );
-    expect(rendered).toContain("List this under not_checked.");
+    expect(rendered).not.toContain("List this under not_checked.");
   });
 }
 
@@ -114,4 +114,37 @@ test("plans repository checks for root and nested EditorConfig-only changes", ()
       { tool: "dotnet-format", paths: [filename] },
     ]);
   }
+});
+
+test("formatter violations remain negative evidence instead of not_checked", () => {
+  const rendered = renderScan({
+    status: "done",
+    error: null,
+    results: [
+      {
+        tool: "ruff-format",
+        version: "0.17.5",
+        status: "ok",
+        durationMs: 1,
+        paths: ["app.py"],
+        error: null,
+        diagnostics: [
+          {
+            tool: "ruff-format",
+            rule: "format",
+            severity: "error",
+            path: "app.py",
+            line: null,
+            message: "file would be reformatted",
+            url: null,
+          },
+        ],
+      },
+    ],
+  });
+  expect(rendered).toContain(
+    "[error] format app.py: file would be reformatted",
+  );
+  expect(rendered).not.toContain("not_checked");
+  expect(rendered).not.toContain("completed successfully");
 });

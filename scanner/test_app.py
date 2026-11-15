@@ -374,8 +374,12 @@ class DotnetChecksTest(unittest.TestCase):
                     if fails:
                         self.assertIn("formatter exited 1", result.error or "")
 
-    @unittest.skipUnless(shutil.which("oxfmt"), "oxfmt executable is not installed")
     def test_oxfmt_never_evaluates_root_or_nested_repository_config(self) -> None:
+        self.assertIsNotNone(
+            shutil.which("oxfmt"),
+            "Install pinned Oxfmt 0.78.0 on PATH before running scanner tests",
+        )
+        self.assertIn(app.OXFMT, app.run(["oxfmt", "--version"], os.getcwd(), ok={0}))
         with tempfile.TemporaryDirectory() as cwd:
             root = Path(cwd)
             (root / "src").mkdir()
@@ -391,6 +395,35 @@ class DotnetChecksTest(unittest.TestCase):
             result = app.scan_one(app.Check(tool="oxfmt", paths=["src/app.ts"]), cwd)
             self.assertEqual(result.status, "ok", result.error)
             self.assertFalse(marker.exists())
+
+    @patch.object(app.subprocess, "run")
+    def test_formatter_differences_are_diagnostics_but_execution_errors_are_errors(
+        self, process
+    ) -> None:
+        for tool, filename in (("ruff-format", "app.py"), ("oxfmt", "app.ts")):
+            for code in (1, 2):
+                with (
+                    self.subTest(tool=tool, code=code),
+                    tempfile.TemporaryDirectory() as cwd,
+                ):
+                    Path(cwd, filename).touch()
+                    process.return_value.returncode = code
+                    process.return_value.stdout = (
+                        "file would be reformatted"
+                        if code == 1
+                        else "configuration invalid"
+                    )
+                    process.return_value.stderr = ""
+                    result = app.scan_one(app.Check(tool=tool, paths=[filename]), cwd)
+                    self.assertEqual(result.status, "ok" if code == 1 else "error")
+                    if code == 1:
+                        self.assertEqual(result.diagnostics[0].severity, "error")
+                        self.assertIn(
+                            "would be reformatted", result.diagnostics[0].message
+                        )
+                        self.assertIsNone(result.error)
+                    else:
+                        self.assertIn("configuration invalid", result.error or "")
 
 
 if __name__ == "__main__":

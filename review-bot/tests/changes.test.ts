@@ -6,7 +6,6 @@ import {
   EMPTY_REVIEW,
   type ReviewState,
   reviewerExtension,
-  starProblems,
   summaryProblems,
   uncoveredFiles,
 } from "../src/reviewer";
@@ -29,15 +28,7 @@ const change = {
   files: ["src/TypeCollector.cs"],
 };
 
-const star = {
-  situation: "The generator threw on closed generic structs.",
-  task: "Stop indexing past the type's own parameters.",
-  action: "Resolve arguments through the constructed type.",
-  result: "Six new tests pass; NativeAOT is unverified.",
-};
-
 const finish = (rest: object = {}) => ({
-  ...star,
   summary: "s",
   not_checked: [],
   ...rest,
@@ -176,18 +167,7 @@ test("change and summary problems flag the sentence, tag limits and unknown file
   );
 });
 
-test("star problems flag empty and long parts", () => {
-  expect(starProblems(star)).toEqual([]);
-  const problems = starProblems({
-    ...star,
-    task: "x".repeat(401),
-    result: " ",
-  });
-  expect(problems.join(" ")).toContain("task is 401 characters");
-  expect(problems.join(" ")).toContain("Write the result sentence.");
-});
-
-test("changes from older reviews show their stored Action", () => {
+test("changes from older reviews show their stored sentence", () => {
   const base = { id: "c", title: "t", tags: ["docs"], files: ["a.md"] };
   expect(changeSentence({ ...base, summary: "Adds a section." })).toBe(
     "Adds a section.",
@@ -198,79 +178,18 @@ test("changes from older reviews show their stored Action", () => {
   expect(changeSentence(base)).toBeNull();
 });
 
-test("star problems flag plural first person and mine", () => {
-  for (const result of [
-    "We updated the retry logic.",
-    "The retry logic is ours now.",
-    "Our tests cover it.",
-    "The fix is mine.",
-  ])
-    expect(starProblems({ ...star, result }).join(" ")).toContain(
-      "result speaks in the first person",
-    );
-  expect(
-    starProblems({
-      ...star,
-      result: "Users see fewer retries; the PR adds a USB test.",
-    }),
-  ).toEqual([]);
-  for (const action of [
-    "Retries failed I/O operations once.",
-    "Moves the bucket to us-east-1 and the cache to /var/our-cache.",
-  ])
-    expect(starProblems({ ...star, action })).toEqual([]);
-});
-
-test("star problems flag the reviewer speaking in the first person", () => {
-  const problems = starProblems({
-    ...star,
-    result: "The PR adds tests (I did not read or run them).",
-    situation: "My reading is that the generator threw.",
-  });
-  expect(problems.join(" ")).toContain("result speaks in the first person");
-  expect(problems.join(" ")).toContain("situation speaks in the first person");
-  expect(
-    starProblems({
-      ...star,
-      action:
-        "Updates README, Directory.Packages.props and IMessagePackFormatter.",
-    }),
-  ).toEqual([]);
-});
-
-test("finish_review stores the PR's STAR on the verdict", async () => {
+test("finish_review stores the summary and not_checked on the verdict", async () => {
   const state = reviewWith(["src/TypeCollector.cs"]);
   const { run } = harness(state);
   await run("describe_change", change);
-  await run("finish_review", finish());
-  expect(state.verdict?.star).toEqual(star);
-});
-
-test("finish_review refuses an invalid STAR twice, then finishes without it", async () => {
-  const state = reviewWith(["src/TypeCollector.cs"]);
-  const { run } = harness(state);
-  await run("describe_change", change);
-  for (let i = 0; i < 2; i++) {
-    const res = await run("finish_review", finish({ result: "I checked it." }));
-    expect(res.isError).toBe(true);
-    expect(state.verdict).toBeNull();
-  }
-  const res = await run("finish_review", finish({ result: "I checked it." }));
-  expect(res.isError).toBeUndefined();
-  expect(state.verdict?.star).toBeUndefined();
-  expect(state.verdict?.notChecked.join(" ")).toContain(
-    "result speaks in the first person",
+  const res = await run(
+    "finish_review",
+    finish({ summary: "Guards the lookup.", not_checked: ["NativeAOT."] }),
   );
-});
-
-test("finish_review refuses an invalid STAR without finishing", async () => {
-  const state = reviewWith(["src/TypeCollector.cs"]);
-  const { run } = harness(state);
-  await run("describe_change", change);
-  const res = await run("finish_review", finish({ action: "" }));
-  expect(res.isError).toBe(true);
-  expect(res.output[0].text).toContain("Write the action sentence.");
-  expect(state.verdict).toBeNull();
+  expect(res.isError).toBeUndefined();
+  expect(state.verdict?.summary).toBe("Guards the lookup.");
+  expect(state.verdict?.notChecked).toContain("NativeAOT.");
+  expect(state.verdict && "star" in state.verdict).toBe(false);
 });
 
 test("finish_verification requires a bounded verifier receipt for every changed file", async () => {

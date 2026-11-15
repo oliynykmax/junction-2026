@@ -316,10 +316,6 @@ for (const manual of [true, false])
     };
     const result = await finish.execute(
       {
-        situation: "s",
-        task: "t",
-        action: "a",
-        result: "r",
         summary: "Checked",
         not_checked: [],
       },

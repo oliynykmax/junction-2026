@@ -19,7 +19,6 @@ import {
   type ChangedFile,
   type LineUrl,
   plural,
-  type Star,
 } from "./shared";
 import { FormalDemo } from "./formal";
 import { ProofLoader } from "./proof-loader";
@@ -380,39 +379,11 @@ function Advice({ view }: { view: ReviewView }) {
           {view.heldBack === 1 ? "it" : "them"} yourself.
         </p>
       )}
-      {finished && (
-        <>
-          {v.star && <PrStar star={v.star} />}
-          <p class="summary">{v.summary}</p>
-        </>
-      )}
+      {finished && <p class="summary">{v.summary}</p>}
       <p class="muted">
         The AI advises. A named human decides whether to merge.
       </p>
     </section>
-  );
-}
-
-const STAR_LABELS = [
-  ["situation", "Situation"],
-  ["task", "Task"],
-  ["action", "Action"],
-  ["result", "Result"],
-] as const;
-
-function PrStar({ star }: { star: Star }) {
-  return (
-    <dl
-      class="star"
-      aria-label="The pull request as Situation, Task, Action and Result"
-    >
-      {STAR_LABELS.map(([key, label]) => (
-        <div key={key}>
-          <dt>{label}</dt>
-          <dd>{star[key]}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 

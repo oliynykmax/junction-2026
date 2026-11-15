@@ -811,28 +811,6 @@ pre {
   font-size: 12.5px;
 }
 
-.star {
-  display: grid;
-  gap: 12px;
-  max-width: 80ch;
-  margin: 18px 0 8px;
-}
-
-.star div {
-  display: grid;
-  grid-template-columns: 6.5em minmax(0, 1fr);
-  gap: 12px;
-}
-
-.star dt {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-  padding-top: 2px;
-}
-
 .change-summary {
   max-width: 80ch;
 }
@@ -1377,15 +1355,6 @@ pre {
 
   .tabs button {
     padding: 10px 14px 10px 0;
-  }
-
-  .star div {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-
-  .star {
-    gap: 14px;
   }
 
   .status {

@@ -330,11 +330,7 @@ function script(turn: number): Block[] {
           input: {
             title: "Fetch missing cache entries remotely",
             tags: ["cache"],
-            situation: "Cache lookups can miss.",
-            task: "Resolve missing values from the remote store.",
-            action: "Add a remote fallback and fetch helper.",
-            result:
-              "Misses use the remote helper; error handling is unchecked.",
+            summary: "Adds a remote fallback and fetch helper for cache misses.",
             files: FILES.map((f) => f.filename),
           },
         },

@@ -98,13 +98,6 @@ function review(overrides = {}) {
   };
 }
 
-const STAR = {
-  situation: "The demo service had no retry on transient errors.",
-  task: "Retry transient failures once.",
-  action: "Wraps the client call in a single retry.",
-  result: "Callers see fewer transient failures; the PR adds no tests.",
-};
-
 test("synchronous executor setup failure cannot interrupt review publication or termination", async () => {
   const log = spyOn(console, "error").mockImplementation(() => {});
   try {
@@ -116,7 +109,7 @@ test("synchronous executor setup failure cannot interrupt review publication or 
       (t) => t.name === "finish_review",
     );
     const result = await tool.execute(
-      { ...STAR, summary: "Done", not_checked: [] },
+      { summary: "Done", not_checked: [] },
       api,
       {},
     );
@@ -194,7 +187,7 @@ test("scan replay reuses persisted evidence; prompt and coverage consume it; pub
     (t) => t.name === "finish_review",
   );
   await finish.execute(
-    { ...STAR, summary: "No code findings", not_checked: [] },
+    { summary: "No code findings", not_checked: [] },
     api,
     {},
   );
@@ -270,7 +263,7 @@ test("older review without evidence or risk gains explicit coverage gap and publ
     (t) => t.name === "finish_review",
   );
   await finish.execute(
-    { ...STAR, summary: "Legacy review", not_checked: [] },
+    { summary: "Legacy review", not_checked: [] },
     api,
     {},
   );
@@ -363,7 +356,7 @@ test("manual evidence uses authenticated reads and never publishes to GitHub", a
     (t) => t.name === "finish_review",
   );
   await finish.execute(
-    { ...STAR, summary: "Read-only report", not_checked: [] },
+    { summary: "Read-only report", not_checked: [] },
     api,
     {},
   );

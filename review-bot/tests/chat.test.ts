@@ -16,7 +16,14 @@ afterEach(() => {
 
 type Write = { method: string; path: string; body: any };
 
-function github(opts: { rootAuthor?: string; resolved?: boolean } = {}) {
+function github(
+  opts: {
+    rootAuthor?: string;
+    resolved?: boolean;
+    permissionStatus?: number;
+    mutationResult?: unknown;
+  } = {},
+) {
   const writes: Write[] = [];
   spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = String(input).replace("https://api.github.com", "");
@@ -25,6 +32,10 @@ function github(opts: { rootAuthor?: string; resolved?: boolean } = {}) {
     const permission = path.match(
       /^\/repos\/team\/demo\/collaborators\/(\w+)\/permission$/,
     );
+    if (permission && opts.permissionStatus)
+      return new Response("Permission lookup failed", {
+        status: opts.permissionStatus,
+      });
     if (permission)
       return permission[1] === "alice"
         ? Response.json({ permission: "write" })
@@ -34,7 +45,11 @@ function github(opts: { rootAuthor?: string; resolved?: boolean } = {}) {
     if (path === "/graphql") {
       if (body.query.startsWith("mutation")) {
         writes.push({ method, path, body });
-        return Response.json({ data: {} });
+        return Response.json(
+          opts.mutationResult ?? {
+            data: { resolveReviewThread: { thread: { isResolved: true } } },
+          },
+        );
       }
       return Response.json({
         data: {
@@ -591,3 +606,37 @@ test("ignores webhook comments from a deleted user", () => {
   for (const event of ["issue_comment", "pull_request_review_comment"])
     expect(mentionFrom(event, payload({ comment: { user: null } }))).toBeNull();
 });
+
+for (const status of [429, 500, 503]) {
+  test(`retries permission lookup failures instead of dropping the job, HTTP ${status}`, async () => {
+    const writes = github({ permissionStatus: status });
+    const dropped: string[] = [];
+    const { d, asked } = deps({
+      dropped: async (reason) => {
+        dropped.push(reason);
+      },
+    });
+    await expect(
+      answer(d, issueMention("@bumble-bot-review help")),
+    ).rejects.toThrow(`-> ${status}`);
+    expect(dropped).toEqual([]);
+    expect(asked).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+}
+
+for (const mutationResult of [
+  { errors: [{ message: "Rate limit exceeded" }] },
+  { data: {} },
+  { data: { resolveReviewThread: null } },
+  { data: { resolveReviewThread: { thread: { isResolved: false } } } },
+]) {
+  test(`does not claim resolution without a successful mutation: ${JSON.stringify(mutationResult)}`, async () => {
+    const writes = github({ mutationResult });
+    const { d } = deps();
+    await answer(d, threadReply("Fixed."));
+    expect(writes.some((w) => w.path === "/graphql")).toBe(true);
+    expect(replies(writes)).toHaveLength(1);
+    expect(replies(writes)[0].body.body).not.toContain("Thread resolved");
+  });
+}

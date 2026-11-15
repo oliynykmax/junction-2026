@@ -6,7 +6,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { gh, ghJson, installationToken } from "./github";
+import { gh, ghJson, GitHubError, installationToken } from "./github";
 import {
   ART,
   BOT,
@@ -300,14 +300,22 @@ async function resolveThread(token: string, m: Mention, rootId: number) {
     (t) => t.comments.nodes[0]?.databaseId === rootId,
   );
   if (!thread || thread.isResolved) return false;
-  await gh(token, "/graphql", {
+  const result = await ghJson<{
+    data?: {
+      resolveReviewThread?: { thread: { isResolved: boolean } } | null;
+    };
+    errors?: unknown[];
+  }>(token, "/graphql", {
     method: "POST",
     body: {
       query: `mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}`,
       variables: { t: thread.id },
     },
   });
-  return true;
+  return (
+    !result.errors?.length &&
+    result.data?.resolveReviewThread?.thread.isResolved === true
+  );
 }
 
 /** Write, maintain or admin on the repository; association alone can mean read-only. */
@@ -315,7 +323,10 @@ async function canWrite(token: string, m: Mention): Promise<boolean> {
   const res = await ghJson<{ permission: string }>(
     token,
     `/repos/${m.owner}/${m.repo}/collaborators/${encodeURIComponent(m.author)}/permission`,
-  ).catch(() => null);
+  ).catch((error) => {
+    if (error instanceof GitHubError && error.status === 404) return null;
+    throw error;
+  });
   return res?.permission === "admin" || res?.permission === "write";
 }
 

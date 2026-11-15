@@ -82,7 +82,7 @@ jobs:
       - run: PATH="$GITHUB_WORKSPACE/scanner/node_modules/.bin:$PATH" uv run pytest -q
 
   deploy:
-    needs: check
+    needs: [check, scanner]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10

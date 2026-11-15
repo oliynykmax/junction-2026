@@ -67,8 +67,8 @@ export function mentionFrom(event: string | null, p: any): Mention | null {
     return { ...base, number: p.issue.number, where: "issue" };
   }
   if (event === "pull_request_review_comment") {
-    // A reply to a bot thread needs no mention; whether the root is the bot's
-    // is checked when the mention is answered.
+    // The payload has the root id but not its author. Ownership needs a
+    // lookup in answer; dropped jobs are counted in the hive.
     if (!c.in_reply_to_id && !MENTION.test(base.body)) return null;
     return {
       ...base,
@@ -127,7 +127,8 @@ export type ChatDeps = {
    * Counts one reply for this comment against the author's and the repo's
    * hourly limits. "notify" is the first refusal in a window, "silent" a later one.
    */
-  allow: (author: string, commentId: number) => Promise<Admission>;
+  allow: (author: string, commentKey: string) => Promise<Admission>;
+  dropped: (reason: "unaddressed" | "unauthorized") => Promise<void>;
   now: () => number;
 };
 
@@ -251,7 +252,9 @@ const MAX_NOTE = 300;
 export const noteText = (raw: string) =>
   raw.replace(/\s+/g, " ").trim().slice(0, MAX_NOTE);
 
-export type RateEntry = { id: number; at: number };
+const commentKey = (m: Mention) => `${m.where}:${m.commentId}`;
+
+export type RateEntry = { id: string; at: number };
 export type Admission = "ok" | "notify" | "silent";
 
 /**
@@ -260,7 +263,7 @@ export type Admission = "ok" | "notify" | "silent";
  */
 export function admit(
   entries: RateEntry[],
-  id: number,
+  id: string,
   now: number,
   limit: number,
 ) {
@@ -354,7 +357,8 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
       token,
       `/repos/${m.owner}/${m.repo}/pulls/comments/${m.rootId}`,
     );
-    if (root.user?.login !== BOT_LOGIN && !MENTION.test(m.body)) return;
+    if (root.user?.login !== BOT_LOGIN && !MENTION.test(m.body))
+      return deps.dropped("unaddressed");
   }
   const pr = await ghJson<Pr>(
     token,
@@ -363,8 +367,9 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
   // Every answer spends model tokens, so only the PR's author and people who
   // can push get one. Anyone else is ignored without a reply.
   const writer = await canWrite(token, m);
-  if (!writer && pr.user?.login !== m.author) return;
-  const admission = await deps.allow(m.author, m.commentId);
+  if (!writer && pr.user?.login !== m.author)
+    return deps.dropped("unauthorized");
+  const admission = await deps.allow(m.author, commentKey(m));
   if (admission === "silent") return;
   if (admission === "notify")
     return post(
@@ -504,11 +509,12 @@ type Job = { mention: Mention; attempts: number };
 export class Hive extends DurableObject<Env> {
   /** Queues a mention once per comment id; a redelivered webhook is a no-op. */
   async enqueue(m: Mention): Promise<void> {
-    const seen = `seen:${m.commentId}`;
+    const id = commentKey(m);
+    const seen = `seen:${id}`;
     if (await this.ctx.storage.get(seen)) return;
     await this.ctx.storage.put({
       [seen]: Date.now(),
-      [`job:${m.commentId}`]: { mention: m, attempts: 0 } satisfies Job,
+      [`job:${id}`]: { mention: m, attempts: 0 } satisfies Job,
     });
     if ((await this.ctx.storage.getAlarm()) === null)
       await this.ctx.storage.setAlarm(Date.now());
@@ -571,18 +577,18 @@ export class Hive extends DurableObject<Env> {
     );
   }
 
-  async #admit(author: string, commentId: number): Promise<Admission> {
+  async #admit(author: string, commentKey: string): Promise<Admission> {
     const now = Date.now();
     const authorKey = `rate:${author.toLowerCase()}`;
     const mine = admit(
       (await this.ctx.storage.get<RateEntry[]>(authorKey)) ?? [],
-      commentId,
+      commentKey,
       now,
       AUTHOR_PER_HOUR,
     );
     const repo = admit(
       (await this.ctx.storage.get<RateEntry[]>("rate")) ?? [],
-      commentId,
+      commentKey,
       now,
       REPO_PER_HOUR,
     );
@@ -631,6 +637,11 @@ export class Hive extends DurableObject<Env> {
           await this.ctx.storage.put("notes", notes);
         },
         allow: (author, id) => this.#admit(author, id),
+        dropped: async (reason) => {
+          const key = `dropped:${reason}`;
+          const count = (await this.ctx.storage.get<number>(key)) ?? 0;
+          await this.ctx.storage.put(key, count + 1);
+        },
         now: () => Date.now(),
       },
       m,

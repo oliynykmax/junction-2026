@@ -133,6 +133,7 @@ function deps(over: Partial<ChatDeps> = {}) {
     notes: async () => notes,
     remember: async (n) => void notes.push(n),
     allow: async () => "ok",
+    dropped: async () => {},
     now: () => 1,
     ...over,
   };
@@ -330,7 +331,7 @@ test("says once that it hit the limit, then stays quiet", async () => {
 
 test("ignores commenters who neither wrote the PR nor can push", async () => {
   const writes = github();
-  const counted: number[] = [];
+  const counted: string[] = [];
   const { d, asked } = deps({
     allow: async (_, id) => (counted.push(id), "ok"),
   });
@@ -445,18 +446,18 @@ test("strips the RESOLVE line from the model's answer", () => {
 test("rate limit counts a retried comment once", () => {
   const hour = 3_600_000;
   let entries = Array.from({ length: 11 }, (_, i) => ({
-    id: i,
+    id: `issue:${i}`,
     at: hour + 1 + i,
   }));
-  let r = admit(entries, 100, 2 * hour, 12);
+  let r = admit(entries, "issue:100", 2 * hour, 12);
   expect(r.ok).toBe(true);
   entries = r.entries;
-  expect(admit(entries, 100, 2 * hour, 12).entries).toHaveLength(12);
-  expect(admit(entries, 100, 2 * hour, 12).ok).toBe(true);
-  expect(admit(entries, 101, 2 * hour, 12).ok).toBe(false);
-  r = admit(entries, 101, 2.5 * hour, 12);
+  expect(admit(entries, "issue:100", 2 * hour, 12).entries).toHaveLength(12);
+  expect(admit(entries, "issue:100", 2 * hour, 12).ok).toBe(true);
+  expect(admit(entries, "issue:101", 2 * hour, 12).ok).toBe(false);
+  r = admit(entries, "issue:101", 2.5 * hour, 12);
   expect(r.ok).toBe(true);
-  expect(r.entries.map((e) => e.id)).toEqual([100, 101]);
+  expect(r.entries.map((e) => e.id)).toEqual(["issue:100", "issue:101"]);
 });
 
 function storage() {
@@ -488,7 +489,7 @@ test("queues each comment once, whatever GitHub redelivers", async () => {
   await hive.enqueue(m);
   await hive.enqueue(m);
   expect([...s.data.keys()].filter((k) => k.startsWith("job:"))).toEqual([
-    "job:20",
+    "job:issue:20",
   ]);
   expect(await s.getAlarm()).not.toBeNull();
 });
@@ -530,4 +531,48 @@ test("forgets delivered comment ids after a week", async () => {
   s.data.set("seen:2", Date.now());
   await hive.alarm();
   expect([...s.data.keys()]).toEqual(["seen:2"]);
+});
+
+test("queues and handles issue and review comments with the same id", async () => {
+  const writes = github();
+  const s = storage();
+  const hive = Object.assign(new Hive(), {
+    ctx: { storage: s },
+  }) as InstanceType<typeof Hive>;
+  await hive.enqueue(
+    issueMention("@bumble-bot-review help", { commentId: 11 }),
+  );
+  await hive.enqueue(threadReply("@bumble-bot-review help"));
+  const jobs = await s.list({ prefix: "job:" });
+  expect([...jobs.keys()]).toEqual(["job:issue:11", "job:thread:11"]);
+  let entries: import("../src/chat").RateEntry[] = [];
+  const { d } = deps({
+    allow: async (_, id) => {
+      const result = admit(entries, id, Date.now(), 40);
+      entries = result.entries;
+      return result.ok ? "ok" : "silent";
+    },
+  });
+  for (const job of jobs.values())
+    await answer(d, (job as { mention: Mention }).mention);
+  expect(replies(writes)).toHaveLength(2);
+  expect(entries.map((e) => e.id)).toEqual(["issue:11", "thread:11"]);
+});
+
+test("counts replies dropped after checking thread ownership or author permission", async () => {
+  const writes = github({ rootAuthor: "bob" });
+  const dropped: string[] = [];
+  const { d, asked } = deps({
+    dropped: async (reason) => {
+      dropped.push(reason);
+    },
+  });
+  await answer(d, threadReply("I agree"));
+  await answer(
+    d,
+    threadReply("@bumble-bot-review help", { author: "mallory" }),
+  );
+  expect(dropped).toEqual(["unaddressed", "unauthorized"]);
+  expect(writes).toEqual([]);
+  expect(asked).toEqual([]);
 });

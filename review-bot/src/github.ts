@@ -269,7 +269,10 @@ export async function publishReview(
   ].join(" · ");
 
   const raised = findings.length
-    ? await raisedFindings(token, pr)
+    ? await raisedFindings(token, pr).catch((error) => {
+        console.error(`inline dedupe for ${pr.headSha} failed`, error);
+        return new Set<string>();
+      })
     : new Set<string>();
   const anchors = commentableLines(files);
   const inline: {

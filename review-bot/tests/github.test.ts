@@ -37,6 +37,7 @@ function github(
   labels: string[] = [],
   comments: { user: { login: string }; body: string }[] = [],
   refuseInline = false,
+  failLookup = false,
 ) {
   const writes: { path: string; body: unknown }[] = [];
   spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -59,8 +60,10 @@ function github(
     }
     if (!path.startsWith("/repos/team/demo/pulls/1"))
       throw new Error(`Unexpected GitHub path ${path}`);
-    if (path.startsWith("/repos/team/demo/pulls/1/comments?"))
+    if (path.startsWith("/repos/team/demo/pulls/1/comments?")) {
+      if (failLookup) throw new Error("GitHub lookup unavailable");
       return Response.json(comments);
+    }
     if (init?.method === "POST" || init?.method === "PUT") {
       const body = JSON.parse(String(init.body));
       if (refuseInline && body.comments)
@@ -376,3 +379,31 @@ test("falls back to a summary-only review when GitHub refuses an anchor", async 
   expect(body.comments).toBeUndefined();
   expect(body.body).toContain("`src/a.ts:3` 🔵 Low: Anchored");
 });
+
+for (const line of [3, 9]) {
+  test(`posts the review when inline dedupe lookup rejects, line ${line}`, async () => {
+    const writes = github(pr.headSha, [], [], [], false, true);
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await publishReview(
+        "token",
+        pr,
+        [finding({ line, title: "Still reported" })],
+        files,
+        report,
+      );
+      const sent = reviewWrites(writes);
+      expect(sent).toHaveLength(1);
+      const body = sent[0].body as {
+        body: string;
+        comments?: { body: string }[];
+      };
+      expect(body.body).toContain("1 finding");
+      expect(line === 3 ? body.comments?.[0].body : body.body).toContain(
+        "Still reported",
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+}

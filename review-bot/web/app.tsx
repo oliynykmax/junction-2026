@@ -248,7 +248,7 @@ function LivePage({
           </p>
         )}
         {!view ? (
-          !error && <p class="muted">Loading the review…</p>
+          !error && <AgentWait />
         ) : (
           <ReviewBody
             view={view}
@@ -279,10 +279,16 @@ function ReviewBody({
   signed: SignOff | null;
   onSigned: (s: SignOff) => void;
 }) {
+  const reviewing = LIVE.has(view.status);
+  const checks = [...ciChecks(live), ...liveChecks(view)];
   return (
     <>
-      <Advice view={view} />
-      <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />
+      {reviewing ? <AgentWait /> : <Advice view={view} />}
+      <CiChecks
+        checks={checks}
+        open={!reviewing}
+        showFailuresWhenCollapsed={reviewing}
+      />
       {view.failure && (
         <p class="pr-alert" role="alert">
           {view.failure}
@@ -301,9 +307,7 @@ function ReviewBody({
         }
         lineUrl={lineUrl}
       />
-      {LIVE.has(view.status) ? (
-        <AgentWait />
-      ) : (
+      {!reviewing && (
         <>
           <RiskBand risk={view.review.risk} lineUrl={lineUrl} />
           <NotChecked view={view} />
@@ -338,10 +342,10 @@ function Advice({ view }: { view: ReviewView }) {
   const rest = findings.length - blocking;
   const finished = v !== null;
 
-  let headline: ComponentChildren;
+  let headline: ComponentChildren | null;
   if (findings.length === 0)
     headline = finished
-      ? "No findings"
+      ? null
       : view.status === "failed"
         ? "The review stopped before it recorded any findings"
         : "No findings yet";
@@ -358,9 +362,11 @@ function Advice({ view }: { view: ReviewView }) {
 
   return (
     <section class="title advice">
-      <p class="decision" title={BLOCKING_RULE}>
-        {headline}
-      </p>
+      {headline && (
+        <p class="decision" title={BLOCKING_RULE}>
+          {headline}
+        </p>
+      )}
       {view.heldBack > 0 && (
         <p class="note">
           {plural(view.heldBack, "critical or high finding")} the AI could not
@@ -794,61 +800,83 @@ function CiIcon({ state }: { state: CiState }) {
   );
 }
 
-function CiChecks({ checks, label }: { checks: CheckRow[]; label?: string }) {
+function CiChecks({
+  checks,
+  label,
+  open = true,
+  showFailuresWhenCollapsed = false,
+}: {
+  checks: CheckRow[];
+  label?: string;
+  open?: boolean;
+  showFailuresWhenCollapsed?: boolean;
+}) {
+  if (checks.length === 0) return null;
+  const failures = checks.filter((check) => check.state === "failed");
   return (
-    <details class="ci-block" open>
-      <summary class="ci-heading">
-        <span>
-          Checks{" "}
-          <svg
-            class="ci-chevron"
-            viewBox="0 0 16 16"
-            width="16"
-            height="16"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path
-              d="m4 6 4 4 4-4"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </span>
-        {label && <span class="ci-demo-label">{label}</span>}
-      </summary>
-      <div class="ci-results">
-        {checks.map((check) => {
-          const body = (
-            <>
-              <CiIcon state={check.state} />
-              <span class="ci-result-name">
-                {check.name}
-                <span class="ci-origin">{check.origin}</span>
-              </span>
-              <span class="ci-result-status">{check.status}</span>
-            </>
-          );
-          return check.href ? (
-            <a
-              class="ci-result"
-              key={check.key}
-              href={check.href}
-              target={check.external ? "_blank" : undefined}
-              rel={check.external ? "noreferrer" : undefined}
+    <section class="ci-block">
+      {showFailuresWhenCollapsed && <CiResults checks={failures} />}
+      <details open={open}>
+        <summary class="ci-heading">
+          <span>
+            Checks{" "}
+            <svg
+              class="ci-chevron"
+              viewBox="0 0 16 16"
+              width="16"
+              height="16"
+              fill="none"
+              aria-hidden="true"
             >
-              {body}
-            </a>
-          ) : (
-            <div class="ci-result" key={check.key}>
-              {body}
-            </div>
-          );
-        })}
-      </div>
-    </details>
+              <path
+                d="m4 6 4 4 4-4"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          {label && <span class="ci-demo-label">{label}</span>}
+        </summary>
+        <CiResults checks={checks} />
+      </details>
+    </section>
+  );
+}
+
+function CiResults({ checks }: { checks: CheckRow[] }) {
+  if (checks.length === 0) return null;
+  return (
+    <div class="ci-results">
+      {checks.map((check) => {
+        const body = (
+          <>
+            <CiIcon state={check.state} />
+            <span class="ci-result-name">
+              {check.name}
+              <span class="ci-origin">{check.origin}</span>
+            </span>
+            <span class="ci-result-status">{check.status}</span>
+          </>
+        );
+        return check.href ? (
+          <a
+            class="ci-result"
+            key={check.key}
+            href={check.href}
+            target={check.external ? "_blank" : undefined}
+            rel={check.external ? "noreferrer" : undefined}
+          >
+            {body}
+          </a>
+        ) : (
+          <div class="ci-result" key={check.key}>
+            {body}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

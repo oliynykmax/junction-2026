@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { ConversationId } from "@earendil-works/pi-durable";
 import {
   capturedFiles,
   changeProblems,
@@ -43,14 +44,16 @@ const finish = (rest: object = {}) => ({
 });
 
 function harness(state: ReviewState) {
-  const { extension } = reviewerExtension({
+  const { extension, verifier } = reviewerExtension({
     token: async () => "token",
     publish: async () => {},
     finished: () => {},
     scan: async () => [],
   });
   const tool = (name: string) => {
-    const t = extension.tools.find((x) => x.name === name);
+    const t = [...extension.tools, ...verifier.tools].find(
+      (x) => x.name === name,
+    );
     if (!t) throw new Error(`no tool ${name}`);
     return t;
   };
@@ -59,12 +62,45 @@ function harness(state: ReviewState) {
     conversationId: "root",
     callId: `call-${++call}`,
     snapshot: async () => state,
+    // The verifier's tools find this review through their link document.
     commit: async (cb: (tx: unknown) => unknown) =>
-      cb({ doc: async () => state }),
+      cb({
+        doc: async (token: { definition: { kind: string } }) =>
+          token.definition.kind === "review.verifier-link"
+            ? { root: "root" }
+            : state,
+      }),
   });
   const run = (name: string, args: any) =>
     (tool(name).execute as any)(args, api(), {});
   return { run };
+}
+
+const done = {
+  status: "done" as const,
+  conversationId: 2 as ConversationId,
+  checks: [],
+  verdicts: {},
+  summary: "s",
+};
+
+/** The review as the verifier sees it after saving its checks. */
+function verifying(state: ReviewState): ReviewState {
+  state.verifier = {
+    status: "verifying",
+    conversationId: 2 as ConversationId,
+    checks: [],
+  };
+  return state;
+}
+
+const finishVerification = { summary: "s", verdicts: [] };
+
+/** A review whose findings are still open: verify has not started. */
+function unverified(paths: string[]): ReviewState {
+  const state = reviewWith(paths);
+  delete state.verifier;
+  return state;
 }
 
 function reviewWith(paths: string[]): ReviewState {
@@ -78,6 +114,7 @@ function reviewWith(paths: string[]): ReviewState {
       installationId: 1,
     },
     lookups: [{ tool: "docs", args: "{}", at: 1 }],
+    verifier: done,
     files: capturedFiles(paths.map((p) => file(p, "@@ -1 +1 @@\n-a\n+b"))),
     // Every file already shortened, so tests of other gates reach them.
     readings: Object.fromEntries(
@@ -236,15 +273,15 @@ test("finish_review refuses an invalid STAR without finishing", async () => {
   expect(state.verdict).toBeNull();
 });
 
-test("finish_review requires a bounded verification receipt for every changed file", async () => {
-  const state = reviewWith(["src/TypeCollector.cs"]);
+test("finish_verification requires a bounded verifier receipt for every changed file", async () => {
+  const state = verifying(reviewWith(["src/TypeCollector.cs"]));
   state.verifications = [];
   const { run } = harness(state);
   await run("describe_change", change);
-  const missing = await run("finish_review", finish());
+  const missing = await run("finish_verification", finishVerification);
   expect(missing.isError).toBe(true);
-  expect(missing.output[0].text).toContain("verification receipt");
-  expect(state.verdict).toBeNull();
+  expect(missing.output[0].text).toContain("No receipt covers");
+  expect(state.verifier?.status).toBe("verifying");
 
   const invalid = await run("record_verification", {
     files: ["src/TypeCollector.cs"],
@@ -279,6 +316,8 @@ test("finish_review requires a bounded verification receipt for every changed fi
     limits: ["Does not verify reflection metadata."],
   });
   expect(recorded.isError).toBeUndefined();
+  expect(state.verifications?.[0].author).toBe("verifier");
+  await run("finish_verification", finishVerification);
   await run("finish_review", finish());
   expect(state.verdict).not.toBeNull();
 });
@@ -321,7 +360,7 @@ test("finish gate rejects every incomplete receipt set in a two-file review", as
     } else {
       expect(state.verdict).toBeNull();
       expect(result.isError).toBe(true);
-      expect(result.output[0].text).toContain("verification receipt");
+      expect(result.output[0].text).toContain("receipt covers");
     }
   }
 });
@@ -463,7 +502,7 @@ test("missing receipts never bypass the gate after repeated completion attempts"
 
 test("explicit unrun and counterexample receipts persist without becoming passes", async () => {
   for (const outcome of ["not_run", "counterexample"] as const) {
-    const state = reviewWith(["src/TypeCollector.cs"]);
+    const state = verifying(reviewWith(["src/TypeCollector.cs"]));
     const seed = state.verifications![0];
     state.verifications = [];
     const { run } = harness(state);
@@ -472,7 +511,7 @@ test("explicit unrun and counterexample receipts persist without becoming passes
       outcome === "not_run"
         ? "Not run: the verifier setup failed because the toolchain is unavailable."
         : "Counterexample trace: the second generic argument indexes beyond the bound.";
-    const { id: _id, brokenVariant: _broken, ...fields } = seed;
+    const { id: _id, author: _a, brokenVariant: _broken, ...fields } = seed;
     const recorded = await run("record_verification", {
       ...fields,
       outcome,
@@ -482,6 +521,7 @@ test("explicit unrun and counterexample receipts persist without becoming passes
     expect(state.verifications?.[0].outcome).toBe(outcome);
     expect(state.verifications?.[0].result).toBe(result);
     expect(state.verifications?.[0].brokenVariant).toBeNull();
+    await run("finish_verification", finishVerification);
     await run("finish_review", finish());
     expect(state.verdict).not.toBeNull();
   }
@@ -507,7 +547,7 @@ const findingInput = {
 test("finding evidence boundaries require reason evidence and fix without recording invalid claims", async () => {
   for (const field of ["reason", "evidence", "fix"] as const) {
     for (const value of ["", "   ", "x".repeat(901), undefined]) {
-      const state = reviewWith([findingInput.path]);
+      const state = unverified([findingInput.path]);
       const input =
         field === "evidence"
           ? { ...findingInput, evidence: { kind: "code", detail: value } }
@@ -522,7 +562,7 @@ test("finding evidence boundaries require reason evidence and fix without record
 
 test("findings accept code docs tests scanners and several supporting reasons", async () => {
   for (const kind of ["code", "docs", "test", "scanner"]) {
-    const state = reviewWith([findingInput.path]);
+    const state = unverified([findingInput.path]);
     const { run } = harness(state);
     const result = await run("report_finding", {
       ...findingInput,
@@ -540,66 +580,15 @@ test("findings accept code docs tests scanners and several supporting reasons", 
     expect(state.findings[0].reason).toBe(findingInput.reason);
     expect(state.findings[0].evidence?.kind).toBe(kind);
     expect(state.findings[0].evidence?.supporting).toHaveLength(2);
+    state.verifier = done;
     await run("describe_change", change);
     await run("finish_review", finish());
     expect(state.verdict?.decision).toBe("changes_requested");
   }
 });
 
-test("receipt links reject dangling cross-finding and wrong-path references", async () => {
-  const state = reviewWith([findingInput.path]);
-  const { run } = harness(state);
-  const linked = {
-    ...findingInput,
-    evidence: { ...findingInput.evidence, verification_id: "seed" },
-  };
-  expect(
-    (
-      await run("report_finding", {
-        ...linked,
-        evidence: { ...linked.evidence, verification_id: "missing" },
-      })
-    ).isError,
-  ).toBe(true);
-  expect(
-    (await run("report_finding", { ...linked, path: "other.cs" })).isError,
-  ).toBe(true);
-  expect(state.findings).toHaveLength(0);
-  expect((await run("report_finding", linked)).isError).toBeUndefined();
-  expect((await run("report_finding", linked)).isError).toBe(true);
-  expect(state.findings).toHaveLength(1);
-  expect(state.findings[0].evidence?.verificationId).toBe("seed");
-});
-
-test("unrun or passing receipts cannot promote execution claims to verified findings", async () => {
-  for (const outcome of ["not_run", "passed", "counterexample"] as const) {
-    const state = reviewWith([findingInput.path]);
-    state.verifications![0].outcome = outcome;
-    const { run } = harness(state);
-    const result = await run("report_finding", {
-      ...findingInput,
-      evidence: {
-        kind: "execution",
-        detail: "The targeted arity reproducer fails on the pinned head.",
-        verification_id: "seed",
-      },
-    });
-    expect(result.isError === true).toBe(outcome !== "counterexample");
-    expect(state.findings).toHaveLength(outcome === "counterexample" ? 1 : 0);
-  }
-  const state = reviewWith([findingInput.path]);
-  state.verifications![0].outcome = "not_run";
-  const { run } = harness(state);
-  const result = await run("report_finding", {
-    ...findingInput,
-    evidence: { ...findingInput.evidence, verification_id: "seed" },
-  });
-  expect(result.isError).toBe(true);
-  expect(state.findings).toHaveLength(0);
-});
-
-test("hypotheses stay possible and cannot become verified by linking a receipt", async () => {
-  const state = reviewWith([findingInput.path]);
+test("hypotheses stay possible", async () => {
+  const state = unverified([findingInput.path]);
   const { run } = harness(state);
   for (const confidence of ["verified", "likely", "possible"]) {
     const result = await run("report_finding", {
@@ -608,25 +597,26 @@ test("hypotheses stay possible and cannot become verified by linking a receipt",
       evidence: {
         kind: "hypothesis",
         detail: "Runtime input limits remain unknown.",
-        verification_id: "seed",
       },
     });
     expect(result.isError === true).toBe(confidence !== "possible");
   }
   expect(state.findings).toHaveLength(1);
+  state.verifier = done;
   await run("describe_change", change);
   await run("finish_review", finish());
   expect(state.verdict?.decision).toBe("no_blockers_found");
 });
 
-test("recorded evidence stays immutable when another check has the same target", async () => {
-  const state = reviewWith([findingInput.path]);
+test("a second receipt with the same target leaves the first unchanged", async () => {
+  const state = verifying(reviewWith([findingInput.path]));
   const { run } = harness(state);
-  const { id: _id, brokenVariant, ...input } = state.verifications![0];
-  await run("report_finding", {
-    ...findingInput,
-    evidence: { ...findingInput.evidence, verification_id: "seed" },
-  });
+  const {
+    id: _id,
+    author: _a,
+    brokenVariant,
+    ...input
+  } = state.verifications![0];
   const result = await run("record_verification", {
     ...input,
     broken_variant: brokenVariant,
@@ -634,17 +624,19 @@ test("recorded evidence stays immutable when another check has the same target",
   expect(result.isError).toBeUndefined();
   expect(state.verifications).toHaveLength(2);
   expect(state.verifications![0].id).toBe("seed");
-  expect(state.findings[0].evidence?.verificationId).toBe("seed");
 });
 
 test("zero findings still require file dispositions and can finish with explicit unrun coverage", async () => {
-  const state = reviewWith([findingInput.path]);
+  const state = verifying(reviewWith([findingInput.path]));
   state.verifications = [];
   const { run } = harness(state);
   await run("describe_change", change);
+  expect((await run("finish_verification", finishVerification)).isError).toBe(
+    true,
+  );
   expect((await run("finish_review", finish())).isError).toBe(true);
   const seed = reviewWith([findingInput.path]).verifications![0];
-  const { id: _id, brokenVariant: _broken, ...input } = seed;
+  const { id: _id, author: _a, brokenVariant: _broken, ...input } = seed;
   expect(
     (
       await run("record_verification", {
@@ -655,33 +647,47 @@ test("zero findings still require file dispositions and can finish with explicit
       })
     ).isError,
   ).toBeUndefined();
+  expect(
+    (await run("finish_verification", finishVerification)).isError,
+  ).toBeUndefined();
   expect((await run("finish_review", finish())).isError).toBeUndefined();
   expect(state.findings).toHaveLength(0);
   expect(state.verdict?.decision).toBe("no_blockers_found");
   expect(state.verifications![0].outcome).toBe("not_run");
 });
 
-test("execution without a record and blank supporting evidence are refused", async () => {
-  for (const evidence of [
-    { kind: "execution", detail: "Failed at arity 2." },
-    { kind: "code", detail: "Indexing is unguarded.", supporting: [" "] },
-  ]) {
-    const state = reviewWith([findingInput.path]);
-    const result = await harness(state).run("report_finding", {
+test("execution evidence needs no receipt, and blank supporting evidence is refused", async () => {
+  const ran = await harness(unverified([findingInput.path])).run(
+    "report_finding",
+    {
       ...findingInput,
-      evidence,
-    });
-    expect(result.isError).toBe(true);
-    expect(state.findings).toHaveLength(0);
-  }
+      evidence: {
+        kind: "execution",
+        detail: "bun test arity.ts failed at arity 2.",
+      },
+    },
+  );
+  expect(ran.isError).toBeUndefined();
+  const state = unverified([findingInput.path]);
+  const result = await harness(state).run("report_finding", {
+    ...findingInput,
+    evidence: {
+      kind: "code",
+      detail: "Indexing is unguarded.",
+      supporting: [" "],
+    },
+  });
+  expect(result.isError).toBe(true);
+  expect(state.findings).toHaveLength(0);
 });
 
 test("fix outcomes persist through record_verification and remain separate from the original failure", async () => {
   for (const outcome of ["passed", "failed"] as const) {
-    const state = reviewWith([findingInput.path]);
+    const state = verifying(reviewWith([findingInput.path]));
     const { run } = harness(state);
     const {
       id: _id,
+      author: _a,
       brokenVariant: _broken,
       ...seed
     } = state.verifications![0];
@@ -703,18 +709,6 @@ test("fix outcomes persist through record_verification and remain separate from 
     const receipt = state.verifications!.at(-1)!;
     expect(receipt.outcome).toBe("counterexample");
     expect(receipt.fixCheck?.outcome).toBe(outcome);
-    expect(
-      (
-        await run("report_finding", {
-          ...findingInput,
-          evidence: {
-            kind: "execution",
-            detail: input.result,
-            verification_id: receipt.id,
-          },
-        })
-      ).isError,
-    ).toBeUndefined();
     const invalid = await run("record_verification", {
       ...input,
       outcome: "not_run",

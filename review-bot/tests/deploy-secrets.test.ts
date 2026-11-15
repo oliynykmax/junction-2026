@@ -68,3 +68,35 @@ test("celld-deploy.sh stops before any build or SSH when no token survives the m
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("write-celld-secrets.sh writes the merged JSON and fails on malformed app secrets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "deploy-secrets-"));
+  try {
+    const run = async (appSecrets: string) => {
+      const out = join(dir, "out.json");
+      const proc = Bun.spawn(
+        ["bash", join(scripts, "write-celld-secrets.sh"), out],
+        {
+          env: {
+            PATH: process.env.PATH ?? "",
+            APP_SECRETS: appSecrets,
+            EXECUTOR_TOKEN: "fresh",
+          },
+          stderr: "ignore",
+          stdout: "ignore",
+        },
+      );
+      return { code: await proc.exited, out };
+    };
+    const ok = await run('{"ORIGIN_TOKEN":"o"}');
+    expect(ok.code).toBe(0);
+    expect(JSON.parse(await Bun.file(ok.out).text())).toEqual({
+      ORIGIN_TOKEN: "o",
+      EXECUTOR_TOKEN: "fresh",
+    });
+    expect((await run("{not json")).code).not.toBe(0);
+    expect((await run("")).code).not.toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

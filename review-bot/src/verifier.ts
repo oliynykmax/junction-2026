@@ -270,7 +270,7 @@ function renderRevealed(state: ReviewState, checks: RequirementCheck[]) {
     ? state.findings
         .map(
           (f) =>
-            `- id ${f.id}: [${f.severity}, ${f.confidence}] ${f.title} at ${f.path}${f.line ? `:${f.line}` : ""}\n  ${f.body.replaceAll("\n", "\n  ")}\n  Reason: ${f.reason ?? "(none)"}\n  Evidence (${f.evidence?.kind ?? "none"}): ${f.evidence?.detail ?? "(none)"}${f.suggestedPatch ? `\n  Suggested patch:\n${f.suggestedPatch}` : ""}`,
+            `- id ${f.id}: [${f.severity}, ${f.confidence}] ${f.title} at ${f.path}${f.line ? `:${f.line}` : ""}\n  ${f.body.replaceAll("\n", "\n  ")}\n  Reason: ${f.reason ?? "(none)"}\n  Evidence (${f.evidence?.kind ?? "none"}): ${f.evidence?.detail ?? "(none)"}\n  Proposed fix: ${f.fix ?? "(none)"}${f.suggestedPatch ? `\n  Suggested patch:\n${f.suggestedPatch}` : ""}`,
         )
         .join("\n")
     : "(the reviewer reported no findings)";
@@ -524,7 +524,9 @@ export function verifierExtension({
           ];
           return;
         }
-        const receipts = state.verifications ?? [];
+        const receipts = (state.verifications ?? []).filter(
+          (r) => r.author === "verifier",
+        );
         problems = verdictProblems(verdicts, state.findings, receipts);
         const trimmed = summary.trim();
         if (!trimmed) problems.push("Write the summary.");
@@ -534,7 +536,7 @@ export function verifierExtension({
           );
         const uncovered = uncoveredVerificationFiles(
           state.files ?? [],
-          receipts.filter((r) => r.author === "verifier"),
+          receipts,
         );
         if (uncovered.length)
           problems.push(

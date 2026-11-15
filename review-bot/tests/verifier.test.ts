@@ -340,6 +340,7 @@ test("verifier_context withholds the change and the findings until checks are sa
     const revealed = await w.context(child);
     expect(revealed).toContain(finding.title);
     expect(revealed).toContain("id f1");
+    expect(revealed).toContain(`Proposed fix: ${finding.fix}`);
     expect(revealed).toContain(PATH);
     return "unanswered";
   });
@@ -487,6 +488,32 @@ test("one receipt cannot back the verdicts of two findings", async () => {
     });
     expect(res.isError).toBe(true);
     expect(res.output[0].text).toContain(`Receipt ${passed} already backs f1`);
+    return "unanswered";
+  });
+  await w.reviewer("verify");
+});
+
+test("a receipt from before the split cannot back a verdict", async () => {
+  const w = world();
+  w.script(async (child) => {
+    await w.verify(child, "save_checks", { checks: [check] });
+    await w.verify(child, "record_verification", receipt("passed"));
+    const mine = w.state().verifications!.at(-1)!;
+    const legacy = { ...mine, id: "legacy", author: undefined };
+    w.state().verifications!.unshift(legacy);
+    const res = await w.verify(child, "finish_verification", {
+      summary: "s",
+      verdicts: [
+        {
+          finding_id: "f1",
+          verdict: "not_reproduced",
+          receipt_id: "legacy",
+          note: "n",
+        },
+      ],
+    });
+    expect(res.isError).toBe(true);
+    expect(res.output[0].text).toContain("needs the receipt_id");
     return "unanswered";
   });
   await w.reviewer("verify");

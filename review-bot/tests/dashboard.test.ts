@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import {
+  bucketMs,
   type DashboardRows,
   type DbRun,
   MAX_WINDOW_MS,
-  mcpRows,
-  modelRow,
+  modelRows,
   parseQuery,
   percentile,
   QueryError,
@@ -14,30 +14,18 @@ import {
 } from "../src/dashboard";
 
 const now = 1_800_000_000_000;
+const HOUR = 3_600_000;
 const q = (s: string) => parseQuery(new URLSearchParams(s), now);
-const oid = "f".repeat(64);
 
-test("defaults to the last 24 hours with no filters", () => {
-  expect(q("")).toEqual({
-    from: now - 86_400_000,
-    to: now,
-    status: null,
-    repo: null,
-    cursor: null,
-  });
+test("defaults to the last 24 hours across all repositories", () => {
+  expect(q("")).toEqual({ from: now - 24 * HOUR, to: now, repo: null });
 });
 
-test("parses filters and a cursor", () => {
-  expect(
-    q(
-      `from=1&to=2&status=stale&repo=Oliynykmax/Junction-2026&cursor=123.${oid}`,
-    ),
-  ).toEqual({
+test("parses a window and a repository filter", () => {
+  expect(q("from=1&to=2&repo=Oliynykmax/Junction-2026")).toEqual({
     from: 1,
     to: 2,
-    status: "stale",
     repo: { owner: "oliynykmax", repo: "junction-2026" },
-    cursor: { startedAt: 123, objectId: oid },
   });
 });
 
@@ -47,23 +35,26 @@ test("rejects out-of-bounds or malformed queries", () => {
     "from=5&to=5",
     "from=-1",
     "to=1e9",
-    "status=pending",
     "repo=a/b/c",
     "repo=a';--/b",
-    "cursor=1.xyz",
   ])
     expect(() => q(bad)).toThrow(QueryError);
 });
 
+test("buckets keep every window at 36 bars or fewer", () => {
+  expect(bucketMs(HOUR)).toBe(5 * 60_000);
+  expect(bucketMs(24 * HOUR)).toBe(HOUR);
+  expect(bucketMs(7 * 24 * HOUR)).toBe(6 * HOUR);
+  expect(bucketMs(30 * 24 * HOUR)).toBe(24 * HOUR);
+});
+
 const run = (over: Partial<DbRun>): DbRun => ({
-  object_id: oid,
   run_key: "o/r#1@sha",
   owner: "o",
   repo: "r",
   number: 1,
   head_sha: "a".repeat(40),
   mode: "webhook",
-  model: "anthropic/m",
   started_at: now - 60_000,
   last_seen_at: now - 1_000,
   ended_at: null,
@@ -77,23 +68,36 @@ const run = (over: Partial<DbRun>): DbRun => ({
 
 const empty: DashboardRows = {
   meta: [{ v: String(now - 5 * 86_400_000) }],
-  counts: [],
   runs: [],
-  models: [],
-  calls: [],
-  totals: [],
+  runModels: [],
+  counts: [],
+  samples: [],
+  reached: [],
+  settled: [],
   recoveries: [],
-  log: [],
   dropped: [{ n: null }],
 };
 
-test("a running row last seen over 15 minutes ago shows as stale, not failed", () => {
+const done = (startedAgo: number, minutes: number, over: Partial<DbRun> = {}) =>
+  run({
+    started_at: now - startedAgo,
+    ended_at: now - startedAgo + minutes * 60_000,
+    status: "done",
+    decision: "no_blockers_found",
+    findings: 2,
+    cost_usd: 0.5,
+    ...over,
+  });
+
+test("a running row last seen over 15 minutes ago is open, not failed", () => {
   const view = shapeView(
     q(""),
     { ...empty, runs: [run({ last_seen_at: now - STALE_MS - 1 })] },
     now,
   );
-  expect(view.runs.rows[0].status).toBe("stale");
+  expect(view.recent[0].status).toBe("stale");
+  expect(view.kpis).toMatchObject({ reviews: 1, open: 1, failed: 0 });
+  expect(view.series.at(-1)).toMatchObject({ open: 1, failed: 0 });
 });
 
 test("links each run to its report page by mode", () => {
@@ -102,24 +106,186 @@ test("links each run to its report page by mode", () => {
     { ...empty, runs: [run({}), run({ mode: "manual" })] },
     now,
   );
-  expect(view.runs.rows.map((r) => r.link)).toEqual([
+  expect(view.recent.map((r) => r.link)).toEqual([
     `/r/o/r/1?sha=${"a".repeat(40)}`,
     `/m/o/r/1?sha=${"a".repeat(40)}`,
   ]);
 });
 
-test("pages at 50 rows with a keyset cursor from the last shown row", () => {
-  const runs = Array.from({ length: 51 }, (_, i) =>
-    run({ object_id: i.toString(16).padStart(64, "0"), started_at: now - i }),
+test("places runs and their cost in the bucket they started in", () => {
+  const view = shapeView(
+    q(""),
+    {
+      ...empty,
+      runs: [
+        done(30 * 60_000, 5),
+        done(3 * HOUR + 2, 12),
+        run({
+          started_at: now - 3 * HOUR - 1,
+          status: "failed",
+          failure: "scanner",
+        }),
+      ],
+      runModels: [
+        {
+          model: "a/x",
+          started_at: now - 30 * 60_000,
+          input: 1,
+          output: 1,
+          cache_read: 0,
+          cache_write: 0,
+          cost_usd: 0.25,
+        },
+      ],
+    },
+    now,
   );
-  const view = shapeView(q(""), { ...empty, runs }, now);
-  expect(view.runs.rows).toHaveLength(50);
-  expect(view.runs.next).toBe(
-    `${now - 49}.${(49).toString(16).padStart(64, "0")}`,
+  expect(view.series).toHaveLength(24);
+  expect(view.window.bucketMs).toBe(HOUR);
+  expect(view.series[23]).toMatchObject({
+    done: 1,
+    findings: 2,
+    cost: { "a/x": 0.25 },
+  });
+  expect(view.series[20]).toMatchObject({ done: 1, failed: 1 });
+  expect(view.kpis).toMatchObject({
+    reviews: 3,
+    done: 2,
+    failed: 1,
+    findings: 4,
+  });
+  expect(view.outcomes).toEqual({
+    noBlockers: 2,
+    changesRequested: 0,
+    open: 0,
+    failed: { scanner: 1 },
+  });
+});
+
+test("compares with the previous window only when the ledger was collecting then", () => {
+  const rows = {
+    ...empty,
+    runs: [done(HOUR, 3), done(25 * HOUR, 9), done(26 * HOUR, 9)],
+  };
+  const view = shapeView(q(""), rows, now);
+  expect(view.kpis.reviews).toBe(1);
+  expect(view.previous).toMatchObject({ reviews: 2, medianMs: 9 * 60_000 });
+  const fresh = shapeView(
+    q(""),
+    { ...rows, meta: [{ v: String(now - 30 * HOUR) }] },
+    now,
   );
-  expect(
-    shapeView(q(""), { ...empty, runs: runs.slice(0, 50) }, now).runs.next,
-  ).toBeNull();
+  expect(fresh.previous).toBeNull();
+});
+
+test("bins done runs by time to verdict, with an open last bin", () => {
+  const view = shapeView(
+    q(""),
+    {
+      ...empty,
+      runs: [done(HOUR, 1), done(HOUR, 3), done(HOUR, 3.5), done(HOUR, 90)],
+    },
+    now,
+  );
+  expect(view.durations[0]).toEqual({ toMs: 2 * 60_000, n: 1 });
+  expect(view.durations[1]).toEqual({ toMs: 4 * 60_000, n: 2 });
+  expect(view.durations.at(-1)).toEqual({ toMs: null, n: 1 });
+  expect(view.kpis.medianMs).toBe(3 * 60_000);
+});
+
+test("the funnel counts runs that reached each step", () => {
+  const view = shapeView(
+    q(""),
+    {
+      ...empty,
+      runs: [
+        done(HOUR, 3),
+        done(HOUR, 3, { decision: "changes_requested" }),
+        run({}),
+      ],
+      reached: [
+        { kind: "modal", n: 3 },
+        { kind: "shell", n: 2 },
+      ],
+    },
+    now,
+  );
+  expect(view.funnel).toEqual([
+    { step: "started", n: 3 },
+    { step: "scanned", n: 3 },
+    { step: "checked_out", n: 2 },
+    { step: "verdict", n: 2 },
+    { step: "no_blockers", n: 1 },
+  ]);
+});
+
+test("sums verification receipts from terminal status events, skipping runs that predate them", () => {
+  const view = shapeView(
+    q(""),
+    {
+      ...empty,
+      settled: [
+        {
+          detail: JSON.stringify({ passed: 2, counterexample: 1, not_run: 3 }),
+        },
+        {
+          detail: JSON.stringify({ passed: 1, counterexample: 0, not_run: 0 }),
+        },
+        { detail: JSON.stringify({ failure: "scanner" }) },
+        { detail: null },
+        { detail: "not json" },
+      ],
+    },
+    now,
+  );
+  expect(view.verification).toEqual({
+    passed: 3,
+    counterexample: 1,
+    not_run: 3,
+    runs: 2,
+  });
+});
+
+test("tool rows take exact counts across buckets and latency from the sample", () => {
+  const view = shapeView(
+    q(""),
+    {
+      ...empty,
+      counts: [
+        { kind: "shell", name: "command", b: 22, n: 9_000, bad: 3 },
+        { kind: "shell", name: "command", b: 23, n: 1_000, bad: 1 },
+        { kind: "mcp", name: "mslearn/search", b: 23, n: 4, bad: 0 },
+        { kind: "github_token", name: "hit", b: 23, n: 50, bad: 0 },
+      ],
+      samples: [
+        { kind: "shell", name: "command", at: now - 10, ms: 100 },
+        { kind: "shell", name: "command", at: now - 20, ms: 900 },
+      ],
+    },
+    now,
+  );
+  expect(view.tools).toEqual([
+    {
+      kind: "shell",
+      name: "command",
+      calls: 10_000,
+      errors: 4,
+      p50Ms: 100,
+      p95Ms: 900,
+    },
+    {
+      kind: "mcp",
+      name: "mslearn/search",
+      calls: 4,
+      errors: 0,
+      p50Ms: null,
+      p95Ms: null,
+    },
+  ]);
+  expect(view.series[22].calls.shell).toEqual({ n: 9_000, bad: 3 });
+  expect(view.series[23].p95.shell).toBe(900);
+  expect(view.series[23].p95.mcp).toBeNull();
+  expect(view.connections.tokenCacheHits).toBe(50);
 });
 
 test("reports collection start honestly, null when unknown", () => {
@@ -131,19 +297,26 @@ test("reports collection start honestly, null when unknown", () => {
   ).toBeNull();
 });
 
-test("prompt cache share is cache reads over all prompt tokens, null without any", () => {
+test("models aggregate per-run usage; cache share is cache reads over all prompt tokens", () => {
   const m = {
     model: "x",
-    runs: 1,
-    input: 100,
+    started_at: now,
+    input: 50,
     output: 5,
-    cache_read: 300,
-    cache_write: 100,
+    cache_read: 150,
+    cache_write: 50,
     cost_usd: 1,
   };
-  expect(modelRow(m).promptCacheHitRatio).toBe(0.6);
+  const [row] = modelRows([m, m]);
+  expect(row).toMatchObject({
+    runs: 2,
+    input: 100,
+    cacheRead: 300,
+    costUsd: 2,
+  });
+  expect(row.promptCacheHitRatio).toBe(0.6);
   expect(
-    modelRow({ ...m, input: 0, cache_read: 0, cache_write: 0 })
+    modelRows([{ ...m, input: 0, cache_read: 0, cache_write: 0 }])[0]
       .promptCacheHitRatio,
   ).toBeNull();
 });
@@ -154,72 +327,13 @@ test("nearest-rank percentiles ignore missing durations", () => {
   expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 100], 95)).toBe(100);
 });
 
-test("groups MCP calls by server and tool, busiest first", () => {
-  const rows = mcpRows(
-    [
-      { kind: "mcp", name: "mslearn/search", n: 1, bad: 0 },
-      { kind: "mcp", name: "contextdev/web-search", n: 2, bad: 1 },
-    ],
-    [
-      { kind: "mcp", name: "mslearn/search", ok: 1, ms: 100 },
-      { kind: "mcp", name: "contextdev/web-search", ok: 0, ms: 300 },
-      { kind: "mcp", name: "contextdev/web-search", ok: 1, ms: 200 },
-    ],
-  );
-  expect(rows).toEqual([
-    {
-      server: "contextdev",
-      tool: "web-search",
-      calls: 2,
-      errors: 1,
-      p50Ms: 200,
-    },
-    { server: "mslearn", tool: "search", calls: 1, errors: 0, p50Ms: 100 },
-  ]);
-});
-
-test("summarizes calls, token cache and dropped events", () => {
-  const view = shapeView(
-    q(""),
-    {
-      ...empty,
-      calls: [
-        { kind: "modal", name: "scan", ok: 1, ms: 1000 },
-        { kind: "modal", name: "scan", ok: 0, ms: 3000 },
-        { kind: "mcp_connect", name: "mslearn", ok: 0, ms: 8000 },
-        { kind: "github_token", name: "hit", ok: 1, ms: 0 },
-        { kind: "github_token", name: "miss", ok: 1, ms: 200 },
-        { kind: "github_token", name: "hit", ok: 1, ms: 0 },
-      ],
-      totals: [
-        { kind: "modal", name: "scan", n: 2, bad: 1 },
-        { kind: "mcp_connect", name: "mslearn", n: 1, bad: 1 },
-        { kind: "github_token", name: "hit", n: 2, bad: 0 },
-        { kind: "github_token", name: "miss", n: 1, bad: 0 },
-      ],
-      dropped: [{ n: 7 }],
-    },
-    now,
-  );
-  expect(view.modal).toEqual({ calls: 2, failed: 1, p50Ms: 1000, p95Ms: 3000 });
-  expect(view.connections).toEqual({
-    mcpConnects: 1,
-    mcpConnectFailures: 1,
-    mcpCalls: 0,
-    tokenCacheHits: 2,
-    tokenCacheMisses: 1,
-  });
-  expect(view.droppedEvents).toBe(7);
-  expect(view.billing.modal).toBe("unavailable");
-});
-
 test("an open recovery followed by a later detection on the same object is superseded", () => {
   expect(
     recoveryCounts([
-      { boot_id: "b1", object_id: "x", detected_at: 1, outcome: "open" },
-      { boot_id: "b2", object_id: "x", detected_at: 2, outcome: "recovered" },
-      { boot_id: "b3", object_id: "y", detected_at: 3, outcome: "open" },
-      { boot_id: "b4", object_id: "z", detected_at: 4, outcome: "unverified" },
+      { object_id: "x", detected_at: 1, outcome: "open" },
+      { object_id: "x", detected_at: 2, outcome: "recovered" },
+      { object_id: "y", detected_at: 3, outcome: "open" },
+      { object_id: "z", detected_at: 4, outcome: "unverified" },
     ]),
   ).toEqual({
     detected: 4,
@@ -231,25 +345,8 @@ test("an open recovery followed by a later detection on the same object is super
   });
 });
 
-test("counts come from exact totals even when the percentile sample is smaller", () => {
-  const view = shapeView(
-    q(""),
-    {
-      ...empty,
-      calls: [{ kind: "modal", name: "scan", ok: 1, ms: 500 }],
-      totals: [
-        { kind: "modal", name: "scan", n: 12_000, bad: 30 },
-        { kind: "mcp", name: "mslearn/search", n: 9_000, bad: 4 },
-      ],
-    },
-    now,
-  );
-  expect(view.modal).toEqual({
-    calls: 12_000,
-    failed: 30,
-    p50Ms: 500,
-    p95Ms: 500,
-  });
-  expect(view.connections.mcpCalls).toBe(9_000);
-  expect(view.mcp[0]).toMatchObject({ calls: 9_000, errors: 4, p50Ms: null });
+test("flags a run read that hit its cap so the page can say figures are partial", () => {
+  expect(shapeView(q(""), empty, now).truncated).toBeNull();
+  const runs = Array.from({ length: 5_000 }, () => done(HOUR, 3));
+  expect(shapeView(q(""), { ...empty, runs }, now).truncated).toBe(5_000);
 });

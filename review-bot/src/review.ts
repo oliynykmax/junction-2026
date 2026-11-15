@@ -20,11 +20,11 @@ import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { alarmWrite, HEARTBEAT_MS } from "./alarm";
-import type { VerificationReceipt } from "./formal";
+import { type VerificationReceipt, verificationCounts } from "./formal";
 import type { FindingVerdict } from "./verifier";
 import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
-import { executor } from "./executor";
+import { executor, recordExecutor } from "./executor";
 import { Ledger, type RunSnapshot } from "./ledger";
 import { interruptedTasks, Lifecycle } from "./lifecycle";
 import {
@@ -148,6 +148,10 @@ export class Review extends DurableObject<Env> {
       models.setProvider(anthropicProvider());
       models.setProvider(verdaProvider());
       const registry = createRegistry();
+      const recorded = recordExecutor(
+        () => executor(env),
+        (event) => this.#ledger.event(event),
+      );
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
@@ -165,9 +169,9 @@ export class Review extends DurableObject<Env> {
           this.#lifecycle.finished(decision, findings);
           this.#ledger.record(() => this.#snapshot());
         },
-        checkout: (input, signal) => executor(env).checkout(input, signal),
-        shell: (input, signal) => executor(env).shell(input, signal),
-        release: (session) => executor(env).release(session),
+        checkout: recorded.checkout,
+        shell: recorded.shell,
+        release: recorded.release,
       });
       this.#scanTask = reviewer.scanTask;
       this.#verifier = reviewer.verifier;
@@ -401,6 +405,7 @@ export class Review extends DurableObject<Env> {
       decision: review.verdict?.decision ?? null,
       findings: review.findings.length,
       failure: status === "failed" ? failureClass(runFailure) : null,
+      verifications: verificationCounts(review.verifications ?? []),
       usage: Object.entries(usage.models).map(([model, u]) => ({
         model,
         input: u.input,

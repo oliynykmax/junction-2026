@@ -16,6 +16,38 @@ Bumble Bot also works as a [GitHub App](https://github.com/apps/bumble-bot-revie
 
 ## How it works
 
+The two lanes show separate agents. The reviewer starts the verifier after recording its findings. The verifier writes its initial checks before seeing the proposed change.
+
+```mermaid
+flowchart TB
+  Input["Public PR URL or GitHub webhook"] --> Snapshot["Pin commits and capture diff, CI and team standards"]
+  Snapshot --> Review
+  Snapshot -. "requirements and base code only" .-> Blind
+  subgraph Reviewer["Agent 1 · Reviewer"]
+    Review["Inspect code, docs and scanner results"] --> Findings["Record candidate findings"]
+  end
+  subgraph Verifier["Agent 2 · Independent verifier"]
+    Blind["Write checks before seeing the change"] --> Freeze["Freeze checks, then reveal head and findings"]
+    Freeze --> Run["Run tests, reproducers or formal checks"]
+    Run --> Verdicts["Record verdicts, evidence and limits"]
+  end
+  Findings --> Report["Commit-pinned report"]
+  Verdicts --> Report
+  Report --> Human["Named human owns the merge decision"]
+  classDef input fill:#dbeafe,stroke:#2563eb,color:#172554
+  classDef reviewer fill:#fef3c7,stroke:#d97706,color:#451a03
+  classDef verifier fill:#ede9fe,stroke:#7c3aed,color:#2e1065
+  classDef result fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+  classDef human fill:#fce7f3,stroke:#db2777,color:#500724
+  class Input,Snapshot input
+  class Review,Findings reviewer
+  class Blind,Freeze,Run,Verdicts verifier
+  class Report result
+  class Human human
+  style Reviewer fill:#422b10,stroke:#d97706,color:#fef3c7
+  style Verifier fill:#2e1650,stroke:#a78bfa,color:#ede9fe
+```
+
 ### Code review
 
 Our review prompt builds on Cursor's [thermo-nuclear code quality review skill](https://github.com/cursor/plugins/blob/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md), with our own changes. Our team has used AI review tools before, and no single prompt covers every repository or kind of change. We ask the reviewer to explain each finding's impact, evidence, and proposed fix.
@@ -45,6 +77,52 @@ LLM knowledge can become stale. The reviewer consults documentation to check cla
 Bumble Bot captures CI results for the exact commit under review and runs applicable scanners. The current scanner set includes [zizmor](https://github.com/zizmorcore/zizmor) for GitHub Actions, [ty](https://github.com/astral-sh/ty) for Python types, and [oxlint](https://oxc.rs/docs/guide/usage/linter) for JavaScript and TypeScript linting.
 
 The reviewer must confirm scanner diagnostics or dismiss them with a reason. Failed or unavailable checks remain visible in the report. See the [scanner documentation](scanner/README.md) for details.
+
+## Deployment
+
+Cloudflare provides the public HTTPS gateway. The app and isolated agent containers run on Verda, while Modal runs the scanners. CI verifies the Verda origin before updating the gateway.
+
+```mermaid
+flowchart TB
+  subgraph Release["Deployment"]
+    Main["Push relevant changes to main"] --> CI["GitHub Actions: tests, checks and build"]
+    CI --> Deploy["CellD deploy and Podman image build"]
+    Deploy --> Health["Verify live origin"]
+    Health --> Wrangler["Wrangler deploys the public gateway"]
+  end
+  Store[("Verda private object storage")]
+  Deploy -. "upload deployment" .-> Store
+  Deploy -. "update app and executor" .-> App
+  Wrangler -. "configure" .-> Gateway
+  User["Browser or GitHub webhook"] --> Gateway["Cloudflare HTTPS gateway"]
+  Gateway -->|"HTTPS and origin token"| Caddy
+  subgraph VM["Verda VM"]
+    Caddy["Caddy origin proxy"] --> App["CellD app, assets, Durable Objects and D1"]
+    App --> Manager["Executor manager on loopback"]
+    Manager --> R["Reviewer Podman container"]
+    Manager --> V["Verifier Podman container"]
+  end
+  App <-->|"deployment and state"| Store
+  App --> Models["Anthropic or Verda inference"]
+  App --> Docs["Context.dev and Microsoft Learn"]
+  App --> Modal["Modal scanners, deployed separately"]
+  classDef release fill:#dbeafe,stroke:#2563eb,color:#172554
+  classDef edge fill:#ffedd5,stroke:#ea580c,color:#431407
+  classDef verda fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+  classDef reviewer fill:#fef3c7,stroke:#d97706,color:#451a03
+  classDef verifier fill:#ede9fe,stroke:#7c3aed,color:#2e1065
+  classDef external fill:#fce7f3,stroke:#db2777,color:#500724
+  class Main,CI,Deploy,Health,Wrangler release
+  class User,Gateway edge
+  class Caddy,App,Manager,Store verda
+  class R reviewer
+  class V verifier
+  class Models,Docs,Modal external
+  style Release fill:#142c52,stroke:#60a5fa,color:#dbeafe
+  style VM fill:#103c38,stroke:#2dd4bf,color:#ccfbf1
+```
+
+See the [Verda deployment guide](docs/celld-deployment.md) for setup and recovery details.
 
 ## Customize the review
 

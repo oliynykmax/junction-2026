@@ -42,6 +42,8 @@ TIMEOUT_S = 120
 DOTNET_TIMEOUT_S = 300
 DOTNET_MAX_TARGETS = 2
 DOTNET_MAX_PACKAGES = 100
+DOTNET_MAX_PACKAGE_BYTES = 20 * 1024 * 1024
+DOTNET_MAX_TOTAL_PACKAGE_BYTES = 64 * 1024 * 1024
 DOTNET_PACKAGE_TIMEOUT_S = 10
 DOTNET_FUNCTION_TIMEOUT_S = DOTNET_TIMEOUT_S * 4 * DOTNET_MAX_TARGETS + TIMEOUT_S + 60
 WEB_TIMEOUT_S = (
@@ -380,13 +382,17 @@ def dotnet_packages(archive: bytes) -> dict[str, bytes]:
             f"dotnet checks support at most {DOTNET_MAX_PACKAGES} packages"
         )
     result = {}
+    total_bytes = 0
     for name, version in sorted(packages):
         filename = f"{name}.{version}.nupkg"
         url = f"https://api.nuget.org/v3-flatcontainer/{name}/{version}/{filename}"
         with urllib.request.urlopen(url, timeout=DOTNET_PACKAGE_TIMEOUT_S) as response:
-            data = response.read(20 * 1024 * 1024 + 1)
-        if len(data) > 20 * 1024 * 1024:
+            data = response.read(DOTNET_MAX_PACKAGE_BYTES + 1)
+        if len(data) > DOTNET_MAX_PACKAGE_BYTES:
             raise ValueError("locked NuGet package exceeds 20 MiB")
+        total_bytes += len(data)
+        if total_bytes > DOTNET_MAX_TOTAL_PACKAGE_BYTES:
+            raise ValueError("locked NuGet packages exceed 64 MiB total")
         result[filename] = data
     return result
 

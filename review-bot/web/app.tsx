@@ -20,6 +20,7 @@ import {
   plural,
   type Star,
 } from "./shared";
+import { FormalDemo, VerificationReceipts } from "./formal";
 import { ProofLoader } from "./proof-loader";
 
 export type PageConfig = {
@@ -35,6 +36,8 @@ export type PageConfig = {
 
 export function App(config: PageConfig) {
   const params = new URLSearchParams(window.location.search);
+  const formalDemo = params.get("formal-demo");
+  if (formalDemo) return <FormalDemo scenario={formalDemo} />;
   if (params.get("demo") !== "1") return <LivePage {...config} />;
   const requestedCheck = params.get("check");
   if (requestedCheck !== null)
@@ -231,6 +234,16 @@ function LivePage({
         ) : (
           <>
             <Advice view={view} />
+            <VerificationReceipts
+              receipts={view.review.verifications?.filter(
+                (receipt) =>
+                  !view.review.findings.some(
+                    (finding) =>
+                      finding.evidence?.verificationId === receipt.id,
+                  ),
+              )}
+              running={LIVE.has(view.status)}
+            />
             <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />
             {view.failure && (
               <p class="pr-alert" role="alert">

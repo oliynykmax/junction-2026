@@ -1,0 +1,6 @@
+interface:
+  display_name: "Verify PR Change"
+  short_description: "Run bounded verification for a PR"
+  default_prompt: "Use $verify-pr-change to verify the checked-out pull request."
+policy:
+  allow_implicit_invocation: false

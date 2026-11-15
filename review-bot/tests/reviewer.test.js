@@ -31,6 +31,13 @@ function review(overrides = {}) {
     ...structuredClone(EMPTY_REVIEW),
     target,
     lookups: [{ tool: "docs", args: "{}", at: 1 }],
+    verifier: {
+      status: "done",
+      conversationId: 2,
+      checks: [],
+      verdicts: {},
+      summary: "Nothing to verify.",
+    },
   };
   const publications = [];
   const submissions = [];
@@ -243,13 +250,7 @@ test("checkout_pr and shell expose the pinned writable workspace without returni
     api,
     {},
   );
-  expect(shells[0].command).toContain(
-    "verify-pr-change/scripts/provision-verifiers.sh",
-  );
-  expect(checkedOut.output[0].text).toContain(
-    "Verification skill installation failed",
-  );
-  expect(shells.slice(1)).toEqual([
+  expect(shells).toEqual([
     {
       session: "test",
       command: "go test ./...",

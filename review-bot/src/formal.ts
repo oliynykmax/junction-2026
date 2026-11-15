@@ -27,6 +27,8 @@ export type VerificationOutcome = (typeof VERIFICATION_OUTCOMES)[number];
  */
 export type VerificationReceipt = {
   id: string;
+  /** Absent on receipts the reviewer recorded before the verifier existed. */
+  author?: "verifier";
   files: string[];
   target: string;
   property: string;
@@ -50,7 +52,7 @@ export type VerificationReceipt = {
 
 export type VerificationInput = Omit<
   VerificationReceipt,
-  "id" | "brokenVariant" | "fixCheck"
+  "id" | "author" | "brokenVariant" | "fixCheck"
 > & {
   broken_variant?: string;
   fix_check?: {
@@ -180,6 +182,7 @@ export function receiptFrom(
 ): VerificationReceipt {
   return {
     id,
+    author: "verifier",
     files: [...new Set(input.files)],
     target: input.target.trim(),
     property: input.property.trim(),

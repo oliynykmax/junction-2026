@@ -6,6 +6,7 @@ import {
   VERIFICATION_SKILL,
 } from "../src/verification-skill";
 import { renderBrief } from "../src/brief";
+import { reviewerExtension } from "../src/reviewer";
 
 test("the bundled skill installs outside an external checkout with exact script contents", async () => {
   const scratch = await mkdtemp(join(import.meta.dir, ".verification-skill-"));
@@ -47,7 +48,7 @@ test("the bundled skill installs outside an external checkout with exact script 
   }
 });
 
-test("the review brief carries both the reviewer rubric and the runtime verification skill", () => {
+test("the verifier's prompt carries the verification skill and the reviewer's brief does not", () => {
   const text = renderBrief({
     target: {
       mode: "manual",
@@ -62,7 +63,19 @@ test("the review brief carries both the reviewer rubric and the runtime verifica
     rubric: "EXISTING REVIEW RUBRIC",
   });
   expect(text).toContain("EXISTING REVIEW RUBRIC");
-  expect(text).toContain(VERIFICATION_SKILL);
-  expect(text).toContain("record_verification");
-  expect(text).toContain("not independently authenticated runtime evidence");
+  expect(text).toContain("call verify");
+  expect(text).not.toContain(VERIFICATION_SKILL);
+  expect(text).not.toContain("record_verification");
+  const { verifier } = reviewerExtension({
+    token: async () => "token",
+    scan: async () => [],
+    publish: async () => {},
+    finished: () => {},
+  });
+  const protocol = verifier.sections.find(
+    (s) => s.key === "verifier_protocol",
+  )!;
+  expect(String(protocol.render({} as never, {} as never))).toContain(
+    VERIFICATION_SKILL,
+  );
 });

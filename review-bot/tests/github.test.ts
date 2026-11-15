@@ -407,3 +407,27 @@ for (const line of [3, 9]) {
     }
   });
 }
+
+test("renders inline evidence without requiring a verification receipt", async () => {
+  const writes = github();
+  await publishReview(
+    "token",
+    pr,
+    [
+      finding({
+        line: 3,
+        evidence: {
+          kind: "code",
+          detail: "The new branch dereferences an empty list.",
+        },
+      }),
+    ],
+    files,
+    report,
+  );
+  const body = reviewWrites(writes)[0].body as { comments: { body: string }[] };
+  expect(body.comments[0].body).toContain("🔬 Evidence");
+  expect(body.comments[0].body).toContain(
+    "_code_: The new branch dereferences an empty list.",
+  );
+});

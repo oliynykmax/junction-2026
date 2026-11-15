@@ -4,7 +4,7 @@
 // renders a finished review with the verifier's checks, receipts and verdicts.
 
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { blocks } from "../src/findings";
 import type { CiItem, CiSource } from "../src/evidence";
 import type { PrLive } from "../src/pr-live";
@@ -154,6 +154,11 @@ export function keepPolling(
 // without it, so failures only delay the next read.
 function usePrLive(api: string, reviewActive: boolean) {
   const [live, setLive] = useState<PrLive | null>(null);
+  // The review response normally changes this immediately after mount. Keep
+  // the latest value for scheduling without restarting an in-flight GitHub
+  // read (which otherwise creates two cold /pr requests).
+  const reviewActiveRef = useRef(reviewActive);
+  reviewActiveRef.current = reviewActive;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
@@ -167,7 +172,7 @@ function usePrLive(api: string, reviewActive: boolean) {
       }
       if (stopped) return;
       if (result) setLive(result);
-      if (keepPolling(result, reviewActive))
+      if (keepPolling(result, reviewActiveRef.current))
         timer = setTimeout(tick, PR_LIVE_POLL_MS);
     };
     tick();
@@ -175,7 +180,7 @@ function usePrLive(api: string, reviewActive: boolean) {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [api, reviewActive]);
+  }, [api]);
   return live;
 }
 

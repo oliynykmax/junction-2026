@@ -34,6 +34,7 @@ import {
   publicInstallationToken,
 } from "./github";
 import { reviewKey, reviewLink } from "./review-key";
+import { prLive, type PrLive } from "./pr-live";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
 import type { Hive } from "./chat";
 import type { ManualGate } from "./manual-gate";
@@ -108,6 +109,22 @@ export type ReviewView = {
 // Kept in the object's own key-value storage, outside the agent's documents,
 // so nothing the agent does can write or change it.
 const SIGNOFF_KEY = "signoff:v1";
+const TOKEN_KEY_PREFIX = "github-token:";
+const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
+
+type GitHubToken = { token: string; expiresAt: number };
+
+function usableToken(
+  token: GitHubToken | undefined,
+  now = Date.now(),
+): token is GitHubToken {
+  return Boolean(
+    token &&
+    typeof token.token === "string" &&
+    typeof token.expiresAt === "number" &&
+    token.expiresAt - now > TOKEN_REFRESH_MARGIN_MS,
+  );
+}
 
 export { reviewLink } from "./review-key";
 
@@ -115,7 +132,7 @@ export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
   #verifier!: ReturnType<typeof reviewerExtension>["verifier"];
-  #tokens = new Map<number | "public", { token: string; expiresAt: number }>();
+  #tokens = new Map<number | "public", GitHubToken>();
   #issuedAlarm: number | null = null;
   #lifecycle!: Lifecycle;
   readonly #ledger: Ledger;
@@ -288,6 +305,22 @@ export class Review extends DurableObject<Env> {
     return Boolean(
       (await this.#harness.snapshot(ReviewDoc, root.id, ctx))?.target,
     );
+  }
+
+  /**
+   * The report page needs fresh PR metadata. Reuse this review's persisted
+   * installation token rather than discovering the installation again.
+   */
+  async livePr(): Promise<PrLive> {
+    const root = await this.#root();
+    const target = await this.#harness.snapshot(ReviewDoc, root.id, ctx);
+    if (!target?.target) throw new Error("review has not started");
+    const t = target.target;
+    const token =
+      t.mode === "manual"
+        ? undefined
+        : await this.#token(t.installationId).catch(() => "");
+    return prLive(this.env, { ...t, mode: t.mode ?? "webhook" }, token);
   }
 
   /** Stores the first sign-off for this commit. Returns the earlier one if it lost the race. */
@@ -476,7 +509,7 @@ export class Review extends DurableObject<Env> {
 
   async #token(installationId: number | "public"): Promise<string> {
     const cached = this.#tokens.get(installationId);
-    if (cached && cached.expiresAt - Date.now() > 5 * 60_000) {
+    if (usableToken(cached)) {
       this.#ledger.event({
         kind: "github_token",
         name: "hit",
@@ -484,6 +517,19 @@ export class Review extends DurableObject<Env> {
         ms: 0,
       });
       return cached.token;
+    }
+    const stored = await this.ctx.storage.get<GitHubToken>(
+      `${TOKEN_KEY_PREFIX}${installationId}`,
+    );
+    if (usableToken(stored)) {
+      this.#tokens.set(installationId, stored);
+      this.#ledger.event({
+        kind: "github_token",
+        name: "hit",
+        ok: true,
+        ms: 0,
+      });
+      return stored.token;
     }
     const started = Date.now();
     const issuing =
@@ -506,6 +552,7 @@ export class Review extends DurableObject<Env> {
       ms: Date.now() - started,
     });
     this.#tokens.set(installationId, fresh);
+    await this.ctx.storage.put(`${TOKEN_KEY_PREFIX}${installationId}`, fresh);
     return fresh.token;
   }
 

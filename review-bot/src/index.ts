@@ -121,12 +121,15 @@ export default {
       };
       // Only commits with a stored review reach GitHub, so made-up targets
       // cannot spend the installation's API quota.
-      if (!(await env.REVIEWS.getByName(reviewKey(target)).hasStarted()))
+      const review = env.REVIEWS.getByName(reviewKey(target));
+      if (!(await review.hasStarted()))
         return Response.json(
           { error: "Review not found." },
           { status: 404, headers: { "cache-control": "no-store" } },
         );
-      const live = await cachedPrLive(env, url.pathname, target);
+      const live = await cachedPrLive(url.pathname, () =>
+        target.mode === "manual" ? prLive(env, target) : review.livePr(),
+      );
       return Response.json(live, { headers: { "cache-control": "no-store" } });
     }
 
@@ -158,16 +161,15 @@ const LIVE_TTL_MS = 15_000;
 const liveCache = new Map<string, { at: number; value: Promise<PrLive> }>();
 
 function cachedPrLive(
-  env: Env,
   key: string,
-  target: Parameters<typeof prLive>[1],
+  load: () => Promise<PrLive>,
 ): Promise<PrLive> {
   const now = Date.now();
   for (const [k, v] of liveCache)
     if (now - v.at > LIVE_TTL_MS) liveCache.delete(k);
   const hit = liveCache.get(key);
   if (hit) return hit.value;
-  const value = prLive(env, target);
+  const value = load();
   liveCache.set(key, { at: now, value });
   value.catch(() => liveCache.delete(key));
   return value;

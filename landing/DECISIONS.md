@@ -13,7 +13,7 @@ We chose the same Worker. `POST /api/reviews` accepts `{url}` and resolves a pub
 
 Public resolution checks repository visibility through unauthenticated GitHub API requests. Report reads rely on stored manual state verified public at admission. A private or inaccessible repository is rejected even if the app is installed there. Manual reports cannot address webhook objects. GitHub's anonymous quota can stop reviews; errors explain this without exposing upstream bodies or credentials.
 
-A separate durable admission object serializes starts, with two attempts per IP per hour, ten globally per hour and fifty per day. IPs are hashed before storage. Failed resolution consumes only a separate lookup attempt, not a review slot. Requests have a 2 KiB body limit, same-origin enforcement when Origin is present, and PRs above 60 files or 4,000 changed lines are rejected. These are demo safeguards, not a production abuse service or a hard dollar ceiling. Distributed clients can exhaust the shared budget. Report polling does not call GitHub.
+A separate durable admission object serializes starts, with two attempts per IP per hour, ten globally per hour and fifty per day. IPs are hashed before storage. Failed resolution consumes only a separate lookup attempt, not a review slot. Requests have a 2 KiB body limit, same-origin enforcement when Origin is present, and there is no PR size limit, so one large PR costs a full review. These are demo safeguards, not a production abuse service or a hard dollar ceiling. Distributed clients can exhaust the shared budget. Report polling does not call GitHub.
 
 Manual diffs use pinned base and head comparisons. The original PR metadata can change while work runs; head changes cause review tools to fail rather than mislabel a newer patch. Scanners download only the pinned head, with no GitHub credential for manual reviews.
 
@@ -27,7 +27,7 @@ First verify server validation, public access, namespace separation, durable mod
 
 ## Results and remaining limits
 
-Thirteen Bun behavior tests cover URL validation, unauthenticated resolution, private-repository rejection, change-size limits, safe errors, namespace isolation, durable target restoration, manual completion without approval or token access, webhook approval preservation, pinned comparisons, and admission budgets. Formatting, oxlint, TypeScript checks, Python compilation, and a Wrangler dry-run pass. Local HTTP checks serve the actual landing, CSS, manual report shell, and validation errors. Browser screenshots and a live model review remain the parent's verification work.
+Thirteen Bun behavior tests cover URL validation, unauthenticated resolution, private-repository rejection, large changes, safe errors, namespace isolation, durable target restoration, manual completion without approval or token access, webhook approval preservation, pinned comparisons, and admission budgets. Formatting, oxlint, TypeScript checks, Python compilation, and a Wrangler dry-run pass. Local HTTP checks serve the actual landing, CSS, manual report shell, and validation errors. Browser screenshots and a live model review remain the parent's verification work.
 
 Manual report polling is fifteen seconds to reduce anonymous GitHub quota pressure; webhook reports keep their existing interval. The anonymous quota still limits practical demo use. No live model review was run during implementation. The scanner's optional authorization-header change must be deployed with its normal separate deployment process for anonymous public scans to work. Without that scanner update, scanner failures remain visible in the report rather than silently claiming checks ran.
 
@@ -45,7 +45,7 @@ The landing branch originally forked before Bumble Bot branding landed on main. 
 
 The bot identified repeated anonymous GitHub visibility checks during report polling and review slots charged for failed or duplicate submissions. Regression tests reproduced both. Report reads now require stored manual-mode state from a public admission and make no GitHub calls. This preserves historical public evidence even if the repository later becomes private; anonymous review tools cannot fetch subsequent private content.
 
-Resolution attempts have a separate durable budget of ten per client per hour, thirty globally per hour, and one hundred per day. Missing, private, and oversized PRs spend only lookup attempts. Existing reports bypass the model budget. New review admissions record the pinned key in the same transaction as the budget so concurrent retries cannot double-charge it.
+Resolution attempts have a separate durable budget of ten per client per hour, thirty globally per hour, and one hundred per day. Missing and private PRs spend only lookup attempts. Existing reports bypass the model budget. New review admissions record the pinned key in the same transaction as the budget so concurrent retries cannot double-charge it.
 
 The low-severity context-abstraction suggestion is deferred. The target union and completion tests enforce anonymous reads and no manual approvals; a broader refactor is not needed to fix either quota bug. Explicit approval guards remain intentional safety checks. The bot's two medium reliability and correctness findings are fixed, with regression coverage.
 

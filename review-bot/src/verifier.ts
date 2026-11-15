@@ -50,7 +50,7 @@ export type RequirementCheck = {
   content: string;
 };
 
-export const FINDING_VERDICTS = [
+const FINDING_VERDICTS = [
   "reproduced",
   "not_reproduced",
   "not_checked",
@@ -112,7 +112,7 @@ const MAX_SUMMARY_CHARS = 600;
 const SAFE_PATH = /^[A-Za-z0-9_.@+-]+(?:\/[A-Za-z0-9_.@+-]+)*$/;
 
 /** Problems with a save_checks call, or an empty list when it is valid. */
-export function checkProblems(
+function checkProblems(
   checks: readonly { requirement: string; path: string; content: string }[],
 ): string[] {
   const problems: string[] = [];
@@ -159,7 +159,7 @@ type VerdictInput = {
 };
 
 /** Problems with the verdicts of finish_verification, or an empty list. */
-export function verdictProblems(
+function verdictProblems(
   verdicts: readonly VerdictInput[],
   findings: readonly Pick<Finding, "id" | "path" | "title">[],
   receipts: readonly VerificationReceipt[],
@@ -214,7 +214,7 @@ export function verdictProblems(
 }
 
 /** Writes saved checks into a head checkout without replacing a file of the change. */
-export function restoreChecksCommand(
+function restoreChecksCommand(
   workspace: string,
   checks: readonly RequirementCheck[],
 ): string {
@@ -232,7 +232,7 @@ export function restoreChecksCommand(
 }
 
 /** The pull request's stated intent, without its diff or any review comment. */
-export function renderRequirements(brief: Brief | null | undefined): string {
+function renderRequirements(brief: Brief | null | undefined): string {
   const facts =
     brief?.facts.kind === "available"
       ? `Title: ${brief.facts.value.title}\n\n${brief.facts.value.body.trim() || "(no description)"}`

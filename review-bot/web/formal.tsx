@@ -98,7 +98,7 @@ function verifierLine(verifier: VerifierState): string {
 }
 
 /** The checks the verifier saved while only the base commit was on disk. */
-export function BlindChecks({
+function BlindChecks({
   checks,
 }: {
   checks: readonly RequirementCheck[];

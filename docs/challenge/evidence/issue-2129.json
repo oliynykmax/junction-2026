@@ -1,0 +1,267 @@
+{
+  "capturedAt": "2026-11-15T07:54:37.171948+00:00",
+  "requirement": "MessagePack-CSharp #2129",
+  "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129",
+  "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/15",
+  "report": "https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/15?sha=083afd994c1c9a994cb2cd5aa0b6ad805a621457",
+  "api": "https://review.oliinyk.dev/api/r/oliynykmax/junction26-messagepack-csharp/15/083afd994c1c9a994cb2cd5aa0b6ad805a621457",
+  "headSha": "083afd994c1c9a994cb2cd5aa0b6ad805a621457",
+  "status": "running",
+  "failure": null,
+  "costUsd": 0.5381798000000001,
+  "signOff": null,
+  "review": {
+    "model": "anthropic/claude-opus-5-5 thinking=medium",
+    "startedAt": 1794729004128,
+    "scan": {
+      "status": "done",
+      "results": [
+        {
+          "tool": "dotnet-ci",
+          "version": "8.0.402",
+          "status": "error",
+          "durationMs": 48958,
+          "paths": [
+            "src/MessagePack.Annotations/Attributes.cs",
+            "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs",
+            "src/MessagePack.SourceGenerator/GeneratorUtilities.cs",
+            "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+            "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Utils/Constants.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypes.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypesTests.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalPerson.cs",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalPoint.cs",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalWidget.cs",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+            "tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj",
+            "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs"
+          ],
+          "diagnostics": [],
+          "error": "dotnet exited 1: neratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n/tmp/tmpm99b4i2n/tests/MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs(35,61): error CS0117: 'CompositeResolverTests.CompositeResolverWithLocalFormatters' does not contain a definition for 'Instance' [/tmp/tmpm99b4i2n/tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n/tmp/tmpm99b4i2n/tests/MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs(41,61): error CS0117: 'CompositeResolverTests.CompositeResolverWithLocalFormatters' does not contain a definition for 'Instance' [/tmp/tmpm99b4i2n/tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n    8 Warning(s)\n    17 Error(s)\n\nTime Elapsed 00:00:48.28"
+        },
+        {
+          "tool": "dotnet-format",
+          "version": "8.0.402",
+          "status": "error",
+          "durationMs": 39858,
+          "paths": [
+            "src/MessagePack.Annotations/Attributes.cs",
+            "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs",
+            "src/MessagePack.SourceGenerator/GeneratorUtilities.cs",
+            "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+            "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Utils/Constants.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypes.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypesTests.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalPerson.cs",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalPoint.cs",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalWidget.cs",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+            "tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj",
+            "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs"
+          ],
+          "diagnostics": [],
+          "error": "dotnet exited 2: Warnings were encountered while loading the workspace. Set the verbosity option to the 'diagnostic' level to log warnings.\n/tmp/tmpm99b4i2n/tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs(22,26): warning SA1203: Constant fields should appear before non-constant fields [/tmp/tmpm99b4i2n/tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj]"
+        }
+      ],
+      "error": null
+    },
+    "evidence": {
+      "headSha": "083afd994c1c9a994cb2cd5aa0b6ad805a621457",
+      "base": {
+        "owner": "oliynykmax",
+        "repo": "junction26-messagepack-csharp",
+        "sha": "32258fdbee4bcd653c79f51b4376b5103c6f4d27"
+      },
+      "capturedAt": 1794729004762,
+      "checks": {
+        "kind": "available",
+        "items": []
+      },
+      "statuses": {
+        "kind": "available",
+        "items": []
+      },
+      "standard": {
+        "kind": "absent"
+      }
+    },
+    "findings": [],
+    "verdict": null,
+    "verifications": [],
+    "verifier": null,
+    "risk": {
+      "tier": "high",
+      "reasons": [
+        {
+          "rule": "serializer-core",
+          "tier": "high",
+          "text": "Serializer formatters or resolvers changed. They define the wire format, so a mistake corrupts data other systems read.",
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+            "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+            "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.tt"
+          ]
+        },
+        {
+          "rule": "code-generator",
+          "tier": "medium",
+          "text": "A source generator or analyzer changed. It emits code or diagnostics into every consumer's build, so a mistake spreads beyond this repository.",
+          "paths": [
+            "src/MessagePack.SourceGenerator/AnalyzerReleases.Unshipped.md",
+            "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+            "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs",
+            "src/MessagePack.SourceGenerator/GeneratorUtilities.cs",
+            "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+            "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+            "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.cs",
+            "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.tt",
+            "src/MessagePack.SourceGenerator/Utils/Constants.cs"
+          ]
+        },
+        {
+          "rule": "build-deps",
+          "tier": "medium",
+          "text": "Build settings or dependencies changed. Check that every new package exists, is the intended one and is not brand new.",
+          "paths": [
+            "tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj",
+            "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+            "tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj"
+          ]
+        },
+        {
+          "rule": "large",
+          "tier": "medium",
+          "text": "Large change: 28 files, 1043 changed lines.",
+          "paths": []
+        }
+      ],
+      "tests": [
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypes.cs",
+          "status": "added",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypesTests.cs",
+          "status": "added",
+          "testsAdded": 7,
+          "testsRemoved": 0,
+          "assertionsAdded": 20,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj",
+          "status": "modified",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalPerson.cs",
+          "status": "added",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalPoint.cs",
+          "status": "added",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExternalTypes/ExternalWidget.cs",
+          "status": "added",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+          "status": "added",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj",
+          "status": "modified",
+          "testsAdded": 0,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs",
+          "status": "added",
+          "testsAdded": 6,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        }
+      ],
+      "mustRead": [
+        "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+        "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+        "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.cs",
+        "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+        "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.cs",
+        "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.tt"
+      ]
+    }
+  }
+}

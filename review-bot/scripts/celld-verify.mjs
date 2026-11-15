@@ -36,8 +36,8 @@ for (const [path, contentType] of [
 }
 const dashboard = await (await get("/api/dashboard")).json();
 assert.ok(
-  Array.isArray(dashboard.runs.rows),
-  "ledger must return dashboard rows",
+  Array.isArray(dashboard.recent) && Array.isArray(dashboard.series),
+  "ledger must return the dashboard view",
 );
 assert.ok(
   dashboard.collectionStartedAt > 0,

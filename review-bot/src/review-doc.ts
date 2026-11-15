@@ -25,7 +25,6 @@ export const EMPTY_REVIEW: ReviewState = {
   files: [],
   changes: [],
   changeRefusals: 0,
-  starRefusals: 0,
   summaryRefusals: 0,
   verifications: [],
   reads: 0,

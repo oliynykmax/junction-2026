@@ -180,15 +180,6 @@ export const VERIFIED_DEMO: ReviewView = {
     },
     verdict: {
       decision: "changes_requested",
-      star: {
-        situation:
-          "Cached reviews were keyed by pull request alone, so a new push could show the review of an earlier commit.",
-        task: "Scope every cached review to the commit it reviewed.",
-        action:
-          "Keys the primary cache by pull request and head commit and adds a test for a new head.",
-        result:
-          "New pushes miss the primary cache; the pull request adds one test for that path.",
-      },
       summary:
         "The primary path now keys by head, but readFallback still keys by pull request alone. The verifier reproduced that and did not reproduce the eviction concern.",
       notChecked: [

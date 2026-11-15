@@ -55,13 +55,6 @@ const receipt = (outcome: "passed" | "counterexample" | "not_run") => ({
   limits: ["No storage layer."],
 });
 
-const STAR = {
-  situation: "Cached reviews were keyed by pull request alone.",
-  task: "Scope cached reviews to the commit.",
-  action: "Keys the cache by pull request and head.",
-  result: "New pushes get fresh reviews; the PR adds one test.",
-};
-
 // An in-memory stand-in for the harness: documents keyed by kind and
 // conversation, task-owned child conversations, and a submission whose wait
 // runs the child's turn as a script.
@@ -243,7 +236,6 @@ test("verify starts a child without the reviewer's tools and returns its verdict
   expect(
     (
       await w.reviewer("finish_review", {
-        ...STAR,
         summary: "s",
         not_checked: [],
       })
@@ -350,7 +342,7 @@ test("verifier_context withholds the change and the findings until checks are sa
 test("finish_review refuses until a verifier finishes, and a failed verifier can be run again", async () => {
   const w = world();
   const finish = () =>
-    w.reviewer("finish_review", { ...STAR, summary: "s", not_checked: [] });
+    w.reviewer("finish_review", { summary: "s", not_checked: [] });
   expect((await finish()).output[0].text).toContain("Call verify");
   w.script(async (child) => {
     await w.verify(child, "save_checks", { checks: [] });

@@ -65,3 +65,44 @@ test("makes a successful CI or formatter run explicit in review evidence", () =>
     }),
   ).toContain("completed successfully with no diagnostics");
 });
+
+for (const error of [
+  ".NET runner failed: function timed out",
+  "SDK not available (installed 8.0.402): requested 10.0.100",
+  "Offline .NET preparation failed: package missing; networking blocked",
+]) {
+  test(`preserves static evidence alongside unavailable .NET checks: ${error}`, () => {
+    const rendered = renderScan({
+      status: "done",
+      error: null,
+      results: [
+        {
+          tool: "ty",
+          version: "0.0.104",
+          status: "ok",
+          durationMs: 1,
+          paths: ["app.py"],
+          diagnostics: [],
+          error: null,
+        },
+        ...(["dotnet-ci", "dotnet-format"] as const).map((tool) => ({
+          tool,
+          version: "8.0.402",
+          status: "error" as const,
+          durationMs: 0,
+          paths: ["global.json"],
+          diagnostics: [],
+          error,
+        })),
+      ],
+    });
+    expect(rendered).toContain("completed successfully with no diagnostics");
+    expect(rendered).toContain(
+      `dotnet-ci 8.0.402 on global.json\nfailed: ${error}`,
+    );
+    expect(rendered).toContain(
+      `dotnet-format 8.0.402 on global.json\nfailed: ${error}`,
+    );
+    expect(rendered).toContain("List this under not_checked.");
+  });
+}

@@ -31,6 +31,9 @@
       { "provider": "verda", "id": "kimi-k3-1-pro" },
     ],
     "THINKING_LEVEL": "medium",
+    // The executor is loopback-only on the dedicated Verda VM. Its matching
+    // EXECUTOR_TOKEN is a private app binding, never a checked-in variable.
+    "EXECUTOR_URL": "http://127.0.0.1:8787",
     "MCP_SERVERS": {
       "mslearn": {
         "url": "https://learn.microsoft.com/api/mcp",

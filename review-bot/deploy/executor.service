@@ -1,0 +1,18 @@
+[Unit]
+Description=Bumble unrestricted review shell
+After=network-online.target podman.socket
+Requires=podman.socket
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/bumble/executor.env
+ExecStartPre=-/usr/bin/podman rm -f bumble-executor
+ExecStart=/usr/bin/podman run --rm --name bumble-executor --publish 127.0.0.1:8787:8787 --cpus 0.5 --memory 1g --pids-limit 256 --tmpfs /tmp:rw,size=2g --env CONTAINER_HOST=unix:///run/podman/podman.sock --volume /run/podman/podman.sock:/run/podman/podman.sock --env-file /etc/bumble/executor.env bumble-executor:latest
+ExecStop=/usr/bin/podman stop --time 45 bumble-executor
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

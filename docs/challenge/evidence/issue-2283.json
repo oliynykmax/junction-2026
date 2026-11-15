@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-15T07:54:37.148467+00:00",
+  "capturedAt": "2026-11-15T07:56:50.671896+00:00",
   "requirement": "MessagePack-CSharp #2283",
   "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283",
   "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/13",
@@ -8,7 +8,7 @@
   "headSha": "9df83c38409c8bfad0517aebffe48211eda4a5b4",
   "status": "running",
   "failure": null,
-  "costUsd": 0.7169504000000001,
+  "costUsd": 1.0454350000000003,
   "signOff": null,
   "review": {
     "model": "anthropic/claude-opus-5-5 thinking=medium",
@@ -84,7 +84,12 @@
           ]
         },
         "source": "agent",
-        "suggestedPatch": null
+        "suggestedPatch": null,
+        "verdict": {
+          "verdict": "not_checked",
+          "receiptId": null,
+          "note": "Not run: no container was available (executor capacity errors on every checkout), so I could not test whether the ReportIfLocatedInCompilation filter drops Location.None diagnostics."
+        }
       },
       {
         "id": "toolu_014M3qqV1pixe66ZsWvoUkAU",
@@ -102,14 +107,90 @@
           "detail": "GenericsFormatterTests.cs patch lines 15\u2013200: the three tests all expect zero diagnostics. None uses Key with a null value or an invalid formatter attribute on a metadata type. The helper at patch lines 149\u2013175 runs VerifyCS and then a manual CSharpGeneratorDriver over a separately built compilation that pins Net80."
         },
         "source": "agent",
-        "suggestedPatch": null
+        "suggestedPatch": null,
+        "verdict": {
+          "verdict": "not_checked",
+          "receiptId": null,
+          "note": "Not run: no container was available, so I could not mutate the changed reporting branches to check whether the new tests catch them."
+        }
       }
     ],
     "verdict": null,
-    "verifications": [],
+    "verifications": [
+      {
+        "id": "toolu_019WPjWfL1yg9T22MSL3k3sB",
+        "author": "verifier",
+        "files": [
+          "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs"
+        ],
+        "target": "TypeCollector diagnostic reporting for generic types closed over / declared in referenced (metadata) assemblies (issue #2283), and the new GenericsFormatterTests",
+        "property": "The analyzer must not crash or report diagnostics at locations outside the compilation for members of metadata types, and must still report location-less and source-located diagnostics for source types.",
+        "harm": "An analyzer crash or a silently dropped diagnostic in every consumer's build.",
+        "method": "other",
+        "checker": "dotnet test (MessagePack.SourceGenerator.Tests); not executed",
+        "command": "dotnet test tests/MessagePack.SourceGenerator.Tests --filter GenericsFormatterTests",
+        "outcome": "not_run",
+        "result": "Not run. Every checkout and shell call returned 'executor /v1/checkout -> 400: executor capacity reached; retry later' (more than 80 attempts across the session), so no container existed at base or head.",
+        "scope": "None. Nothing was executed.",
+        "brokenVariant": null,
+        "assumptions": [
+          "The reviewer's line references are taken as reported and were not confirmed against the code."
+        ],
+        "limits": [
+          "No container was available, so no build, test or reproducer ran.",
+          "The smallest next step is to run the new GenericsFormatterTests at the head, then add an analyzer test that puts an invalid [MessagePackFormatter] attribute on a referenced-assembly type and checks whether the location-less diagnostic is still reported."
+        ]
+      },
+      {
+        "id": "toolu_01N66VhMh8KnQ98gcz1zDmm2",
+        "author": "verifier",
+        "files": [
+          "README.md",
+          "doc/analyzers/MsgPack004.md"
+        ],
+        "target": "Documentation additions describing MsgPack004 and metadata-type behaviour",
+        "property": "The docs match the implemented behaviour.",
+        "harm": "Misleading documentation. These files have no runtime effect.",
+        "method": "other",
+        "checker": "none (documentation only)",
+        "command": "n/a",
+        "outcome": "not_run",
+        "result": "Not run. These are non-behaviour documentation files, and the executor capacity error meant the files could not even be read.",
+        "scope": "None.",
+        "brokenVariant": null,
+        "assumptions": [
+          "The files are documentation only."
+        ],
+        "limits": [
+          "Not inspected, because no container was available."
+        ]
+      }
+    ],
     "verifier": {
-      "status": "blind",
-      "conversationId": 79
+      "status": "done",
+      "conversationId": 79,
+      "checks": [
+        {
+          "id": "toolu_013Y4i7ASzT9h7XgeHpsaXMC/0",
+          "requirement": "Issue #2283 (Missing .meta files cause Unity to reject the MessagePack package): every tracked asset file and folder inside each Unity package (folder with package.json under src/MessagePack.UnityClient) must have a matching tracked .meta file, and .meta GUIDs must be unique.",
+          "path": "tests/blind-checks/unity-meta-check.sh",
+          "content": "#!/usr/bin/env bash\n# Blind check for MessagePack-CSharp #2283: Unity rejects packages whose assets lack .meta files.\n# Usage: bash tests/blind-checks/unity-meta-check.sh   (run from repo root). Exit 0 = pass.\nset -u\ncd \"$(git rev-parse --show-toplevel)\"\nfail=0\nmapfile -t pkgs < <(git ls-files 'src/MessagePack.UnityClient/**/package.json' | xargs -r -n1 dirname | sort -u)\nif [ ${#pkgs[@]} -eq 0 ]; then echo 'FAIL: no Unity package.json found'; exit 2; fi\ntracked=$(mktemp)\ngit ls-files > \"$tracked\"\n# include symlinked dirs' contents as seen on disk too\nis_ignored() {\n  # Unity ignores names starting with '.' or ending with '~', and cvs/tmp files\n  local p=\"$1\" part\n  IFS='/' read -ra parts <<< \"$p\"\n  for part in \"${parts[@]}\"; do\n    case \"$part\" in .*|*~|cvs|*.tmp) return 0;; esac\n  done\n  return 1\n}\nmissing=0; checked=0\nfor pkg in \"${pkgs[@]}\"; do\n  echo \"Package root: $pkg\"\n  # all files on disk (following symlinks) under package root\n  while IFS= read -r f; do\n    rel=\"${f#$pkg/}\"\n    is_ignored \"$rel\" && continue\n    case \"$f\" in *.meta) continue;; esac\n    checked=$((checked+1))\n    if [ ! -f \"$f.meta\" ]; then echo \"MISSING META (disk): $f\"; missing=$((missing+1)); continue; fi\n    if ! grep -qxF \"$f.meta\" \"$tracked\"; then\n      # file may be reached through a symlinked directory; only require tracking when the asset itself is tracked\n      if grep -qxF \"$f\" \"$tracked\"; then echo \"META NOT TRACKED: $f.meta\"; missing=$((missing+1)); fi\n    fi\n  done < <(find -L \"$pkg\" -mindepth 1 \\( -type f -o -type d \\) | sort)\n  # dangling metas\n  while IFS= read -r m; do\n    base=\"${m%.meta}\"\n    if [ ! -e \"$base\" ]; then echo \"DANGLING META: $m\"; fi\n  done < <(find -L \"$pkg\" -name '*.meta' -type f | sort)\n  # duplicate guids\n  dups=$(find -L \"$pkg\" -name '*.meta' -type f -exec grep -h '^guid:' {} + | sort | uniq -d)\n  if [ -n \"$dups\" ]; then echo \"DUPLICATE GUIDS: $dups\"; fail=1; fi\ndone\nrm -f \"$tracked\"\necho \"checked=$checked missing=$missing\"\nif [ $missing -ne 0 ] || [ $fail -ne 0 ]; then echo FAIL; exit 1; fi\necho PASS\n"
+        }
+      ],
+      "verdicts": {
+        "toolu_01JgtDjD1czmZRztZrJ1rQnu": {
+          "verdict": "not_checked",
+          "receiptId": null,
+          "note": "Not run: no container was available (executor capacity errors on every checkout), so I could not test whether the ReportIfLocatedInCompilation filter drops Location.None diagnostics."
+        },
+        "toolu_014M3qqV1pixe66ZsWvoUkAU": {
+          "verdict": "not_checked",
+          "receiptId": null,
+          "note": "Not run: no container was available, so I could not mutate the changed reporting branches to check whether the new tests catch them."
+        }
+      },
+      "summary": "Nothing was verified: every checkout/shell call failed with \"executor capacity reached\", so nothing was built or run. My blind check was off-target: unable to open the issue, I guessed #2283 was the Unity .meta issue, but the change is a TypeCollector fix for MsgPack004 diagnostics on referenced-assembly generic types. All changed files have not_run receipts and both findings are unchecked. Next step: run dotnet test on MessagePack.SourceGenerator.Tests at the head."
     },
     "risk": {
       "tier": "medium",

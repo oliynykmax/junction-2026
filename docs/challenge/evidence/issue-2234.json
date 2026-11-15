@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-15T07:54:37.090293+00:00",
+  "capturedAt": "2026-11-15T07:56:50.634899+00:00",
   "requirement": "MessagePack-CSharp #2234",
   "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234",
   "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/14",
@@ -8,7 +8,7 @@
   "headSha": "9007cee1163c4a274fd60c3cc20c21ae63622786",
   "status": "running",
   "failure": null,
-  "costUsd": 0.6967747999999999,
+  "costUsd": 1.197934,
   "signOff": null,
   "review": {
     "model": "anthropic/claude-opus-5-5 thinking=medium",
@@ -65,10 +65,108 @@
         "kind": "absent"
       }
     },
-    "findings": [],
+    "findings": [
+      {
+        "id": "toolu_0116KBMCig2msVdcwnz4L4E4",
+        "path": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+        "line": null,
+        "severity": "medium",
+        "class": "correctness",
+        "confidence": "likely",
+        "title": "Change fixes duplicate/mixed-key analyzer crashes for all types, not the #2234 suppression regression it claims",
+        "body": "The commit and README describe this as the fix for #2234, where the analyzer stops validating `[MessagePackObject(SuppressSourceGeneration = true)]` types. At this base, `GetObjectInfo` already validates suppressed types. Its only `suppressSourceGeneration is true` early return is at TypeCollector.cs:1383, after the member loop (MsgPack004 at 930/1084, MsgPack005 at 1016/1032, AllowPrivate MsgPack015 at 1366-1379, recursive `CollectCore` for member types). `MsgPack00xMessagePackAnalyzer.AnalyzeSymbol` (lines 426-431) calls `TypeCollector.Collect` for every `[MessagePackObject]` class or struct, whatever its suppression flag. The upstream regression (3.1.1, MessagePack-CSharp#2106, \"stop collect field when object marked SuppressSourceGeneration\") is not in this base. What the diff actually changes is unrelated to suppression. It stops `Dictionary.Add` from throwing on a duplicate `[Key]`, which was an `ArgumentException` that turned into AD0001 and dropped every other diagnostic for the type. It also stops `intKey!.Value` from throwing on a mixed-key member. Both apply to generated and suppressed types alike (the PR's own `DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes` test shows this). So the PR describes the fix wrongly. Several of the new \"suppressed\" tests (MsgPack004, MsgPack015, MsgPack003, SourceGenerationOnly\u2026) only pin behaviour that already worked at the base. If the fork later takes upstream #2106, #2234 will appear even with this change merged.",
+        "reason": "Reviewers and the issue tracker would treat #2234 as fixed when the code change only addresses a different crash, and the suppression-specific tests would not catch a #2106-style early return being added.",
+        "fix": "Either retitle and redescribe the change as \"analyzer must not crash on duplicate or mixed keys\" and drop the #2234 framing from the README and commit, or port the actual #2106 behaviour and add a test that fails when a suppressed type short-circuits before validation (for example, put the suppression early return at the top of GetObjectInfo and confirm MemberWithoutKeyIsReported fails).",
+        "evidence": {
+          "kind": "code",
+          "detail": "TypeCollector.cs@head lines 1382-1387 hold the only suppressSourceGeneration early return, after all member validation (lines 763-1204) and the AllowPrivate check (1366-1379). Analyzer AnalyzeSymbol lines 426-431 collects every MessagePackObject type. The diff's only production edits are the `continue` at 1008/1148 and the ContainsKey guards at 1023/1039/1163/1179.",
+          "supporting": [
+            "Upstream v3.1.1 release notes list #2106 'enable analyze union / stop collect field when object marked SuppressSourceGeneration', and issue #2234 says the regression started in 3.1.1; the base (32258fdb, after #2119) predates it.",
+            "I could not run the new tests against the base: the shared executor kept returning 'session busy' or showed a different checkout."
+          ]
+        },
+        "source": "agent",
+        "suggestedPatch": null
+      },
+      {
+        "id": "toolu_013pkzjkwVAkSNG2Kb2aFadv",
+        "path": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+        "line": 1023,
+        "severity": "medium",
+        "class": "maintainability",
+        "confidence": "verified",
+        "title": "Duplicate-key handling is a copy-pasted double lookup in four places, when one if/else per key kind would do",
+        "body": "Each of the four blocks now checks `ContainsKey(key)` to report MsgPack005, builds the member, then checks `ContainsKey(key)` a second time to decide whether to `Add`. The pattern is pasted into the int and string branches of both the property loop (1012-1043) and the field loop (1152-1184). The `continue` plus explanatory comment for mixed keys is pasted twice as well. GetObjectInfo is already a ~730-line method in a 1,505-line file, and this adds more special-case branching to it instead of removing any. The simpler structure is one decision per key: `if (members.ContainsKey(k)) { report KeysMustBeUnique; } else { members.Add(k, \u2026); }`. Better still, the property and field loops' identical key handling (mixed-kind check, uniqueness check, insert) could move into one local function, e.g. `bool TryRegisterKeyedMember(ISymbol item, int? intKey, string? stringKey, Func<int, MemberSerializationInfo> create)`. That would delete both pasted `continue` branches and three of the four guards.",
+        "reason": "Four identical guard blocks and two identical early-continues in a giant method raise the odds that a future fix lands in the property loop but not the field loop. That split already exists between the map-mode and keyed branches.",
+        "fix": "Collapse each pair into a single if/else (report on a duplicate, otherwise add), and extract the shared key-registration logic of the property and field loops into one local helper so the mixed-kind and uniqueness rules live in one place.",
+        "evidence": {
+          "kind": "code",
+          "detail": "TypeCollector.cs@head 1014-1026 and 1030-1042: ContainsKey\u2192report, construct, ContainsKey\u2192Add. The same pattern appears at 1152-1184 in the field loop, and the `continue` at 1008 and 1148 is duplicated."
+        },
+        "source": "agent",
+        "suggestedPatch": null
+      },
+      {
+        "id": "toolu_0191ZfWuJ37JJSFUYRwxFwpo",
+        "path": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs",
+        "line": null,
+        "severity": "medium",
+        "class": "testing",
+        "confidence": "verified",
+        "title": "The field-loop changes and the string-first mixed-key path have no tests",
+        "body": "Half of the production change is in the field loop: the `continue` at TypeCollector.cs:1148 and the guards at 1163 and 1179. Every new analyzer test uses properties only (`public string Member1 { get; set; }`), so all of these field edits could be reverted without a test failing. The mixed-key test covers only int first, then string, the path that used to throw on `intKey!.Value`. The reverse order (string first, then `[Key(0)]`) is untested, and so is the new behaviour that a mismatched member is no longer recursively collected.",
+        "reason": "A regression in the field branches (for example a dropped ContainsKey guard bringing back the AD0001 crash for duplicate-keyed fields) would ship undetected.",
+        "fix": "Add cases with duplicate int keys on fields, duplicate string keys on fields, and string-then-int mixed keys, each asserting MsgPack005 with no AD0001.",
+        "evidence": {
+          "kind": "code",
+          "detail": "SuppressSourceGenerationAnalyzerTests.cs: every [Key]-annotated member in the duplicate and mixed-key tests (patch lines 85-158) is an auto-property; no test declares a keyed field. The diff hunks at TypeCollector.cs 1145-1184 are the field loop."
+        },
+        "source": "agent",
+        "suggestedPatch": null
+      },
+      {
+        "id": "toolu_01GCBmzwtV2ZkhecmawPMSSb",
+        "path": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+        "line": 1008,
+        "severity": "low",
+        "class": "correctness",
+        "confidence": "verified",
+        "title": "The mixed-key `continue` also skips recursive collection of the member's type",
+        "body": "The new `continue` jumps over the `CollectCore(item.Type, item)` call at 1045-1051 as well as the dictionary insert. Before this change, a string-first type with an int-keyed member went through `else if (stringKey is not null)` without inserting and still collected recursively, so a bad member type (MsgPack003 and others) was reported together with the MsgPack005 mixed-key error. Now those diagnostics show up only after the user fixes the key kind. The field loop at 1148 does the same. The crash fix only needed to skip the `intKey!.Value` insert.",
+        "reason": "Users get diagnostics in batches: errors on the member's type are hidden until the key-kind error is fixed, which is a small behaviour change beyond the crash fix.",
+        "fix": "Guard only the insert, for example `if (isIntKey && intKey is not null) {\u2026} else if (!isIntKey && stringKey is not null) {\u2026}`, and let the recursive collect still run. Alternatively, write down that skipping it is deliberate.",
+        "evidence": {
+          "kind": "code",
+          "detail": "TypeCollector.cs@head 1005-1009 `continue` precedes the insert block (1012-1043) and the recursive collect (1045-1051); base reached 1045 for the string-first/int-member case."
+        },
+        "source": "agent",
+        "suggestedPatch": null
+      },
+      {
+        "id": "toolu_01XQ9T9hkofMYjw672Aw1MGF",
+        "path": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+        "line": 9,
+        "severity": "low",
+        "class": "maintainability",
+        "confidence": "verified",
+        "title": "SA1649: the first type in the file is not the type the file is named after",
+        "body": "The data type `SuppressedSourceGenerationType` is declared before `SuppressedSourceGenerationTests`, so StyleCop SA1649 fires in both the ExecutionTests and MapModeExecutionTests projects that compile this file. dotnet-format exited 2 on it.",
+        "reason": "This adds analyzer warnings to two test projects and makes dotnet-format fail.",
+        "fix": "Declare the test class first and the data type after it, or nest the data type inside the test class.",
+        "evidence": {
+          "kind": "scanner",
+          "detail": "dotnet-format: SuppressedSourceGenerationTests.cs(9,14): warning SA1649: File name should match first type name (reported for both ExecutionTests and MapModeExecutionTests csproj)."
+        },
+        "source": "dotnet-format",
+        "suggestedPatch": null
+      }
+    ],
     "verdict": null,
     "verifications": [],
-    "verifier": null,
+    "verifier": {
+      "status": "blind",
+      "conversationId": 154
+    },
     "risk": {
       "tier": "medium",
       "reasons": [

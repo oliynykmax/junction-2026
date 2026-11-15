@@ -85,6 +85,19 @@ Refresh from the repository root with `python3 scripts/capture-challenge-reviews
         text += f"- [Public API]({item['api']}) and [captured evidence](evidence/issue-{issue}.json).\n"
         if item['failure']:
             text += f"- Run failure: `{str(item['failure']).replace(chr(10), ' ')}`.\n"
+        findings = review.get('findings') or []
+        verdicts = verifier.get('verdicts') or {}
+        if findings:
+            text += '\nCandidate findings and verifier dispositions:\n\n'
+            for finding in findings:
+                title = str(finding.get('title', 'Untitled')).replace('\n', ' ')
+                disposition = verdicts.get(finding.get('id'), {})
+                text += f"- {title}. Severity {finding.get('severity')}; confidence {finding.get('confidence')}; verifier {disposition.get('verdict', 'pending')}.\n"
+                if disposition.get('note'):
+                    note = str(disposition['note']).replace('\n', ' ')
+                    text += f"  Verifier note: {note}\n"
+        if verifier.get('summary'):
+            text += '\nVerifier summary:\n\n' + str(verifier['summary']) + '\n'
         verdict = review.get('verdict')
         if verdict:
             text += '\nRecorded AI verdict:\n\n```json\n' + json.dumps(verdict, indent=2) + '\n```\n'

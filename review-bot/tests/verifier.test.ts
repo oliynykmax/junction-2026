@@ -112,6 +112,7 @@ function world(seed: Partial<ReviewState> = {}) {
     ]),
     changes: [{ id: "c", title: "Key by head", tags: ["fix"], files: [PATH] }],
     findings: [finding],
+    readings: { [PATH]: { remove: [], fold: [], replace: [] } },
     ...seed,
   });
   const children: { id: number; owner: number }[] = [];

@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="A consolation prize for the Bumble Bot team. Evidence-backed, signed by a named human."
+    />
+    <title>Consolation Prize — Bumble Bot</title>
+    <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/style.css?v=hive-20261115" />
+    <style>
+      .prize {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: 32px 16px 48px;
+      }
+      .cert {
+        position: relative;
+        width: min(720px, calc(100% - 8px));
+        background: var(--card);
+        border: 3px solid var(--edge);
+        box-shadow: 8px 8px 0 var(--edge);
+        padding: clamp(24px, 5vw, 48px);
+        text-align: center;
+      }
+      .cert::before {
+        content: "";
+        position: absolute;
+        inset: 8px;
+        border: 1px dashed var(--edge);
+        pointer-events: none;
+      }
+      .cert img {
+        display: block;
+        margin: 0 auto 8px;
+        animation: hover 2.4s ease-in-out infinite;
+      }
+      @keyframes hover {
+        50% {
+          transform: translateY(-6px) rotate(-4deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cert img {
+          animation: none;
+        }
+      }
+      .kicker {
+        font: 700 12px/1 var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .cert h1 {
+        margin: 12px 0 4px;
+        font-size: clamp(30px, 7vw, 52px);
+        line-height: 1.02;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .cert h1 mark {
+        background: var(--mark-bg);
+        color: var(--mark-fg);
+        padding: 0 0.15em;
+      }
+      .to {
+        margin-top: 20px;
+        color: var(--muted);
+      }
+      .name {
+        display: block;
+        margin: 6px auto 0;
+        width: min(420px, 100%);
+        border: 0;
+        border-bottom: 3px solid var(--edge);
+        background: transparent;
+        color: var(--ink);
+        text-align: center;
+        font:
+          800 clamp(22px, 5vw, 32px) Archivo,
+          system-ui,
+          sans-serif;
+        padding: 4px 8px;
+        border-radius: 0;
+      }
+      .name::placeholder {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .name:focus-visible {
+        outline: 3px solid var(--orange);
+        outline-offset: 2px;
+      }
+      .for {
+        margin: 24px auto 0;
+        max-width: 52ch;
+      }
+      .perks {
+        margin: 24px auto 0;
+        max-width: 52ch;
+        text-align: left;
+        display: grid;
+        gap: 8px;
+      }
+      .perks li {
+        display: grid;
+        grid-template-columns: 1.6em 1fr;
+      }
+      .perks li::before {
+        content: "✓";
+        font-weight: 800;
+        color: var(--orange);
+      }
+      .perks small {
+        display: block;
+        color: var(--muted);
+      }
+      .sign {
+        margin-top: 32px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        text-align: left;
+        font: 12px/1.4 var(--mono);
+        color: var(--muted);
+      }
+      .sign span {
+        display: block;
+        flex: 1;
+        min-width: 0;
+        border-top: 2px solid var(--edge);
+        padding-top: 6px;
+      }
+      .actions {
+        margin-top: 24px;
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .actions button,
+      .actions a {
+        font: 700 14px/1 var(--mono);
+        padding: 12px 16px;
+        border: 3px solid var(--edge);
+        background: var(--orange);
+        color: var(--on-orange);
+        box-shadow: 4px 4px 0 var(--edge);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .actions a {
+        background: var(--card);
+        color: var(--ink);
+      }
+      .actions button:active,
+      .actions a:active {
+        transform: translate(3px, 3px);
+        box-shadow: 1px 1px 0 var(--edge);
+      }
+      .cert .stamp {
+        position: absolute;
+        right: clamp(8px, 3vw, 28px);
+        top: clamp(8px, 3vw, 28px);
+        transform: rotate(9deg);
+        border: 3px solid var(--orange);
+        color: var(--orange);
+        font: 800 11px/1.15 var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 6px 8px;
+        opacity: 0;
+        transition: opacity 0.3s var(--ease);
+      }
+      .cert.claimed .stamp {
+        opacity: 1;
+      }
+      @media print {
+        body {
+          background: #fff;
+        }
+        .actions,
+        footer {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="prize" id="main">
+      <article class="cert" id="cert" aria-labelledby="t">
+        <div class="stamp" aria-hidden="true">Prize<br />claimed</div>
+        <img src="/favicon.svg?v=bumble-bot" alt="" width="72" height="72" />
+        <p class="kicker">Junction 2026 · Earned Trust in AI Code</p>
+        <h1 id="t">Certificate of <mark>Honorable Buzzing</mark></h1>
+        <p class="to">Proudly awarded, with no blockers found, to</p>
+        <label class="name-label">
+          <span class="skip" style="position: absolute; left: -9999px"
+            >Recipient name</span
+          >
+          <input
+            id="name"
+            class="name"
+            type="text"
+            maxlength="40"
+            placeholder="type your name here"
+            autocomplete="off"
+          />
+        </label>
+        <p class="for">
+          For building a reviewer that tells you what it checked, what it could
+          not check, and then hands the decision to a human. Judges may have
+          missed it. We did not.
+        </p>
+        <ul class="perks">
+          <li>
+            <span
+              >One (1) virtual jar of honey
+              <small
+                >Zero calories. Fully verified. Not redeemable.</small
+              ></span
+            >
+          </li>
+          <li>
+            <span
+              >Lifetime right to say “the bot never approves”
+              <small>Even at 3 a.m. Especially at 3 a.m.</small></span
+            >
+          </li>
+          <li>
+            <span
+              >Permission to sleep
+              <small>Evidence for this claim: you built the thing.</small></span
+            >
+          </li>
+        </ul>
+        <div class="sign">
+          <span>Bumble Bot<br />advice, with evidence</span>
+          <span id="signer">A named human<br />the one who decides</span>
+        </div>
+        <div class="actions">
+          <button type="button" id="claim">Claim prize</button>
+          <button type="button" id="print">Print it</button>
+          <a href="/">Back to the hive</a>
+        </div>
+      </article>
+    </main>
+    <script>
+      (function () {
+        var cert = document.getElementById("cert");
+        var nameInput = document.getElementById("name");
+        var signer = document.getElementById("signer");
+        document.getElementById("claim").addEventListener("click", function () {
+          var n = nameInput.value.trim();
+          if (!n) {
+            nameInput.focus();
+            return;
+          }
+          signer.textContent = n + " — the one who decides";
+          cert.classList.add("claimed");
+        });
+        document.getElementById("print").addEventListener("click", function () {
+          window.print();
+        });
+      })();
+    </script>
+  </body>
+</html>

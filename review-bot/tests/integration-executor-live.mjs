@@ -203,7 +203,7 @@ try {
       networkName,
     ]);
     const network = JSON.parse(podman("network", "inspect", networkName))[0];
-    assert.equal(network.options.isolate, "strict");
+    assert.equal(network.options.isolate, "true");
     assert.equal(container.Mounts.length, 0);
   }
   console.log(

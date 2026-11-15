@@ -175,7 +175,7 @@ async function checkout(input, signal) {
         "--label",
         `${LABEL}=${SCOPE}`,
         "--opt",
-        "isolate=strict",
+        "isolate=true",
         session.name,
       ],
       { signal },

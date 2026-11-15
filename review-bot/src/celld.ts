@@ -1,10 +1,17 @@
 import worker from "./index";
 import { Review as WorkerReview } from "./review";
+import { Hive as WorkerHive } from "./chat";
 import { celldBindings, type CelldEnv } from "./celld-bindings";
 
 export { ManualGate } from "./manual-gate";
 
 export class Review extends WorkerReview {
+  constructor(state: DurableObjectState, env: CelldEnv) {
+    super(state, celldBindings(env));
+  }
+}
+
+export class Hive extends WorkerHive {
   constructor(state: DurableObjectState, env: CelldEnv) {
     super(state, celldBindings(env));
   }

@@ -11,6 +11,7 @@ import {
   upsertComment,
   validSignature,
 } from "./github";
+import { mentionFrom } from "./chat";
 import { dashboardApi, dashboardPage, pruneLedger } from "./dashboard";
 import { manualView, startManual } from "./manual";
 import { type PrLive, prLive } from "./pr-live";
@@ -21,6 +22,7 @@ import type { Target } from "./reviewer";
 import { callback, login, logout, me } from "./auth";
 import { signOff, syncOwnerStatus } from "./signoff";
 
+export { Hive } from "./chat";
 export { ManualGate } from "./manual-gate";
 export { Review } from "./review";
 
@@ -180,9 +182,17 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
 
   const event = request.headers.get("x-github-event");
   if (event === "ping") return new Response("pong\n");
+  const payload = JSON.parse(body);
+  if (event === "issue_comment" || event === "pull_request_review_comment") {
+    const mention = env.HIVES && mentionFrom(event, payload);
+    if (!mention) return new Response("ignored\n");
+    await env
+      .HIVES!.getByName(`${mention.owner}/${mention.repo}`.toLowerCase())
+      .enqueue(mention);
+    return new Response("queued\n");
+  }
   if (event !== "pull_request") return new Response("ignored\n");
 
-  const payload = JSON.parse(body);
   if (!PR_ACTIONS.has(payload.action)) return new Response("ignored\n");
 
   const pr = payload.pull_request;

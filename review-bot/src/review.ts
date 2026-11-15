@@ -35,6 +35,7 @@ import {
 } from "./github";
 import { reviewKey, reviewLink } from "./review-key";
 import { mcpExtension, mcpNamespaces, mcpServers } from "./mcp";
+import type { Hive } from "./chat";
 import type { ManualGate } from "./manual-gate";
 import { failureClass, reviewStatus, type RunStatus } from "./status";
 import type { Check, ScanResult } from "./scanners";
@@ -72,6 +73,8 @@ export interface Env extends PublicAppSecrets {
   SESSION_SECRET?: string;
   REVIEWS: DurableObjectNamespace<Review>;
   MANUAL_GATE: DurableObjectNamespace<ManualGate>;
+  /** Per-repository PR conversation. Unbound, the bot does not answer comments. */
+  HIVES?: DurableObjectNamespace<Hive>;
   ASSETS: Fetcher;
   /** The dashboard's ledger. Unbound (as in the write profile), telemetry is off. */
   LEDGER?: D1Database;
@@ -155,13 +158,14 @@ export class Review extends DurableObject<Env> {
       const reviewer = reviewerExtension({
         token: (id) => this.#token(id),
         scan: (target, token, checks) => this.#scan(target, token, checks),
-        publish: (target, token, findings, risk) =>
+        publish: (target, token, findings, files, risk) =>
           target.mode === "manual"
             ? Promise.resolve()
             : publishReview(
                 token,
                 target,
                 findings,
+                files,
                 reviewLink(env, target),
                 risk,
               ),

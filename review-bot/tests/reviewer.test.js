@@ -204,7 +204,8 @@ test("scan replay reuses persisted evidence; prompt and coverage consume it; pub
   expect(state.verdict.notChecked.join(" ")).toContain(
     "No CODING_STANDARDS.md",
   );
-  expect(publications[0][3]).toBe(state.risk.tier);
+  expect(publications[0][3]).toEqual(state.files ?? []);
+  expect(publications[0][4]).toBe(state.risk.tier);
 });
 
 test("read_file base uses pinned repository and commit without looking up current PR", async () => {
@@ -276,7 +277,7 @@ test("older review without evidence or risk gains explicit coverage gap and publ
   expect(state.verdict.notChecked.join(" ")).toContain(
     "No CI or team standard evidence",
   );
-  expect(publications[0][3]).toBeUndefined();
+  expect(publications[0][4]).toBeUndefined();
 });
 
 test("report shell loads the Preact client with pinned API configuration", async () => {

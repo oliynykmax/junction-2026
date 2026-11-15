@@ -335,6 +335,7 @@ export type ReviewerDeps = {
     target: Target,
     token: string,
     findings: readonly Finding[],
+    files: readonly ChangedFile[],
     risk?: RiskTier,
   ) => Promise<void>;
   finished: (decision: Verdict["decision"], findings: number) => void;
@@ -917,6 +918,7 @@ export function reviewerExtension({
       let findings: Finding[] = [];
       let decision: Verdict["decision"] | null = null;
       let risk: RiskTier | undefined;
+      let files: ChangedFile[] = [];
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
         const starRefusals = state.starRefusals ?? 0;
@@ -982,6 +984,7 @@ export function reviewerExtension({
         };
         // The draft cannot be read once the commit settles: copy it out.
         findings = state.findings.map((f) => ({ ...f }));
+        files = (state.files ?? []).map((f) => ({ ...f }));
         risk = state.risk?.tier;
       }, context);
       if (refused) return { ...text(refused), isError: true };
@@ -995,7 +998,7 @@ export function reviewerExtension({
       }
       const { t, tok } = await target(api, context);
       if (t.mode !== "manual")
-        await publish(t, tok, findings, risk).catch((e) =>
+        await publish(t, tok, findings, files, risk).catch((e) =>
           console.error(`review publication for ${t.headSha} failed`, e),
         );
       return { ...text("review finished"), control: { terminate: true } };

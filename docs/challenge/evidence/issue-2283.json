@@ -1,0 +1,144 @@
+{
+  "capturedAt": "2026-11-15T07:54:37.148467+00:00",
+  "requirement": "MessagePack-CSharp #2283",
+  "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283",
+  "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/13",
+  "report": "https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/13?sha=9df83c38409c8bfad0517aebffe48211eda4a5b4",
+  "api": "https://review.oliinyk.dev/api/r/oliynykmax/junction26-messagepack-csharp/13/9df83c38409c8bfad0517aebffe48211eda4a5b4",
+  "headSha": "9df83c38409c8bfad0517aebffe48211eda4a5b4",
+  "status": "running",
+  "failure": null,
+  "costUsd": 0.7169504000000001,
+  "signOff": null,
+  "review": {
+    "model": "anthropic/claude-opus-5-5 thinking=medium",
+    "startedAt": 1794729000170,
+    "scan": {
+      "status": "done",
+      "results": [
+        {
+          "tool": "dotnet-ci",
+          "version": "8.0.402",
+          "status": "error",
+          "durationMs": 65719,
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+            "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs"
+          ],
+          "diagnostics": [],
+          "error": "dotnet exited 1: neratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n/tmp/tmppry4yzgl/tests/MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs(35,61): error CS0117: 'CompositeResolverTests.CompositeResolverWithLocalFormatters' does not contain a definition for 'Instance' [/tmp/tmppry4yzgl/tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n/tmp/tmppry4yzgl/tests/MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs(41,61): error CS0117: 'CompositeResolverTests.CompositeResolverWithLocalFormatters' does not contain a definition for 'Instance' [/tmp/tmppry4yzgl/tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n    7 Warning(s)\n    15 Error(s)\n\nTime Elapsed 00:01:04.79"
+        },
+        {
+          "tool": "dotnet-format",
+          "version": "8.0.402",
+          "status": "ok",
+          "durationMs": 40545,
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+            "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs"
+          ],
+          "diagnostics": [],
+          "error": null
+        }
+      ],
+      "error": null
+    },
+    "evidence": {
+      "headSha": "9df83c38409c8bfad0517aebffe48211eda4a5b4",
+      "base": {
+        "owner": "oliynykmax",
+        "repo": "junction26-messagepack-csharp",
+        "sha": "32258fdbee4bcd653c79f51b4376b5103c6f4d27"
+      },
+      "capturedAt": 1794729000897,
+      "checks": {
+        "kind": "available",
+        "items": []
+      },
+      "statuses": {
+        "kind": "available",
+        "items": []
+      },
+      "standard": {
+        "kind": "absent"
+      }
+    },
+    "findings": [
+      {
+        "id": "toolu_01JgtDjD1czmZRztZrJ1rQnu",
+        "path": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+        "line": 239,
+        "severity": "medium",
+        "class": "maintainability",
+        "confidence": "likely",
+        "title": "Catch-all diagnostic filter hides the real rule and also drops location-less diagnostics for source types",
+        "body": "The fix wraps every `reportDiagnostic` call in `ReportIfLocatedInCompilation`, which drops any diagnostic unless `Location.IsInSource && compilation.ContainsSyntaxTree(...)`. The real rule (\"don't analyse members of types defined in another assembly\") is never written down. It has to be inferred from where diagnostics happen to land, and it now applies to every diagnostic TypeCollector emits, not just the issue #2283 path.\n\nThe rule also catches more than it should. Many existing call sites build locations with `?.FirstOrDefault()?...GetLocation()` and can produce `Location.None`. One example is `MessageFormatterMustBeMessagePackFormatter` at line 693\u2013695: when the `[MessagePackFormatter]` attribute sits on a type from metadata, `ApplicationSyntaxReference` is null. That diagnostic used to reach the consumer as a location-less warning. Now it is silently discarded. The remark at lines 1442\u20131445 says analyzers \"are not permitted\" to report against a non-existent location. That is wrong for `Location.None`, which Roslyn accepts. Roslyn only rejects source locations in syntax trees outside the compilation.\n\nThe policy is also applied unevenly. The constructor (line 248) still calls the raw `reportAnalyzerDiagnostic`. And two call sites were separately patched from `DeclaringSyntaxReferences[0]` to null-safe forms (lines 985, 1077). So the fix is spread across three mechanisms: a wrapper, per-site null guards, and a bypass.\n\nThe simpler fix is to decide at the type boundary. `CollectCore` already has an `IsInMetadata` gate (line 367) for non-generic types. In `CollectGeneric`/`GetObjectInfo`, suppress diagnostics when `formattedType.OriginalDefinition` is not declared in `this.compilation.Assembly`, for example by passing a `reportDiagnostic` that is null for foreign types. The member-level null guards and the global filter then become unnecessary, and source types keep their current behaviour.",
+        "reason": "A global, location-based filter in a shared reporting path silently suppresses diagnostics beyond the issue's scope and makes the reporting policy hard to reason about. This code is a source generator and analyzer, so the effect reaches every consumer's build.",
+        "fix": "Replace the global wrapper with an explicit boundary. When the type whose members are being analysed (formattedType.OriginalDefinition) does not belong to this.compilation.Assembly, run GetObjectInfo with diagnostics disabled. Keep at most a ContainsSyntaxTree guard (not IsInSource) as a safety net. Then revert the per-site location rewrites, or keep them only as crash guards.",
+        "evidence": {
+          "kind": "code",
+          "detail": "TypeCollector.cs:239 wraps reportDiagnostic. Lines 1440\u20131452 define ReportIfLocatedInCompilation, which requires IsInSource (this drops Location.None). Line 693\u2013695 can report with a null location for a metadata type's formatter attribute. Line 248 bypasses the wrapper. Line 367 shows the existing IsInMetadata boundary check. The generator path passes reportAnalyzerDiagnostic: null (MessagePackGenerator.cs:47), so the filter only affects the analyzer.",
+          "supporting": [
+            "Roslyn rejects only source locations whose tree is outside the compilation (the analyzer-crash pattern in dotnet/runtime#109352, fixed with Compilation.ContainsSyntaxTree). Location.None is allowed.",
+            "Docs: https://github.com/dotnet/runtime/issues/109352"
+          ]
+        },
+        "source": "agent",
+        "suggestedPatch": null
+      },
+      {
+        "id": "toolu_014M3qqV1pixe66ZsWvoUkAU",
+        "path": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs",
+        "line": 633,
+        "severity": "medium",
+        "class": "testing",
+        "confidence": "likely",
+        "title": "Changed reporting branches lack tests; helper hand-builds a second compilation pipeline",
+        "body": "The three new tests only check the happy path, where nothing is reported. Two altered behaviours have no test that would fail if they broke.\n\nFirst, the new `GetPropertyIdentifierLocation` path for `BothStringAndIntKeyAreNull` (line 985) is never exercised by a metadata property with a null key.\n\nSecond, nothing pins down what the filter now drops. No test shows that a source-declared problem is still reported when the type is reached through a metadata generic. No test shows that a location-less diagnostic (for example an invalid formatter attribute on a referenced type) is now suppressed on purpose.\n\n`RunWithMetadataReferenceAsync` also runs the generator twice. The first run uses VerifyCS with `SkipGeneratedSourcesCheck`. The second builds a separate `CSharpCompilation` with hard-coded `ReferenceAssemblies.Net.Net80` and its own `CSharpGeneratorDriver`, just to check a hint name. That duplicates the verifier's job and can drift from the harness's reference set.",
+        "reason": "Tests should fail when a changed condition flips. Here, removing the IsInSource check, or reverting line 985, would leave every new test green except the crash case.",
+        "fix": "Add one analyzer test with a source type that has a real MsgPack004 problem and a member of a metadata generic, and assert the source diagnostic is still reported. Add one test that pins down the intended handling of location-less diagnostics. Assert the generated resolver through the verifier's GeneratedSources, not through a second hand-built driver run.",
+        "evidence": {
+          "kind": "code",
+          "detail": "GenericsFormatterTests.cs patch lines 15\u2013200: the three tests all expect zero diagnostics. None uses Key with a null value or an invalid formatter attribute on a metadata type. The helper at patch lines 149\u2013175 runs VerifyCS and then a manual CSharpGeneratorDriver over a separately built compilation that pins Net80."
+        },
+        "source": "agent",
+        "suggestedPatch": null
+      }
+    ],
+    "verdict": null,
+    "verifications": [],
+    "verifier": {
+      "status": "blind",
+      "conversationId": 79
+    },
+    "risk": {
+      "tier": "medium",
+      "reasons": [
+        {
+          "rule": "code-generator",
+          "tier": "medium",
+          "text": "A source generator or analyzer changed. It emits code or diagnostics into every consumer's build, so a mistake spreads beyond this repository.",
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs"
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs",
+          "status": "modified",
+          "testsAdded": 3,
+          "testsRemoved": 0,
+          "assertionsAdded": 2,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        }
+      ],
+      "mustRead": [
+        "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs"
+      ]
+    }
+  }
+}

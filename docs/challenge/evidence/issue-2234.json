@@ -1,0 +1,113 @@
+{
+  "capturedAt": "2026-11-15T07:54:37.090293+00:00",
+  "requirement": "MessagePack-CSharp #2234",
+  "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234",
+  "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/14",
+  "report": "https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/14?sha=9007cee1163c4a274fd60c3cc20c21ae63622786",
+  "api": "https://review.oliinyk.dev/api/r/oliynykmax/junction26-messagepack-csharp/14/9007cee1163c4a274fd60c3cc20c21ae63622786",
+  "headSha": "9007cee1163c4a274fd60c3cc20c21ae63622786",
+  "status": "running",
+  "failure": null,
+  "costUsd": 0.6967747999999999,
+  "signOff": null,
+  "review": {
+    "model": "anthropic/claude-opus-5-5 thinking=medium",
+    "startedAt": 1794729002158,
+    "scan": {
+      "status": "done",
+      "results": [
+        {
+          "tool": "dotnet-ci",
+          "version": "8.0.402",
+          "status": "error",
+          "durationMs": 60788,
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+            "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs"
+          ],
+          "diagnostics": [],
+          "error": "dotnet exited 1: neratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n/tmp/tmp46xk89bi/tests/MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs(35,61): error CS0117: 'CompositeResolverTests.CompositeResolverWithLocalFormatters' does not contain a definition for 'Instance' [/tmp/tmp46xk89bi/tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n/tmp/tmp46xk89bi/tests/MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs(41,61): error CS0117: 'CompositeResolverTests.CompositeResolverWithLocalFormatters' does not contain a definition for 'Instance' [/tmp/tmp46xk89bi/tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj::TargetFramework=net8.0]\n    9 Warning(s)\n    17 Error(s)\n\nTime Elapsed 00:00:59.76"
+        },
+        {
+          "tool": "dotnet-format",
+          "version": "8.0.402",
+          "status": "error",
+          "durationMs": 36609,
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+            "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+            "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs"
+          ],
+          "diagnostics": [],
+          "error": "dotnet exited 2: Warnings were encountered while loading the workspace. Set the verbosity option to the 'diagnostic' level to log warnings.\n/tmp/tmp46xk89bi/tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs(9,14): warning SA1649: File name should match first type name [/tmp/tmp46xk89bi/tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj]\n/tmp/tmp46xk89bi/tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs(9,14): warning SA1649: File name should match first type name [/tmp/tmp46xk89bi/tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj]"
+        }
+      ],
+      "error": null
+    },
+    "evidence": {
+      "headSha": "9007cee1163c4a274fd60c3cc20c21ae63622786",
+      "base": {
+        "owner": "oliynykmax",
+        "repo": "junction26-messagepack-csharp",
+        "sha": "32258fdbee4bcd653c79f51b4376b5103c6f4d27"
+      },
+      "capturedAt": 1794729003331,
+      "checks": {
+        "kind": "available",
+        "items": []
+      },
+      "statuses": {
+        "kind": "available",
+        "items": []
+      },
+      "standard": {
+        "kind": "absent"
+      }
+    },
+    "findings": [],
+    "verdict": null,
+    "verifications": [],
+    "verifier": null,
+    "risk": {
+      "tier": "medium",
+      "reasons": [
+        {
+          "rule": "code-generator",
+          "tier": "medium",
+          "text": "A source generator or analyzer changed. It emits code or diagnostics into every consumer's build, so a mistake spreads beyond this repository.",
+          "paths": [
+            "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs"
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+          "status": "added",
+          "testsAdded": 2,
+          "testsRemoved": 0,
+          "assertionsAdded": 3,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        },
+        {
+          "path": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs",
+          "status": "added",
+          "testsAdded": 8,
+          "testsRemoved": 0,
+          "assertionsAdded": 0,
+          "assertionsRemoved": 0,
+          "skipsAdded": 0,
+          "weakened": [],
+          "patchMissing": false
+        }
+      ],
+      "mustRead": [
+        "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs"
+      ]
+    }
+  }
+}

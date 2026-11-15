@@ -14,6 +14,26 @@ Bumble Bot also works as a [GitHub App](https://github.com/apps/bumble-bot-revie
 
 - [PR #53](https://github.com/oliynykmax/junction-2026/pull/53) has multiple review rounds, findings, and the bee ASCII artwork. Compare the [first review](https://github.com/oliynykmax/junction-2026/pull/53#pullrequestreview-5909238196) with the [next review](https://github.com/oliynykmax/junction-2026/pull/53#pullrequestreview-5909242788).
 
+## Challenge deliverables
+
+Our concept card can be presented as a slide. The standalone version makes its principles, trade-offs, and limits available to judges.
+
+- [Concept card and presentation copy](docs/challenge/concept-card.md).
+- [Requirement #2283 walkthrough](docs/challenge/walkthrough-2283.md).
+- [Measurement results and limits](docs/challenge/measurement.md).
+- [Lessons and decision log](docs/challenge/lessons-log.md).
+- [Risk-based human review and trust-withdrawal policy](docs/challenge/review-policy.md).
+- [Submission text](submission/submission.md).
+
+### Reruns of all four supplied changes
+
+These reruns use the original sponsor commits on our own fork. Follow the pinned report for current status and the [captured evidence ledger](docs/challenge/sample-reviews.md) for the latest recorded results. Running or failed reviews are not successful checks, and AI findings are not human acceptance.
+
+- Requirement **#2283**: [sample PR #13](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/13) · [commit-pinned review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/13?sha=9df83c38409c8bfad0517aebffe48211eda4a5b4).
+- Requirement **#2234**: [sample PR #14](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/14) · [commit-pinned review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/14?sha=9007cee1163c4a274fd60c3cc20c21ae63622786).
+- Requirement **#2129**: [sample PR #15](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/15) · [commit-pinned review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/15?sha=083afd994c1c9a994cb2cd5aa0b6ad805a621457).
+- Requirement **#2297**: [sample PR #16](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/16) · [commit-pinned review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/16?sha=a0aa5ab2de7f5a669d97e37184a89034c1de82b6).
+
 ## How it works
 
 The two lanes show separate agents. The reviewer starts the verifier after recording its findings. The verifier writes its initial checks before seeing the proposed change.

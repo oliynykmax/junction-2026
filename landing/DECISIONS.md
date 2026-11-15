@@ -78,3 +78,13 @@ A replayed `read_file` after a restart spends a second read. That makes the budg
 The landing now leads with the task. The header keeps only the brand and the theme switch; its "How it works" and "Review a PR" links pointed at content a few pixels away. The report anatomy illustration is gone: it described a report instead of showing one. The headline, form and examples sit in one centred column that fills the first screen.
 
 Under the form, four small muted chips open finished reviews: our own PR #27 and agent-written PRs #1, #3 and #4 on our MessagePack-CSharp copy. They use report routes pinned to a head SHA, so the linked reports cannot change underneath the page. We picked them to cover the range: a feature PR with three findings, an agent-written fix with one, a new CI workflow whose scanner failed (the report shows the limit instead of hiding it), and a docs-only typo fix with no findings. The chips are deliberately quieter than the form, so pasting a PR stays the main action. If the deployment's review storage is reset, these links show "not started" and need replacing.
+
+## Hive landing, 2026-11-15
+
+We mocked up ten landing directions from the README: five on the existing paper-and-orange style and five new visual languages (terminal, broadsheet, hive, sign-off sheet, blueprint). The team picked the hive.
+
+The page keeps the task first: the PR field and the four finished-review links sit in one card, unchanged in behaviour and markup hooks for `web/landing.ts`. Beside it, a honeycomb names the six sources of evidence from the README (review, verify, test, docs, scan, CI) around one orange cell for the owner. The cell is the point of the page: the evidence surrounds a human decision and never replaces it. The headline, "The bot buzzes. You merge.", says the same in four words.
+
+Visual language: honey yellow ground with a dot grid, black 3px outlines and hard offset shadows in light; a near-black hive with honey outlines in dark. Every colour is still one `light-dark()` pair, so the OS default, the switch and the shared pre-paint script behave as before. Public Sans is replaced by Archivo (headings and body) and Space Mono (labels), both OFL and served from `landing/assets/` as latin-subset woff2 files, so the page makes no third-party requests.
+
+Failure modes we accepted: the hexagons use `clip-path`, so a browser without it shows squares, which still read correctly. On phones the hive stays at three columns and shrinks to fit 390px; its captions drop to 10px. The review page still uses its own type and colours, so moving from the landing to a report is a visible change of style.

@@ -10,15 +10,15 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="theme-color"
-      content="#fbf8f4"
+      content="#ffd23f"
       media="(prefers-color-scheme: light)"
     />
     <meta
       name="theme-color"
-      content="#131313"
+      content="#15130f"
       media="(prefers-color-scheme: dark)"
     />
-    <title>Bumble Bot — Evidence before approval</title>
+    <title>Bumble Bot — The bot buzzes. You merge.</title>
     <link rel="icon" href="/favicon.svg?v=bumble-bot" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico?v=bumble-bot" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=bumble-bot" />
@@ -31,9 +31,9 @@
     </script>
     <link
       rel="preload"
-      href="/assets/public-sans-bold.ttf"
+      href="/assets/archivo.woff2"
       as="font"
-      type="font/ttf"
+      type="font/woff2"
       crossorigin
     />
     <link rel="stylesheet" href="/assets/style.css" />
@@ -43,47 +43,46 @@
   <body>
     <ui-preferences></ui-preferences>
     <a class="skip" href="#review">Skip to review form</a>
-    <header class="site-header wrap">
-      <div class="brand-group">
-        <a class="brand" href="/" aria-label="Bumble Bot home"
-          ><img
-            src="/favicon.svg?v=bumble-bot"
-            alt=""
-            width="40"
-            height="40"
-          />Bumble Bot</a
-        ><a
-          class="demo"
+    <header class="top">
+      <a class="logo" href="/" aria-label="Bumble Bot home"
+        ><img
+          src="/favicon.svg?v=bumble-bot"
+          alt=""
+          width="36"
+          height="36"
+        />Bumble Bot</a
+      >
+      <div class="top-end">
+        <a
+          class="tag"
           href="https://hackjunction.com"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Junction 2026 website (opens in a new tab)"
-          >Junction 2026</a
+          >Junction 2026 · read-only</a
         >
+        <label class="theme">
+          <span class="theme-label">Dark mode</span>
+          <ui-switch id="theme-switch">
+            <ui-switch-thumb></ui-switch-thumb>
+          </ui-switch>
+        </label>
       </div>
-      <label class="theme">
-        <span class="theme-label">Dark mode</span>
-        <ui-switch id="theme-switch">
-          <ui-switch-thumb></ui-switch-thumb>
-        </ui-switch>
-      </label>
     </header>
-    <main>
-      <section class="hero wrap" aria-labelledby="hero-title">
-        <div class="hero-inner">
-          <h1 id="hero-title" style="margin-bottom: 2rem">
-            Perform faster reviews<br />
-            based on hard evidence
-          </h1>
-          <p class="lede">
-            Add a trusted layer of automated verification to code reviews.
-            <br />
-            Get findings you can trace, assumptions you can question,<br />and a
-            clear view of what wasn't checked.
-          </p>
+    <main class="hero">
+      <div class="copy">
+        <h1>
+          The bot <mark>buzzes.</mark><br />
+          You <mark>merge.</mark>
+        </h1>
+        <p class="lede">
+          Six sources of evidence around every agent-written PR. One decision in
+          the middle, and it's yours.
+        </p>
+        <div class="card">
           <form id="review" class="review-form" novalidate>
             <ui-field name="url">
-              <ui-field-label>Public GitHub pull request</ui-field-label>
+              <ui-field-label>Drop a public PR link</ui-field-label>
               <div class="input-row">
                 <ui-input>
                   <input
@@ -98,8 +97,8 @@
                 </ui-input>
                 <ui-button focusable-when-disabled>
                   <button type="submit">
-                    <span id="button-label">Run review</span
-                    ><span class="arrow" aria-hidden="true">↗</span>
+                    <span id="button-label">Review</span
+                    ><span class="arrow" aria-hidden="true">→</span>
                   </button>
                 </ui-button>
               </div>
@@ -120,7 +119,7 @@
             </noscript>
           </form>
           <nav class="examples" aria-labelledby="examples-title">
-            <h2 id="examples-title">Or open a finished review</h2>
+            <h2 id="examples-title">Or crack open a finished one</h2>
             <ul>
               <li>
                 <a
@@ -150,26 +149,21 @@
                 >
               </li>
             </ul>
-            <p>
-              Agent-written pull requests on this project and on our copy of
-              MessagePack-CSharp, the challenge's sample code.
-            </p>
           </nav>
         </div>
-      </section>
+      </div>
+      <ol class="hive" aria-label="Where the evidence comes from">
+        <li><b>Review</b><small>impact · evidence · fix</small></li>
+        <li><b>Verify</b><small>checks before code</small></li>
+        <li><b>Test</b><small>beyond the author's suite</small></li>
+        <li class="you"><b>You</b><small>sign or send back</small></li>
+        <li><b>Docs</b><small>sources listed</small></li>
+        <li><b>Scan</b><small>zizmor · ty · oxlint</small></li>
+        <li><b>CI</b><small>pinned commit</small></li>
+      </ol>
     </main>
-    <footer class="wrap">
-      <a class="brand" href="/"
-        ><img
-          src="/favicon.svg?v=bumble-bot"
-          width="28"
-          height="28"
-          alt=""
-        />Bumble Bot</a
-      >
-      <p>
-        Built at Junction 2026 for Tieto's Earned Trust in AI Code challenge.
-      </p>
+    <footer>
+      Built at Junction 2026 for Tieto's Earned Trust in AI Code challenge.
     </footer>
   </body>
 </html>

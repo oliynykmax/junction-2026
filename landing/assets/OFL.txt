@@ -1,4 +1,5 @@
-Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans)
+Archivo: Copyright 2019 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)
+Space Mono: Copyright 2016 Google Inc. All Rights Reserved. Designed by Colophon Foundry (https://github.com/googlefonts/spacemono)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

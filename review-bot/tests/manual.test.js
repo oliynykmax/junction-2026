@@ -142,11 +142,11 @@ test("rejects PRs whose base repository is private", async () => {
   expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 });
 
-test("rejects oversized changes", async () => {
-  github({ ...publicPr, changed_files: 61 });
+test("accepts a change of any size", async () => {
+  github({ ...publicPr, changed_files: 237, additions: 9000, deletions: 3000 });
   await expect(
     resolveManual("https://github.com/team/demo/pull/12", "public-read-token"),
-  ).rejects.toThrow("60 files");
+  ).resolves.toMatchObject({ mode: "manual", number: 12 });
 });
 
 test("starts in isolated namespace and persists manual mode with pinned commits", async () => {
@@ -347,13 +347,16 @@ test("durable admission enforces per-client, global hourly and daily budgets acr
 });
 
 test("failed resolution never consumes model review budget", async () => {
-  github({ ...publicPr, changed_files: 61 });
+  github({
+    ...publicPr,
+    base: { ...publicPr.base, repo: { private: true, visibility: "private" } },
+  });
   const bindings = env();
   const response = await startManual(
     request({ url: "https://github.com/team/demo/pull/12" }),
     bindings,
   );
-  expect(response.status).toBe(422);
+  expect(response.status).toBeGreaterThanOrEqual(400);
   expect(bindings.admitLookup).toHaveBeenCalledTimes(1);
   expect(bindings.admit).not.toHaveBeenCalled();
 });

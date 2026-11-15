@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { run } from "../executor/process.mjs";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 const scope = `test${process.pid}`;
+const image = process.env.EXECUTOR_IMAGE ?? "localhost/bumble-worker:latest";
 const peerNetwork = `${scope}-peer-network`;
 const peerContainer = `${scope}-peer-service`;
 const port = 19000 + (process.pid % 1000);
@@ -23,6 +25,7 @@ await new Promise((r) => host.listen(18081, "127.0.0.1", r));
 function start(extra = {}) {
   const env = {
     ...process.env,
+    EXECUTOR_IMAGE: image,
     EXECUTOR_WORKER_DISK_BYTES: String(600 * 2 ** 20),
     EXECUTOR_DISK_POLL_MS: "500",
     ...extra,
@@ -48,6 +51,7 @@ function start(extra = {}) {
           "CONTAINER_HOST=unix:///run/podman/podman.sock",
           ...[
             "EXECUTOR_TOKEN",
+            "EXECUTOR_IMAGE",
             "EXECUTOR_PORT",
             "EXECUTOR_SCOPE",
             "EXECUTOR_IDLE_MS",
@@ -113,7 +117,7 @@ try {
         "host",
         "--workdir",
         "/",
-        "localhost/bumble-worker:latest",
+        image,
         "curl",
         "--max-time",
         "3",
@@ -129,7 +133,7 @@ try {
     `${scope}-unrelated`,
     "--label",
     `dev.oliinyk.bumble.executor=${scope}other`,
-    "localhost/bumble-worker:latest",
+    image,
     "sleep",
     "infinity",
   );
@@ -141,7 +145,7 @@ try {
     peerContainer,
     "--network",
     peerNetwork,
-    "localhost/bumble-worker:latest",
+    image,
     "node",
     "-e",
     'require("http").createServer((q,r)=>r.end("PEER CONTROL")).listen(18082,"0.0.0.0")',
@@ -154,7 +158,7 @@ try {
       "--rm",
       "--network",
       peerNetwork,
-      "localhost/bumble-worker:latest",
+      image,
       "curl",
       "--noproxy",
       "*",
@@ -186,6 +190,12 @@ try {
   console.log(
     "PASS root, writable clean checkout, pinned head/base/history, apt install, outbound HTTPS",
   );
+  result = await shell(
+    "first",
+    readFileSync(new URL("./worker-toolchains.sh", import.meta.url), "utf8"),
+  );
+  assert.equal(result.exitCode, 0, result.stderr);
+  console.log(result.stdout.trim());
   await checkout("second");
   result = await shell(
     "second",

@@ -55,6 +55,8 @@ jobs:
       - run: bun test
       - run: bun check
       - run: bun test
+      - run: podman build --target worker --tag localhost/bumble-worker:ci executor
+      - run: podman run --rm -i localhost/bumble-worker:ci bash -lc 'bash -s' < tests/worker-toolchains.sh
       - uses: ./.github/actions/setup-celld
       - run: bun run build && bun run celld:prepare
       - run: celld deploy celld.json --dry-run --bucket s3://ci-build-only

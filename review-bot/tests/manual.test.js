@@ -292,6 +292,13 @@ for (const manual of [true, false])
     );
     state.lookups = [{ tool: "docs", args: "{}", at: Date.now() }];
     state.findings = [finding];
+    state.verifier = {
+      status: "done",
+      conversationId: 2,
+      checks: [],
+      verdicts: {},
+      summary: "Nothing changed to verify.",
+    };
     const token = mock(async () => "app-token"),
       publish = mock(async () => {}),
       finished = mock(() => {});

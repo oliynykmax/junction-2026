@@ -2,8 +2,17 @@
 // note used inside a change, and the finding body and suggested-fix renderers.
 
 import { Fragment } from "preact";
-import { VerificationReceiptCard } from "./formal";
 import { useMemo, useState } from "preact/hooks";
+import type { VerificationReceipt } from "../src/formal";
+import type { ViewedVerdict } from "../src/review";
+import type { VerifierState } from "../src/verifier";
+import {
+  RECEIPT_DISCLOSURE,
+  VerdictBadge,
+  VerdictNode,
+  VerifierChecks,
+  verifierLine,
+} from "./formal";
 import { heldBack } from "../src/findings";
 import {
   BLOCKING_RULE,
@@ -14,164 +23,146 @@ import {
   location,
   QUIET,
   SEVERITY_MEANING,
-  severityCounts,
   sortFindings,
 } from "./shared";
 
 export function Findings({
   findings: unsorted,
-  heading,
+  verifications,
+  verifier,
   empty,
   lineUrl,
 }: {
-  findings: readonly Finding[];
-  heading: string;
+  findings: readonly ViewedFinding[];
+  verifications: readonly VerificationReceipt[];
+  verifier: VerifierState | undefined;
   empty: string | null;
   lineUrl: LineUrl;
 }) {
-  const [cls, setCls] = useState<string | null>(null);
   const findings = useMemo(() => sortFindings(unsorted), [unsorted]);
-  const classes = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const f of findings)
-      if (f.class) counts.set(f.class, (counts.get(f.class) ?? 0) + 1);
-    return [...counts];
-  }, [findings]);
-  if (findings.length === 0 && empty === null) return null;
-  const shown = cls ? findings.filter((f) => f.class === cls) : findings;
-
+  const linked = new Set(findings.map((f) => f.verdict?.receiptId));
+  const unlinked = verifications.filter((r) => !linked.has(r.id));
+  if (
+    findings.length === 0 &&
+    unlinked.length === 0 &&
+    !verifier &&
+    empty === null
+  )
+    return null;
   return (
     <section class="section" aria-labelledby="findings-h">
-      <div class="section-head">
-        <h2 id="findings-h">{heading}</h2>
-        <SeverityCounts findings={findings} />
+      <div class="findings-head">
+        <h2 id="findings-h">Findings</h2>
+        {verifier && <p class="findings-note">{verifierLine(verifier)}</p>}
+        {(verifier || verifications.length > 0) && (
+          <p class="findings-note">{RECEIPT_DISCLOSURE}</p>
+        )}
       </div>
       {findings.length === 0 ? (
-        <p class="empty">{empty}</p>
+        empty && <p class="empty">{empty}</p>
       ) : (
-        <>
-          {classes.length > 1 && (
-            <div
-              class="filter"
-              role="group"
-              aria-label="Filter findings by class"
-            >
-              <button
-                type="button"
-                aria-pressed={cls === null}
-                onClick={() => setCls(null)}
-              >
-                All <span>{findings.length}</span>
-              </button>
-              {classes.map(([c, n]) => (
-                <button
-                  type="button"
-                  key={c}
-                  aria-pressed={cls === c}
-                  onClick={() => setCls(cls === c ? null : c)}
-                >
-                  {c.replace("-", " ")} <span>{n}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <ol class="rows">
-            {shown.map((f) => (
-              <FindingRow key={f.id} f={f} href={lineUrl(f.path, f.line)} />
-            ))}
-          </ol>
-        </>
+        <ol class="findings">
+          {findings.map((f) => (
+            <FindingRow key={f.id} f={f} href={lineUrl(f.path, f.line)} />
+          ))}
+        </ol>
       )}
+      <VerifierChecks
+        checks={verifier && verifier.status !== "blind" ? verifier.checks : []}
+        receipts={unlinked}
+      />
     </section>
   );
 }
 
-export function SeverityCounts({ findings }: { findings: readonly Finding[] }) {
-  const counts = severityCounts(findings);
-  if (counts.length === 0) return null;
-  return (
-    <p class="counts">
-      {counts.map(({ severity, count, blocking }) => (
-        <span key={severity} class={blocking ? "alert" : ""}>
-          {count} {severity}
-          {blocking > 0 && blocking < count && ` (${blocking} blocking)`}
-        </span>
-      ))}
-    </p>
-  );
+type ViewedFinding = Finding & { verdict?: ViewedVerdict };
+
+/** Severity in words, with whether it blocks the decision. */
+function severityText(f: Finding): string {
+  if (QUIET.has(f.severity)) return `${f.severity} severity`;
+  return `${f.severity} severity · ${
+    isBlocking(f)
+      ? "blocks"
+      : heldBack(f)
+        ? "not confirmed, doesn't block"
+        : "doesn't block"
+  }`;
 }
 
-function Severity({ f }: { f: Finding }) {
-  const blocking = isBlocking(f);
-  return (
-    <p
-      class={`sev${blocking ? " alert" : QUIET.has(f.severity) ? "" : " notable"}`}
-    >
-      <span class="explained" title={SEVERITY_MEANING[f.severity]}>
-        {f.severity} severity
-      </span>
-      {!QUIET.has(f.severity) && (
-        <span class="explained held" title={BLOCKING_RULE}>
-          {" · "}
-          {blocking
-            ? "blocks"
-            : heldBack(f)
-              ? "not confirmed, doesn't block"
-              : "doesn't block"}
-        </span>
-      )}
-    </p>
-  );
+function fixStatus(f: ViewedFinding): string {
+  const outcome = f.verdict?.receipt?.fixCheck?.outcome;
+  return outcome === "passed"
+    ? "Fix tested on scratch copy. "
+    : outcome === "failed"
+      ? "Proposed fix, scratch check failed. "
+      : "Proposed fix, not tested. ";
 }
 
-function Tags({ f }: { f: Finding }) {
-  return (
-    <p class="tags">
-      {f.confidence && (
-        <span class="tag" title={CONFIDENCE_MEANING[f.confidence]}>
-          <span class="tag-key">confidence</span> {f.confidence}
-        </span>
-      )}
-      {f.class && (
-        <span class="tag" title="The kind of problem.">
-          <span class="tag-key">class</span> {f.class.replace("-", " ")}
-        </span>
-      )}
-      {f.source && f.source !== "agent" && (
-        <span class="tag" title="A scanner flagged this; the AI confirmed it.">
-          <span class="tag-key">from</span> {f.source}
-        </span>
-      )}
-    </p>
-  );
-}
-
-function FindingRow({ f, href }: { f: Finding; href: string }) {
+// A finding, then its evidence and the verifier's result, joined by one line.
+function FindingRow({ f, href }: { f: ViewedFinding; href: string }) {
   const [open, setOpen] = useState(false);
+  const kind = f.class ?? "unclassified";
   return (
-    <li class={`grid row${QUIET.has(f.severity) ? " quiet" : ""}`}>
-      <div class="row-head">
-        <Severity f={f} />
-        <h3>{f.title}</h3>
-        <Tags f={f} />
-        <a class="loc" href={href}>
-          {location(f)}
-        </a>
-        {f.suggestedPatch && (
-          <button
-            type="button"
-            class="toggle"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-          >
-            {open ? "Hide suggested fix" : "Show suggested fix"}
-          </button>
+    <li class={`finding${isBlocking(f) ? " blocking" : ""}`}>
+      <ol class="trail" style={`--kind: var(--kind-${kind})`}>
+        <li class="node node-finding">
+          <p class="finding-meta">
+            <span class="kind">{kind.replace("-", " ")}</span>
+            <span
+              class="explained finding-sev"
+              title={`${SEVERITY_MEANING[f.severity]} ${BLOCKING_RULE}`}
+            >
+              {severityText(f)}
+            </span>
+            {f.confidence && (
+              <span class="explained" title={CONFIDENCE_MEANING[f.confidence]}>
+                {f.confidence}
+              </span>
+            )}
+            {f.source && f.source !== "agent" && (
+              <span title="A scanner flagged this; the AI confirmed it.">
+                from {f.source}
+              </span>
+            )}
+            <a class="loc" href={href}>
+              {location(f)}
+            </a>
+          </p>
+          <h3>{f.title}</h3>
+          <Body text={f.body} />
+          {f.reason && <p class="body muted">{f.reason}</p>}
+          {f.fix && (
+            <p class="body">
+              <strong>{fixStatus(f)}</strong>
+              {f.fix}
+            </p>
+          )}
+          {f.suggestedPatch && (
+            <button
+              type="button"
+              class="toggle"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
+            >
+              {open ? "Hide suggested patch" : "Show suggested patch"}
+            </button>
+          )}
+          {open && f.suggestedPatch && <Fix patch={f.suggestedPatch} />}
+        </li>
+        {f.evidence && (
+          <li class="node">
+            <p class="node-label">Evidence · {f.evidence.kind}</p>
+            <p class="body">{f.evidence.detail}</p>
+          </li>
         )}
-      </div>
-      <div class="row-body">
-        <FindingDetails f={f} />
-        {open && f.suggestedPatch && <Fix patch={f.suggestedPatch} />}
-      </div>
+        {f.evidence?.supporting?.map((item) => (
+          <li class="node" key={item}>
+            <p class="node-label">Supporting evidence</p>
+            <p class="body">{item}</p>
+          </li>
+        ))}
+        {f.verdict && <VerdictNode verdict={f.verdict} />}
+      </ol>
     </li>
   );
 }
@@ -198,6 +189,7 @@ export function FindingNote({
       <p class="note-title">{f.title}</p>
       <div class="note-meta">
         <NoteFacts f={f} />
+        {f.verdict && <VerdictBadge verdict={f.verdict} />}
         {onLocate ? (
           <button
             type="button"
@@ -306,17 +298,20 @@ export function FindingDetails({ f }: { f: Finding }) {
       {f.fix && (
         <p class="body">
           <strong>
-            {f.verification?.fixCheck?.outcome === "passed"
+            {f.verdict?.receipt?.fixCheck?.outcome === "passed"
               ? "Fix tested on scratch copy. "
-              : f.verification?.fixCheck?.outcome === "failed"
+              : f.verdict?.receipt?.fixCheck?.outcome === "failed"
                 ? "Proposed fix, scratch check failed. "
                 : "Proposed fix, not tested. "}
           </strong>
           {f.fix}
         </p>
       )}
-      {f.verification && (
-        <VerificationReceiptCard receipt={f.verification} embedded />
+      {f.verdict && (
+        <p class="body">
+          <strong>Verifier. </strong>
+          {f.verdict.note}
+        </p>
       )}
     </>
   );

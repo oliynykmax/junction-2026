@@ -21,6 +21,7 @@ import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/stora
 import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudflare";
 import { alarmWrite, HEARTBEAT_MS } from "./alarm";
 import type { VerificationReceipt } from "./formal";
+import type { FindingVerdict } from "./verifier";
 import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
 import { executor } from "./executor";
@@ -83,12 +84,15 @@ export type Activity =
   | { kind: "call"; name: string; args: unknown }
   | { kind: "result"; name: string; isError: boolean; text: string };
 
+/** The verifier's verdict on a finding, with the receipt it links. */
+export type ViewedVerdict = FindingVerdict & { receipt?: VerificationReceipt };
+
 export type ReviewView = {
   status: RunStatus;
   failure: string | null;
   review: Omit<ReviewState, "prompt" | "findings" | "brief"> & {
     prompt: { url: string; sha256: string } | null;
-    findings: (Stored<Finding> & { verification?: VerificationReceipt })[];
+    findings: (Stored<Finding> & { verdict?: ViewedVerdict })[];
   };
   heldBack: number;
   activity: Activity[];
@@ -107,6 +111,7 @@ export { reviewLink } from "./review-key";
 export class Review extends DurableObject<Env> {
   #harness!: Harness;
   #scanTask!: ReturnType<typeof reviewerExtension>["scanTask"];
+  #verifier!: ReturnType<typeof reviewerExtension>["verifier"];
   #tokens = new Map<number | "public", { token: string; expiresAt: number }>();
   #issuedAlarm: number | null = null;
   #lifecycle!: Lifecycle;
@@ -165,7 +170,9 @@ export class Review extends DurableObject<Env> {
         release: (session) => executor(env).release(session),
       });
       this.#scanTask = reviewer.scanTask;
+      this.#verifier = reviewer.verifier;
       registry.install(reviewer.extension);
+      registry.install(reviewer.verifier);
       const servers = mcpServers(
         env.MCP_SERVERS,
         env as unknown as Record<string, unknown>,
@@ -332,15 +339,18 @@ export class Review extends DurableObject<Env> {
     }
 
     const { prompt, brief: _brief, ...rest } = review;
+    const verdicts =
+      review.verifier?.status === "done" ? review.verifier.verdicts : {};
     const findings = review.findings.map((finding) => {
-      const verification = review.verifications?.find(
-        (receipt) =>
-          receipt.id === finding.evidence?.verificationId &&
-          receipt.files.includes(finding.path),
-      );
+      const verdict = verdicts[finding.id];
+      const receipt =
+        verdict?.receiptId &&
+        review.verifications?.find((r) => r.id === verdict.receiptId);
       return {
         ...fromStored(finding),
-        ...(verification ? { verification } : {}),
+        ...(verdict && {
+          verdict: { ...verdict, ...(receipt && { receipt }) },
+        }),
       };
     });
     return {
@@ -408,6 +418,8 @@ export class Review extends DurableObject<Env> {
         model: { provider: this.#model.provider, modelId: this.#model.id },
         thinkingLevel: this.env.THINKING_LEVEL,
         maxTurns: 80,
+        // The verifier's tools belong to the child that verify starts.
+        extensions: { remove: [this.#verifier] },
       },
     });
   }

@@ -26,11 +26,19 @@ cat > package.json <<'JSON'
 JSON
 cat > tools.test.js <<'JS'
 import { expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import isNumber from "is-number";
 
 test("installed packages run in Bun", () => {
   expect(isNumber(42)).toBe(true);
   expect(isNumber("no")).toBe(false);
+});
+
+test("a worker can signal its own child processes", async () => {
+  const child = spawn("sleep", ["30"]);
+  const exited = new Promise((resolve) => child.once("exit", (_, signal) => resolve(signal)));
+  child.kill("SIGTERM");
+  expect(await exited).toBe("SIGTERM");
 });
 JS
 cat > check.ts <<'TS'

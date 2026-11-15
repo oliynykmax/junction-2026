@@ -1,8 +1,16 @@
-import type { Target } from "./reviewer";
+import type { Finding, Target } from "./reviewer";
 
 // GitHub App auth and the REST calls the bot and the reviewer make.
 
-import { fromStored, SEVERITIES, type Severity } from "./findings";
+import { blocks, fromStored, SEVERITIES } from "./findings";
+import {
+  BOT_LOGIN,
+  FINDING_MARKER,
+  findingComment,
+  fingerprint,
+  reviewBody,
+} from "./hive";
+import { patchLines } from "./reading";
 import { RISK_TIERS, riskLine, type RiskTier } from "./signals";
 
 export interface AppSecrets {
@@ -178,14 +186,58 @@ async function labelRisk(token: string, pr: Pr, tier: RiskTier) {
   });
 }
 
+/** Fingerprints of the findings the bot already raised in an inline comment on this PR. */
+async function raisedFindings(token: string, pr: Pr): Promise<Set<string>> {
+  const seen = new Set<string>();
+  for (let page = 1; page <= 10; page++) {
+    const batch = await ghJson<
+      { user: { login: string } | null; body: string }[]
+    >(
+      token,
+      `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments?per_page=100&page=${page}`,
+    );
+    for (const c of batch) {
+      const fp = c.user?.login === BOT_LOGIN && c.body.match(FINDING_MARKER);
+      if (fp) seen.add(fp[1]!);
+    }
+    if (batch.length < 100) break;
+  }
+  return seen;
+}
+
+/** The head-side line numbers a review comment may anchor to, per file. */
+function commentableLines(
+  files: readonly { path: string; patch: string | null }[],
+) {
+  const lines = new Map<string, Set<number>>();
+  for (const f of files) {
+    if (!f.patch) continue;
+    const set = new Set<number>();
+    for (const l of patchLines(f.patch))
+      if ("new" in l && l.new !== null) set.add(l.new);
+    lines.set(f.path, set);
+  }
+  return lines;
+}
+
+type ReviewComment = {
+  path: string;
+  line: number;
+  side: "RIGHT";
+  body: string;
+};
+
 /**
- * Publishes a compact result only while the reviewed commit is still the head.
- * It is always a comment review: the bot never approves, a named human does.
+ * Publishes the review only while the reviewed commit is still the head: a
+ * summary, plus one inline comment per finding on a changed line that no
+ * earlier inline comment raised. It is always a comment review: the bot
+ * never approves, a named human does.
  */
 export async function publishReview(
   token: string,
   pr: Pr & { headSha: string },
-  findings: readonly { severity: Severity }[],
+  stored: readonly Finding[],
+  files: readonly { path: string; patch: string | null }[],
   reportUrl: string,
   risk?: RiskTier,
 ) {
@@ -207,23 +259,78 @@ export async function publishReview(
     )
   )
     return;
-  const severities = findings.map((f) => fromStored(f).severity);
+  const findings = stored.map(fromStored);
   const summary = [
     `${findings.length} ${findings.length === 1 ? "finding" : "findings"}`,
     ...SEVERITIES.flatMap((severity) => {
-      const count = severities.filter((s) => s === severity).length;
+      const count = findings.filter((f) => f.severity === severity).length;
       return count ? [`${count} ${severity}`] : [];
     }),
   ].join(" · ");
-  const depth = risk ? `\n\n${riskLine(risk)}` : "";
-  await gh(token, `${base}/reviews`, {
-    method: "POST",
-    body: {
-      commit_id: pr.headSha,
-      event: "COMMENT",
-      body: `${REVIEW_MARKER}\n${summary}${depth}\n\n[Full report](${reportUrl}) · A named human owns the merge; this review is advice, never an approval.`,
-    },
-  });
+
+  const raised = findings.length
+    ? await raisedFindings(token, pr).catch((error) => {
+        console.error(`inline dedupe for ${pr.headSha} failed`, error);
+        return new Set<string>();
+      })
+    : new Set<string>();
+  const anchors = commentableLines(files);
+  const inline: {
+    finding: (typeof findings)[number];
+    comment: ReviewComment;
+  }[] = [];
+  const outside: typeof findings = [];
+  const repeated: typeof findings = [];
+  for (const f of findings) {
+    const fp = await fingerprint(f);
+    if (raised.has(fp)) repeated.push(f);
+    else if (f.line && anchors.get(f.path)?.has(f.line))
+      inline.push({
+        finding: f,
+        comment: {
+          path: f.path,
+          line: f.line,
+          side: "RIGHT",
+          body: findingComment(f, fp),
+        },
+      });
+    else outside.push(f);
+  }
+
+  const post = (anchored: typeof inline, elsewhere: typeof findings) =>
+    gh(token, `${base}/reviews`, {
+      method: "POST",
+      body: {
+        commit_id: pr.headSha,
+        event: "COMMENT",
+        body: reviewBody({
+          marker: REVIEW_MARKER,
+          summary,
+          riskLine: risk && riskLine(risk),
+          reportUrl,
+          blocking: findings.filter(blocks).length,
+          inline: anchored.length,
+          outside: elsewhere,
+          repeated,
+          all: findings,
+        }),
+        ...(anchored.length
+          ? { comments: anchored.map((a) => a.comment) }
+          : {}),
+      },
+    });
+  try {
+    await post(inline, outside);
+  } catch (e) {
+    // GitHub refuses the whole review when one anchor is off the diff, and the
+    // summary must still land: post it with every finding listed in it.
+    if (!(e instanceof GitHubError && e.status === 422 && inline.length))
+      throw e;
+    console.error(
+      `inline comments for ${pr.headSha} refused, posting summary only`,
+    );
+    await post([], [...outside, ...inline.map((a) => a.finding)]);
+  }
 }
 
 /** Withdraws every approval the bot posted before it stopped approving. */

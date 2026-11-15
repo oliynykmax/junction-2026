@@ -64,11 +64,13 @@
     "bindings": [
       { "name": "REVIEWS", "class_name": "Review" },
       { "name": "MANUAL_GATE", "class_name": "ManualGate" },
+      { "name": "HIVES", "class_name": "Hive" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Review"] },
     { "tag": "v2", "new_sqlite_classes": ["ManualGate"] },
+    { "tag": "v3", "new_sqlite_classes": ["Hive"] },
   ],
   "routes": [
     {

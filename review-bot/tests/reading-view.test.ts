@@ -126,3 +126,20 @@ test("a finding listed under another change still protects its line", () => {
   );
   expect(html).toContain("writer.Write(v.Name);");
 });
+
+test("a file named like an Object.prototype member is not given a plan it lacks", () => {
+  const named = { ...file, path: "constructor" };
+  const html = renderToString(
+    h(FileDiffs, {
+      files: [named],
+      findings: [],
+      focus: null,
+      onFocus: () => {},
+      lineUrl: () => "#",
+      readings: { plans: {}, findings: [] },
+    }),
+  );
+  // No plan of its own: the full diff, not a crash or a reading view.
+  expect(html).toContain("writer.Write(v.Name);");
+  expect(html).not.toContain("reading-bar");
+});

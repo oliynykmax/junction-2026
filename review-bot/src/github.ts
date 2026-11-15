@@ -23,6 +23,9 @@ export function publicInstallationToken(app: PublicAppSecrets) {
   return installationToken(app, id, {
     contents: "read",
     pull_requests: "read",
+    // CI evidence reads check runs and commit statuses for the head commit.
+    checks: "read",
+    statuses: "read",
   });
 }
 
@@ -242,7 +245,12 @@ export async function dismissBotApprovals(token: string, pr: Pr) {
 export async function installationToken(
   app: AppSecrets,
   installationId: number,
-  permissions?: { contents: "read"; pull_requests: "read" },
+  permissions?: {
+    contents: "read";
+    pull_requests: "read";
+    checks: "read";
+    statuses: "read";
+  },
 ): Promise<{ token: string; expiresAt: number }> {
   const jwt = await appJwt(app.APP_ID, app.PRIVATE_KEY);
   const res = await fetch(

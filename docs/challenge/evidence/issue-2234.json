@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-15T07:56:50.634899+00:00",
+  "capturedAt": "2026-11-15T07:58:05.662631+00:00",
   "requirement": "MessagePack-CSharp #2234",
   "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234",
   "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/14",
@@ -8,7 +8,7 @@
   "headSha": "9007cee1163c4a274fd60c3cc20c21ae63622786",
   "status": "running",
   "failure": null,
-  "costUsd": 1.197934,
+  "costUsd": 1.3181592,
   "signOff": null,
   "review": {
     "model": "anthropic/claude-opus-5-5 thinking=medium",

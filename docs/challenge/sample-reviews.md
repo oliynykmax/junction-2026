@@ -8,7 +8,7 @@ Refresh from the repository root with `python3 scripts/capture-challenge-reviews
 
 | Requirement | Sample PR | Pinned report | Captured state | Candidate findings | Receipt outcomes | Human sign-off |
 |---|---|---|---|---|---|---|
-| [#2283](https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283) | [PR](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/13) | [Review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/13?sha=9df83c38409c8bfad0517aebffe48211eda4a5b4) | running | 2 | not_run: 2 | Not recorded |
+| [#2283](https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283) | [PR](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/13) | [Review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/13?sha=9df83c38409c8bfad0517aebffe48211eda4a5b4) | done | 2 | not_run: 2 | Not recorded |
 | [#2234](https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234) | [PR](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/14) | [Review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/14?sha=9007cee1163c4a274fd60c3cc20c21ae63622786) | running | 5 | None recorded yet | Not recorded |
 | [#2129](https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129) | [PR](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/15) | [Review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/15?sha=083afd994c1c9a994cb2cd5aa0b6ad805a621457) | running | 0 | None recorded yet | Not recorded |
 | [#2297](https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2297) | [PR](https://github.com/oliynykmax/junction26-messagepack-csharp/pull/16) | [Review](https://review.oliinyk.dev/r/oliynykmax/junction26-messagepack-csharp/16?sha=a0aa5ab2de7f5a669d97e37184a89034c1de82b6) | done | 1 | not_run: 2 | Not recorded |
@@ -18,7 +18,7 @@ Refresh from the repository root with `python3 scripts/capture-challenge-reviews
 ### Requirement #2283
 
 - Original head: `9df83c38409c8bfad0517aebffe48211eda4a5b4`.
-- Captured: 2026-11-15T07:56:50.671896+00:00.
+- Captured: 2026-11-15T07:58:06.678773+00:00.
 - Model: `anthropic/claude-opus-5-5 thinking=medium`.
 - Risk tier: medium.
 - Verifier state: done.
@@ -35,10 +35,33 @@ Verifier summary:
 
 Nothing was verified: every checkout/shell call failed with "executor capacity reached", so nothing was built or run. My blind check was off-target: unable to open the issue, I guessed #2283 was the Unity .meta issue, but the change is a TypeCollector fix for MsgPack004 diagnostics on referenced-assembly generic types. All changed files have not_run receipts and both findings are unchecked. Next step: run dotnet test on MessagePack.SourceGenerator.Tests at the head.
 
+Recorded AI verdict:
+
+```json
+{
+  "decision": "no_blockers_found",
+  "star": {
+    "situation": "Using a closed generic type from a referenced assembly (for example a generic struct or record struct) as a member of a [MessagePackObject] type could crash the MessagePack analyzer or generator. The cause was code that indexed DeclaringSyntaxReferences[0] and reported diagnostics against symbols that have no source (issue #2283).",
+    "task": "The pull request sets out to stop the crash and to keep diagnostics about referenced-assembly members out of the consuming project.",
+    "action": "TypeCollector now routes every analyzer diagnostic through ReportIfLocatedInCompilation, which drops any diagnostic whose location is not a source location in the current compilation. Two member-diagnostic locations are made null-safe, and README plus MsgPack004.md document the new rule.",
+    "result": "Consumers can use referenced-assembly closed generics without AD0001 or CS8785, and no longer see diagnostics about those types' members. The pull request backs this with three new metadata-reference tests that expect zero diagnostics and a generated resolver."
+  },
+  "summary": "I found no blockers, but nothing was built or run: CI was absent and every shell call hit a busy executor. Two medium findings. (1) The fix is a catch-all location filter in the shared reporting path. It also drops Location.None diagnostics for cases outside the issue, such as an invalid formatter attribute on a referenced type. Its remark wrongly says analyzers cannot report location-less diagnostics, and the constructor bypasses it. The cleaner fix is a type-boundary rule: suppress diagnostics when the analysed type is not declared in this compilation, matching the existing IsInMetadata gate in CollectCore. (2) The new tests cover only the zero-diagnostic happy path. They would not fail if the IsInSource check or the line 985 location change were reverted, and the helper builds a second compilation and driver with Net80 hard-coded. The file was already over 1,000 lines at base, so the size threshold does not apply. The verifier also ran nothing (executor capacity) and reproduced neither finding. The dotnet-ci scanner failure (CS0117 in MessagePack.GeneratedCode.Tests/CompositeResolverTests.cs) is in a file this PR does not touch; I did not confirm its cause. dotnet-format reported no diagnostics.",
+  "notChecked": [
+    "CI snapshot for 9df83c38409c8bfad0517aebffe48211eda4a5b4: none. This is not proof that required checks passed.",
+    "No CODING_STANDARDS.md exists at the pinned base commit; only the review rubric applies.",
+    "Could not run dotnet build or the tests: every shell call after checkout returned 'session busy', so I could not confirm that the new tests pass or that the generator crash (CS8785) is actually fixed when reportDiagnostic is null in generator mode.",
+    "Root cause of the dotnet-ci scanner failure in MessagePack.GeneratedCode.Tests (CS0117 'Instance' missing); it may be environmental or pre-existing.",
+    "Upstream issue #2283 text was not read."
+  ],
+  "dismissed": []
+}
+```
+
 ### Requirement #2234
 
 - Original head: `9007cee1163c4a274fd60c3cc20c21ae63622786`.
-- Captured: 2026-11-15T07:56:50.634899+00:00.
+- Captured: 2026-11-15T07:58:05.662631+00:00.
 - Model: `anthropic/claude-opus-5-5 thinking=medium`.
 - Risk tier: medium.
 - Verifier state: blind.
@@ -55,7 +78,7 @@ Candidate findings and verifier dispositions:
 ### Requirement #2129
 
 - Original head: `083afd994c1c9a994cb2cd5aa0b6ad805a621457`.
-- Captured: 2026-11-15T07:56:50.667910+00:00.
+- Captured: 2026-11-15T07:58:05.655453+00:00.
 - Model: `anthropic/claude-opus-5-5 thinking=medium`.
 - Risk tier: high.
 - Verifier state: not recorded.
@@ -64,7 +87,7 @@ Candidate findings and verifier dispositions:
 ### Requirement #2297
 
 - Original head: `a0aa5ab2de7f5a669d97e37184a89034c1de82b6`.
-- Captured: 2026-11-15T07:56:50.684076+00:00.
+- Captured: 2026-11-15T07:58:06.966712+00:00.
 - Model: `anthropic/claude-opus-5-5 thinking=medium`.
 - Risk tier: high.
 - Verifier state: done.

@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-15T07:56:50.684076+00:00",
+  "capturedAt": "2026-11-15T07:58:06.966712+00:00",
   "requirement": "MessagePack-CSharp #2297",
   "requirementUrl": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2297",
   "pr": "https://github.com/oliynykmax/junction26-messagepack-csharp/pull/16",

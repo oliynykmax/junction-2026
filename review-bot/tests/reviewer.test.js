@@ -262,11 +262,7 @@ test("older review without evidence or risk gains explicit coverage gap and publ
   const finish = reviewer.extension.tools.find(
     (t) => t.name === "finish_review",
   );
-  await finish.execute(
-    { summary: "Legacy review", not_checked: [] },
-    api,
-    {},
-  );
+  await finish.execute({ summary: "Legacy review", not_checked: [] }, api, {});
   expect(state.verdict.notChecked.join(" ")).toContain(
     "No CI or team standard evidence",
   );

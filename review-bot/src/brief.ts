@@ -50,6 +50,8 @@ export const MAX_COMMENT_CHARS = 1_500;
 export const MAX_COMMENTS_CHARS = 24_000;
 export const MAX_LISTED_FILES = 300;
 export const MAX_PAGES = 10;
+/** GET /pulls/{n}/commits returns at most this many commits, however many pages it is asked for. */
+export const PR_COMMITS_CAP = 250;
 /** Numbered patches inlined in the prompt; the rest are read with read_patch. */
 export const MAX_BRIEF_DIFF_CHARS = 60_000;
 
@@ -94,16 +96,16 @@ async function part<T>(
 type User = { login: string } | null;
 
 /** Every page of a GitHub list endpoint, up to MAX_PAGES of 100. */
-async function pages<T>(token: string, path: string) {
+async function pages<T>(token: string, path: string, cap = MAX_PAGES * 100) {
   const rows: T[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = await ghJson<T[]>(token, `${path}?per_page=100&page=${page}`);
     rows.push(...batch);
-    if (batch.length < 100) return { rows, incomplete: false };
+    if (batch.length < 100) return { rows, incomplete: rows.length >= cap };
   }
   const next = await ghJson<T[]>(
     token,
-    `${path}?per_page=1&page=${MAX_PAGES * 100 + 1}`,
+    `${path}?per_page=1&page=${rows.length + 1}`,
   );
   return { rows, incomplete: next.length > 0 };
 }
@@ -134,7 +136,7 @@ export async function collectBrief(token: string, t: Target): Promise<Brief> {
         sha: string;
         commit: { message: string };
         parents: unknown[];
-      }>(token, `${pull}/commits`);
+      }>(token, `${pull}/commits`, PR_COMMITS_CAP);
       const all = rows
         .filter((c) => c.parents.length < 2)
         .map((c) => ({
@@ -247,7 +249,7 @@ function omittedNote(
       ? `(${p.omitted} older ${what} left out to fit the prompt.)\n`
       : "") +
     (p.incomplete
-      ? `(GitHub listed more than ${MAX_PAGES * 100} ${what}, so the newest may be missing. Do not rely on their absence.)\n`
+      ? `(GitHub caps this listing of ${what}, so the newest may be missing. Do not rely on their absence.)\n`
       : "")
   );
 }
@@ -329,10 +331,10 @@ export function renderBrief({ target: t, brief, files, rubric }: BriefInput) {
 
   const commits =
     brief?.commits.kind === "available"
-      ? brief.commits.value.length
-        ? omittedNote(brief.commits, "commits") +
-          brief.commits.value.map((c) => `${c.sha} ${c.message}`).join("\n\n")
-        : "(no commits other than merges)"
+      ? omittedNote(brief.commits, "commits") +
+        (brief.commits.value.length
+          ? brief.commits.value.map((c) => `${c.sha} ${c.message}`).join("\n\n")
+          : "(no commits other than merges)")
       : unavailable(
           "The commit messages",
           brief?.commits ?? { reason: "no brief" },
@@ -366,10 +368,10 @@ export function renderBrief({ target: t, brief, files, rubric }: BriefInput) {
 
   const comments =
     brief?.comments.kind === "available"
-      ? brief.comments.value.length
-        ? omittedNote(brief.comments, "comments") +
-          brief.comments.value.map(renderComment).join("\n\n")
-        : "(no reviews or comments yet)"
+      ? omittedNote(brief.comments, "comments") +
+        (brief.comments.value.length
+          ? brief.comments.value.map(renderComment).join("\n\n")
+          : "(no reviews or comments yet)")
       : unavailable(
           "The reviews and comments",
           brief?.comments ?? { reason: "no brief" },

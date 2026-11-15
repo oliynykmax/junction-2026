@@ -21,7 +21,7 @@ import {
   plural,
   type Star,
 } from "./shared";
-import { FormalDemo, VerificationReceipts } from "./formal";
+import { FormalDemo } from "./formal";
 import { ProofLoader } from "./proof-loader";
 import { VERIFIED_DEMO } from "./demo";
 
@@ -282,11 +282,6 @@ function ReviewBody({
   return (
     <>
       <Advice view={view} />
-      <VerificationReceipts
-        receipts={view.review.verifications}
-        verifier={view.review.verifier}
-        running={LIVE.has(view.status)}
-      />
       <CiChecks checks={[...ciChecks(live), ...liveChecks(view)]} />
       {view.failure && (
         <p class="pr-alert" role="alert">
@@ -295,7 +290,8 @@ function ReviewBody({
       )}
       <Findings
         findings={view.review.findings}
-        heading="Findings"
+        verifications={view.review.verifications ?? []}
+        verifier={view.review.verifier}
         empty={
           LIVE.has(view.status)
             ? null

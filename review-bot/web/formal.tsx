@@ -19,119 +19,24 @@ const OUTCOME = {
   },
 } as const;
 
-export function VerificationReceipts({
-  receipts,
-  verifier,
-  running,
-}: {
-  receipts: readonly VerificationReceipt[] | undefined;
-  verifier?: VerifierState;
-  running: boolean;
-}) {
-  if (receipts === undefined) return null;
-  if (receipts.length === 0 && !verifier && !running) return null;
-  // Reviews from before the verifier existed hold reviewer-written receipts.
-  const independent = verifier !== undefined;
-  return (
-    <section class="verification" aria-labelledby="verification-h">
-      <div class="verification-heading">
-        <div>
-          <p class="verification-kicker">
-            {independent
-              ? "Independent verifier · separate agent and container"
-              : "Verification receipts"}
-          </p>
-          <h2 id="verification-h">
-            {independent
-              ? "What the verifier reports"
-              : "What the reviewer reports"}
-          </h2>
-        </div>
-        <p class="verification-count">
-          {receipts.length} {receipts.length === 1 ? "receipt" : "receipts"}
-        </p>
-      </div>
-      <p class="verification-disclosure">
-        {independent
-          ? "Written by the verifier, a second agent that did not write the findings. "
-          : ""}
-        Agent-reported evidence. The runtime checks receipt completeness, not
-        checker execution or result authenticity.
-      </p>
-      {verifier && <p class="verifier-status">{verifierLine(verifier)}</p>}
-      {verifier && verifier.status !== "blind" && (
-        <BlindChecks checks={verifier.checks} />
-      )}
-      {receipts.length ? (
-        <ol class="verification-list">
-          {receipts.map((receipt) => (
-            <li key={receipt.id} id={receiptAnchor(receipt.id)}>
-              <VerificationReceiptCard receipt={receipt} />
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p class="verification-empty">
-          {running
-            ? "Every changed file needs a verification receipt or explicit unrun disposition before the review can finish."
-            : "No verification receipts were recorded."}
-        </p>
-      )}
-    </section>
-  );
+export const RECEIPT_DISCLOSURE =
+  "Verifier results are agent-reported. The runtime checks receipt completeness, not checker execution or result authenticity.";
+
+export function verifierLine(verifier: VerifierState): string {
+  switch (verifier.status) {
+    case "blind":
+      return "The verifier is writing checks from the stated requirements. The change is not on its disk yet.";
+    case "verifying":
+      return "The verifier is running its checks at the head and trying to reproduce each finding.";
+    case "done":
+      return verifier.summary;
+    case "failed":
+      return `The verifier stopped before it finished: ${verifier.error}`;
+  }
 }
 
 const receiptAnchor = (id: string) =>
   `receipt-${id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
-
-function verifierLine(verifier: VerifierState): string {
-  switch (verifier.status) {
-    case "blind":
-      return "Writing checks from the stated requirements. The change is not on its disk yet.";
-    case "verifying":
-      return "Running its checks at the head and trying to reproduce each finding.";
-    case "done":
-      return verifier.summary;
-    case "failed":
-      return `Stopped before it finished: ${verifier.error}`;
-  }
-}
-
-/** The checks the verifier saved while only the base commit was on disk. */
-function BlindChecks({
-  checks,
-}: {
-  checks: readonly RequirementCheck[];
-}) {
-  return (
-    <div class="blind-checks">
-      <h3>Checks written before seeing the change</h3>
-      <p class="blind-checks-note">
-        From the title, description and commit messages, with only the base
-        commit checked out. Saved before the diff and findings were shown.
-      </p>
-      {checks.length ? (
-        <ol>
-          {checks.map((check) => (
-            <li key={check.id}>
-              <p>{check.requirement}</p>
-              <details>
-                <summary>
-                  <code>{check.path}</code>
-                </summary>
-                <pre>{check.content}</pre>
-              </details>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p class="blind-checks-note">
-          The verifier found no stated requirement it could check.
-        </p>
-      )}
-    </div>
-  );
-}
 
 const VERDICT_LABEL = {
   reproduced: "Reproduced by verifier",
@@ -139,7 +44,7 @@ const VERDICT_LABEL = {
   not_checked: "Not checked by verifier",
 } as const;
 
-/** The verifier's verdict on one finding, linked to the receipt behind it. */
+/** The verifier's verdict as a short link to the finding's verifier step. */
 export function VerdictBadge({ verdict }: { verdict: ViewedVerdict }) {
   const label = VERDICT_LABEL[verdict.verdict];
   const className = `verdict verdict-${verdict.verdict}`;
@@ -158,84 +63,93 @@ export function VerdictBadge({ verdict }: { verdict: ViewedVerdict }) {
   );
 }
 
-export function VerificationReceiptCard({
-  receipt,
+/** The verifier's step under a finding: its verdict, note and receipt. */
+export function VerdictNode({ verdict }: { verdict: ViewedVerdict }) {
+  return (
+    <li
+      class={`node node-verdict verdict-${verdict.verdict}`}
+      id={verdict.receiptId ? receiptAnchor(verdict.receiptId) : undefined}
+    >
+      <p class="node-label">{VERDICT_LABEL[verdict.verdict]}</p>
+      <p class="body">{verdict.note}</p>
+      {verdict.receipt && <ReceiptEvidence receipt={verdict.receipt} />}
+    </li>
+  );
+}
+
+/**
+ * What the verifier checked without tying it to a finding: the checks it
+ * wrote before seeing the change and the receipts no verdict links.
+ */
+export function VerifierChecks({
+  checks,
+  receipts,
 }: {
-  receipt: VerificationReceipt;
+  checks: readonly RequirementCheck[];
+  receipts: readonly VerificationReceipt[];
 }) {
+  if (checks.length === 0 && receipts.length === 0) return null;
+  return (
+    <div class="verifier-checks">
+      <h3>Other verifier checks</h3>
+      <ol class="trail">
+        {checks.map((check) => (
+          <li class="node" key={check.id}>
+            <p class="node-label">Written before seeing the change</p>
+            <p class="body">{check.requirement}</p>
+            <details class="node-more">
+              <summary>
+                <code>{check.path}</code>
+              </summary>
+              <pre>{check.content}</pre>
+            </details>
+          </li>
+        ))}
+        {receipts.map((receipt) => (
+          <li class="node" key={receipt.id} id={receiptAnchor(receipt.id)}>
+            <p class="node-label">{receipt.target}</p>
+            <p class="body">{receipt.property}</p>
+            <ReceiptEvidence receipt={receipt} />
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/** A receipt as a few lines of text, with its scope and limits folded away. */
+function ReceiptEvidence({ receipt }: { receipt: VerificationReceipt }) {
   const outcome = OUTCOME[receipt.outcome];
   return (
-    <div class={`verification-receipt outcome-${receipt.outcome}`}>
-      <div class="verification-state">
-        <p>{outcome.label}</p>
-        <span>{outcome.note}</span>
-      </div>
-      <div class="verification-main">
-        <p class="verification-target">{receipt.target}</p>
-        <h3>{receipt.property}</h3>
-        <p class="verification-harm">
-          <span>Why it matters</span>
-          {receipt.harm}
+    <div class={`receipt outcome-${receipt.outcome}`}>
+      <p class="receipt-outcome">
+        <strong>{outcome.label}</strong> · {receipt.method} · {receipt.checker}
+      </p>
+      <p class="body">{receipt.result}</p>
+      <code class="receipt-command">{receipt.command}</code>
+      {receipt.brokenVariant && (
+        <p class="body muted">
+          Reported mutation result. {receipt.brokenVariant}
         </p>
-      </div>
-      <dl class="verification-proof">
-        <div>
-          <dt>
-            {receipt.outcome === "not_run"
-              ? "Planned checker"
-              : "Reported checker"}
-          </dt>
-          <dd>
-            {receipt.method} · {receipt.checker}
-          </dd>
-        </div>
-        <div>
-          <dt>Command</dt>
-          <dd>
-            <code>{receipt.command}</code>
-          </dd>
-        </div>
-        <div>
-          <dt>Result</dt>
-          <dd>{receipt.result}</dd>
-        </div>
-        <div>
-          <dt>Scope</dt>
-          <dd>{receipt.scope}</dd>
-        </div>
-        {receipt.fixCheck && (
-          <div>
-            <dt>
-              Fix check {receipt.fixCheck.outcome} on scratch copy, same
-              reproducer
-            </dt>
-            <dd>
-              <code>{receipt.fixCheck.command}</code>
-            </dd>
-            <dd>Before fix: {receipt.fixCheck.before}</dd>
-            <dd>After fix: {receipt.fixCheck.after}</dd>
-          </div>
-        )}
-        {receipt.brokenVariant && (
-          <div class="verification-mutation">
-            <dt>Reported mutation result</dt>
-            <dd>{receipt.brokenVariant}</dd>
-          </div>
-        )}
-      </dl>
-      <details class="verification-limits">
-        <summary>Assumptions &amp; limits</summary>
-        <div>
-          <p>
-            <strong>Assumes</strong> {receipt.assumptions.join(" · ")}
-          </p>
-          <p>
-            <strong>Does not cover</strong> {receipt.limits.join(" · ")}
-          </p>
-          <p>
-            <strong>Files</strong> {receipt.files.join(" · ")}
-          </p>
-        </div>
+      )}
+      {receipt.fixCheck && (
+        <p class="body muted">
+          Fix check {receipt.fixCheck.outcome} on scratch copy, same reproducer.
+          Before: {receipt.fixCheck.before} After: {receipt.fixCheck.after}
+        </p>
+      )}
+      <details class="node-more">
+        <summary>Scope, assumptions &amp; limits</summary>
+        <p>{receipt.scope}</p>
+        <p>
+          <strong>Assumes</strong> {receipt.assumptions.join(" · ")}
+        </p>
+        <p>
+          <strong>Does not cover</strong> {receipt.limits.join(" · ")}
+        </p>
+        <p>
+          <strong>Files</strong> {receipt.files.join(" · ")}
+        </p>
       </details>
     </div>
   );
@@ -347,7 +261,8 @@ export function FormalDemo({ scenario }: { scenario: string | null }) {
           </a>
         ))}
       </nav>
-      <VerificationReceipts receipts={receipts} running={false} />
+      <p class="findings-note">{RECEIPT_DISCLOSURE}</p>
+      <VerifierChecks checks={[]} receipts={receipts} />
       <p class="formal-demo-owner">
         The receipt informs the named owner; it never approves the pull request
         for them.

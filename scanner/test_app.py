@@ -2,6 +2,7 @@ import ast
 import io
 import json
 import os
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -231,6 +232,7 @@ class DotnetChecksTest(unittest.TestCase):
             ["--version", "restore", "build", "test", "format"],
         )
         self.assertIn("--source", commands[1])
+        self.assertIn("--locked-mode", commands[1])
         for command in commands[2:]:
             self.assertIn("--no-restore", command)
 
@@ -330,6 +332,65 @@ class DotnetChecksTest(unittest.TestCase):
         )
         self.assertIn("function timed out", results[0].error or "")
         self.assertIn("function timed out", results[2].error or "")
+
+    def test_formatters_run_check_mode_and_preserve_failures(self) -> None:
+        for tool, filename in (("ruff-format", "app.py"), ("oxfmt", "app.ts")):
+            for fails in (False, True):
+                with (
+                    self.subTest(tool=tool, fails=fails),
+                    tempfile.TemporaryDirectory() as cwd,
+                ):
+                    Path(cwd, filename).touch()
+
+                    def invoke(
+                        command,
+                        working_directory,
+                        ok,
+                        filename=filename,
+                        tool=tool,
+                        fails=fails,
+                        cwd=cwd,
+                    ):
+                        self.assertEqual(working_directory, cwd)
+                        self.assertEqual(ok, {0})
+                        self.assertIn("--check", command)
+                        self.assertEqual(command[-1], filename)
+                        if tool == "ruff-format":
+                            self.assertEqual(command[:2], ["ruff", "format"])
+                        else:
+                            self.assertEqual(command[0], "oxfmt")
+                            config = Path(command[command.index("--config") + 1])
+                            self.assertEqual(config.read_text(), "{}")
+                            self.assertNotEqual(config.parent, Path(cwd))
+                        if fails:
+                            raise RuntimeError("formatter exited 1")
+                        return ""
+
+                    with patch.object(app, "run", side_effect=invoke):
+                        result = app.scan_one(
+                            app.Check(tool=tool, paths=[filename]), cwd
+                        )
+                    self.assertEqual(result.status, "error" if fails else "ok")
+                    if fails:
+                        self.assertIn("formatter exited 1", result.error or "")
+
+    @unittest.skipUnless(shutil.which("oxfmt"), "oxfmt executable is not installed")
+    def test_oxfmt_never_evaluates_root_or_nested_repository_config(self) -> None:
+        with tempfile.TemporaryDirectory() as cwd:
+            root = Path(cwd)
+            (root / "src").mkdir()
+            marker = root / "executed"
+            malicious = (
+                'import { writeFileSync } from "node:fs"; '
+                f'writeFileSync({json.dumps(str(marker))}, "executed"); '
+                "export default {};"
+            )
+            (root / "oxfmt.config.ts").write_text(malicious)
+            (root / "src" / "oxfmt.config.mts").write_text(malicious)
+            (root / "src" / "app.ts").write_text("const value = 1;\n")
+            result = app.scan_one(app.Check(tool="oxfmt", paths=["src/app.ts"]), cwd)
+            self.assertEqual(result.status, "ok", result.error)
+            self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

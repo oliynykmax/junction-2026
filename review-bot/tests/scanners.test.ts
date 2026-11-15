@@ -106,3 +106,12 @@ for (const error of [
     expect(rendered).toContain("List this under not_checked.");
   });
 }
+
+test("plans repository checks for root and nested EditorConfig-only changes", () => {
+  for (const filename of [".editorconfig", "src/.editorconfig"]) {
+    expect(planChecks([{ filename, status: "modified" }])).toEqual([
+      { tool: "dotnet-ci", paths: [filename] },
+      { tool: "dotnet-format", paths: [filename] },
+    ]);
+  }
+});

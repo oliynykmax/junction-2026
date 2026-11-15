@@ -224,7 +224,10 @@ def ruff_format(paths: list[str], cwd: str) -> list[Diagnostic]:
 
 
 def oxfmt(paths: list[str], cwd: str) -> list[Diagnostic]:
-    run(["oxfmt", "--check", *paths], cwd, ok={0})
+    with tempfile.TemporaryDirectory() as config_dir:
+        config = Path(config_dir, "oxfmt.json")
+        config.write_text("{}")
+        run(["oxfmt", "--check", "--config", str(config), *paths], cwd, ok={0})
     return []
 
 
@@ -436,7 +439,15 @@ def scan_archive(
                 ) from e
             for target in targets:
                 run(
-                    ["dotnet", "restore", target, "--source", feed, "--nologo"],
+                    [
+                        "dotnet",
+                        "restore",
+                        target,
+                        "--locked-mode",
+                        "--source",
+                        feed,
+                        "--nologo",
+                    ],
                     cwd,
                     ok={0},
                     timeout=DOTNET_TIMEOUT_S,

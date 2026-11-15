@@ -11,6 +11,7 @@ import {
 } from "../src/reviewer";
 import { evidenceHtml } from "../src/evidence";
 import { reviewPage } from "../src/page";
+import { executor } from "../src/executor";
 
 const target = {
   owner: "team",
@@ -25,7 +26,7 @@ afterEach(() => {
 });
 
 // Like pi-durable, documents read in a commit are unusable once it settles.
-function review() {
+function review(overrides = {}) {
   const state = {
     ...structuredClone(EMPTY_REVIEW),
     target,
@@ -33,6 +34,8 @@ function review() {
   };
   const publications = [];
   const submissions = [];
+  const checkouts = [];
+  const shells = [];
   const runtime = {
     conversationId: "test",
     snapshot: async () => structuredClone(state),
@@ -62,8 +65,30 @@ function review() {
     scan: async () => [],
     publish: async (...args) => publications.push(args),
     finished: () => {},
+    checkout: async (args) => {
+      checkouts.push(args);
+      return {
+        workspace: "/tmp/review/repo",
+        commit: args.sha,
+        ...(args.baseSha && { base: args.baseSha }),
+      };
+    },
+    shell: async (args) => {
+      shells.push(args);
+      return { exitCode: 17, stdout: "out", stderr: "err", timedOut: false };
+    },
+    ...overrides,
   });
-  return { state, runtime, api, reviewer, publications, submissions };
+  return {
+    state,
+    runtime,
+    api,
+    reviewer,
+    publications,
+    submissions,
+    checkouts,
+    shells,
+  };
 }
 
 const STAR = {
@@ -72,6 +97,49 @@ const STAR = {
   action: "Wraps the client call in a single retry.",
   result: "Callers see fewer transient failures; the PR adds no tests.",
 };
+
+test("synchronous executor setup failure cannot interrupt review publication or termination", async () => {
+  const log = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const { reviewer, api, publications, state } = review({
+      release: () =>
+        executor({ EXECUTOR_URL: "http://127.0.0.1:8787" }).release("test"),
+    });
+    const tool = reviewer.extension.tools.find(
+      (t) => t.name === "finish_review",
+    );
+    const result = await tool.execute(
+      { ...STAR, summary: "Done", not_checked: [] },
+      api,
+      {},
+    );
+    expect(state.verdict).not.toBeNull();
+    expect(publications).toHaveLength(1);
+    expect(result.control.terminate).toBe(true);
+    expect(log).toHaveBeenCalled();
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("shell output tells the reviewer when either stream is truncated", async () => {
+  const { reviewer, api } = review({
+    shell: async () => ({
+      exitCode: 0,
+      stdout: "partial",
+      stderr: "warning",
+      timedOut: false,
+      stdoutTruncated: true,
+      stderrTruncated: true,
+    }),
+  });
+  const tool = reviewer.extension.tools.find((t) => t.name === "shell");
+  const result = await tool.execute({ command: "run-tests" }, api, {});
+  const text = result.output.map((block) => block.text ?? "").join("\n");
+  expect(text).toContain("stdout (truncated");
+  expect(text).toContain("stderr (truncated");
+});
+
 test("scan replay reuses persisted evidence; prompt and coverage consume it; publication carries the risk tier", async () => {
   let ciReads = 0;
   spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -144,6 +212,46 @@ test("read_file base uses pinned repository and commit without looking up curren
   expect(urls).toEqual([
     `https://api.github.com/repos/team/demo/contents/CODING_STANDARDS.md?ref=${target.base.sha}`,
   ]);
+});
+
+test("checkout_pr and shell expose the pinned writable workspace without returning its token", async () => {
+  const { reviewer, api, checkouts, shells } = review();
+  const checkout = reviewer.extension.tools.find(
+    (t) => t.name === "checkout_pr",
+  );
+  const shell = reviewer.extension.tools.find((t) => t.name === "shell");
+  const checkedOut = await checkout.execute({}, api, {});
+  expect(checkouts).toEqual([
+    {
+      session: "test",
+      owner: target.owner,
+      repo: target.repo,
+      sha: target.headSha,
+      baseSha: target.base.sha,
+      githubToken: "token",
+    },
+  ]);
+  expect(checkedOut.output[0].text).toContain("/tmp/review/repo");
+  expect(checkedOut.output[0].text).toContain(
+    `Fetched base ${target.base.sha}`,
+  );
+  expect(checkedOut.output[0].text).not.toContain("token");
+  expect(checkedOut.output[0].text).toContain("with commit history");
+  expect(checkedOut.output[0].text).not.toContain("50 commits");
+  const ran = await shell.execute(
+    { command: "go test ./...", cwd: "pkg", timeout_ms: 1234 },
+    api,
+    {},
+  );
+  expect(shells).toEqual([
+    {
+      session: "test",
+      command: "go test ./...",
+      cwd: "pkg",
+      timeoutMs: 1234,
+    },
+  ]);
+  expect(ran.output[0].text).toBe("exit 17\nstdout:\nout\nstderr:\nerr");
 });
 
 test("older review without evidence or risk gains explicit coverage gap and publishes no tier", async () => {

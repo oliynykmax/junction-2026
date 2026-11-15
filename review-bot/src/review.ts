@@ -22,6 +22,7 @@ import { createInlineCodemodeSandbox } from "@earendil-works/pi-codemode/cloudfl
 import { alarmWrite, HEARTBEAT_MS } from "./alarm";
 import { fromStored, heldBack, type Stored } from "./findings";
 import { evidenceHtml } from "./evidence";
+import { executor } from "./executor";
 import { Ledger, type RunSnapshot } from "./ledger";
 import { interruptedTasks, Lifecycle } from "./lifecycle";
 import {
@@ -56,6 +57,10 @@ export interface Env extends PublicAppSecrets {
   VERDA_API_KEY?: string;
   SCANNER_URL: string;
   SCANNER_TOKEN: string;
+  /** Loopback URL for the intentionally unrestricted ephemeral shell service. */
+  EXECUTOR_URL?: string;
+  /** Shared secret between the CellD Worker and the shell service. */
+  EXECUTOR_TOKEN?: string;
   MCP_SERVERS?: Record<string, unknown>;
   CONTEXT_DEV_API_KEY?: string;
   /** GitHub App user authorization, for the owner's sign-off. Optional: without them the page cannot sign. */
@@ -154,6 +159,9 @@ export class Review extends DurableObject<Env> {
           this.#lifecycle.finished(decision, findings);
           this.#ledger.record(() => this.#snapshot());
         },
+        checkout: (input, signal) => executor(env).checkout(input, signal),
+        shell: (input, signal) => executor(env).shell(input, signal),
+        release: (session) => executor(env).release(session),
       });
       this.#scanTask = reviewer.scanTask;
       registry.install(reviewer.extension);

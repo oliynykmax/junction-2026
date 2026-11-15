@@ -36,6 +36,7 @@ if (process.argv.includes("--production")) {
     "WEBHOOK_SECRET",
     "SCANNER_TOKEN",
     "ORIGIN_TOKEN",
+    "EXECUTOR_TOKEN",
   ])
     if (!config.vars[key]) throw new Error(`Missing production secret ${key}`);
   for (const model of config.vars.MODELS) {

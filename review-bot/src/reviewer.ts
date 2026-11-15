@@ -54,6 +54,12 @@ import { numberedPatch, type ReadingPlan } from "./reading";
 import { readingGateRefusal, recordReadingPlan } from "./reading-gate";
 import { assessRisk, renderRisk, type Risk, type RiskTier } from "./signals";
 import { type Brief, collectBrief, renderBrief } from "./brief";
+import type {
+  CheckoutInput,
+  CheckoutResult,
+  ShellInput,
+  ShellResult,
+} from "./executor";
 
 export type Target = {
   owner: string;
@@ -348,6 +354,14 @@ export type ReviewerDeps = {
     risk?: RiskTier,
   ) => Promise<void>;
   finished: (decision: Verdict["decision"], findings: number) => void;
+  /** Materializes the pinned PR in the free-shell container. */
+  checkout?: (
+    input: CheckoutInput,
+    signal?: AbortSignal,
+  ) => Promise<CheckoutResult>;
+  /** Runs any command in that intentionally unrestricted container. */
+  shell?: (input: ShellInput, signal?: AbortSignal) => Promise<ShellResult>;
+  release?: (session: string) => Promise<unknown>;
 };
 
 const MAX_FILE_LINES = 400;
@@ -415,6 +429,9 @@ export function reviewerExtension({
   scan,
   publish,
   finished,
+  checkout,
+  shell,
+  release,
 }: ReviewerDeps) {
   async function target(api: ToolExecutionApi, context: Context) {
     const state = await api.snapshot(ReviewDoc, api.conversationId, context);
@@ -567,6 +584,69 @@ export function reviewerExtension({
         entries
           .map((e) => `${e.type === "dir" ? "d" : "f"} ${e.name}`)
           .join("\n"),
+      );
+    },
+  });
+
+  const checkoutPr = defineTool({
+    name: "checkout_pr",
+    description:
+      "Create a full writable checkout of this exact PR head in the ephemeral free-shell environment. Call before shell unless a prior checkout is still available. The returned path is shell's default working directory and disappears when the executor restarts.",
+    parameters: obj({}),
+    replay: "unsafe",
+    execute: async (_args, api, context) => {
+      const checkoutPr = checkout;
+      if (!checkoutPr) throw new Error("Free shell executor is not configured");
+      const { t, tok } = await target(api, context);
+      const baseSha = pinnedBase(t)?.sha;
+      const result = await checkoutPr(
+        {
+          session: String(api.conversationId),
+          owner: t.owner,
+          repo: t.repo,
+          sha: t.headSha,
+          ...(baseSha && { baseSha }),
+          githubToken: tok,
+        },
+        context.abortSignal,
+      );
+      return text(
+        `Checked out ${t.owner}/${t.repo}@${result.commit} at ${result.workspace}. ` +
+          (result.base
+            ? `Fetched base ${result.base} with commit history. `
+            : "") +
+          "Use shell with that path, or omit cwd to use it by default.",
+      );
+    },
+  });
+
+  const shellTool = defineTool({
+    name: "shell",
+    description:
+      "Run any Bash command in the unrestricted ephemeral review container. It has root and network access inside that container; commands may install tools, edit the checkout, generate harnesses, run tests, or inspect files. There is no command allow-list. Run checkout_pr first to materialize the pinned source. stdout and stderr are captured for the review.",
+    parameters: obj({
+      command: str(),
+      cwd: opt(str()),
+      timeout_ms: opt(int()),
+    }),
+    replay: "unsafe",
+    execute: async ({ command, cwd, timeout_ms }, api, context) => {
+      const runShell = shell;
+      if (!runShell) throw new Error("Free shell executor is not configured");
+      const result = await runShell(
+        {
+          session: String(api.conversationId),
+          command,
+          cwd,
+          timeoutMs: timeout_ms,
+        },
+        context.abortSignal,
+      );
+      const status = result.timedOut ? "timed out" : `exit ${result.exitCode}`;
+      return text(
+        `${status}\nstdout${result.stdoutTruncated ? " (truncated at 128 KiB)" : ""}:\n${result.stdout || "(empty)"}\nstderr${result.stderrTruncated ? " (truncated at 128 KiB)" : ""}:\n${
+          result.stderr || "(empty)"
+        }`,
       );
     },
   });
@@ -768,7 +848,14 @@ export function reviewerExtension({
         risk = state.risk?.tier;
       }, context);
       if (refused) return { ...text(refused), isError: true };
-      if (decision) finished(decision, findings.length);
+      if (decision) {
+        finished(decision, findings.length);
+        try {
+          await release?.(String(api.conversationId));
+        } catch (error) {
+          console.error("executor release failed", error);
+        }
+      }
       const { t, tok } = await target(api, context);
       if (t.mode !== "manual")
         await publish(t, tok, findings, risk).catch((e) =>
@@ -866,6 +953,8 @@ export function reviewerExtension({
       readPatch,
       readFile,
       listDir,
+      checkoutPr,
+      shellTool,
       reportFinding,
       describeChange,
       abridgeFile,

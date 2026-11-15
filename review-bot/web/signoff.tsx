@@ -12,6 +12,16 @@ import { location, plural } from "./shared";
 type Me = { configured: boolean; login: string | null };
 type Decision = { decision: "accept" | "dismiss" | null; reason: string };
 
+// Long enough for the checkmark to register as feedback, before the permanent
+// ownership record replaces the form.
+const SIGN_OFF_SUCCESS_DELAY_MS = 460;
+
+function signOffSuccessDelay() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? 0
+    : SIGN_OFF_SUCCESS_DELAY_MS;
+}
+
 function useMe(enabled: boolean) {
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => {
@@ -116,6 +126,7 @@ function SignOffForm({
   const [risk, setRisk] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [signed, setSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const decided = (id: string) => {
@@ -155,7 +166,11 @@ function SignOffForm({
       });
       const body = (await res.json()) as SignOff & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-      onSigned(body);
+      setSigned(true);
+      // Let the person see their action resolve before replacing the form with
+      // the immutable record. Reduced-motion users receive that confirmation
+      // without the timed transition.
+      window.setTimeout(() => onSigned(body), signOffSuccessDelay());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -284,8 +299,35 @@ function SignOffForm({
           {error}
         </p>
       )}
-      <button class="button" type="submit" disabled={!ready || busy}>
-        {busy ? "Signing…" : `Sign off as @${login}`}
+      <button
+        class={`button so-submit${signed ? " is-signed" : ""}`}
+        type="submit"
+        disabled={!ready || busy || signed}
+        aria-label={
+          signed
+            ? "Sign-off recorded"
+            : busy
+              ? "Signing off"
+              : `Sign off as @${login}`
+        }
+      >
+        <span class="so-submit-label" aria-hidden="true">
+          {busy ? "Signing…" : `Sign off as @${login}`}
+        </span>
+        <svg
+          class="so-submit-check"
+          viewBox="0 0 20 20"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="m4.5 10.5 3.4 3.4 7.6-7.6"
+            stroke="currentColor"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
       </button>
     </form>
   );

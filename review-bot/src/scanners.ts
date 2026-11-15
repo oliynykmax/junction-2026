@@ -47,9 +47,9 @@ const MATCHERS: Record<ScanTool, RegExp> = {
   "ruff-format": /\.pyi?$/,
   oxfmt: /\.[cm]?[jt]sx?$/,
   "dotnet-ci":
-    /\.(?:cs|csx|csproj|sln|props|targets)$|(^|\/)(?:global\.json|nuget\.config|packages\.lock\.json)$/i,
+    /\.(?:cs|csx|csproj|sln|props|targets)$|(^|\/)(?:\.editorconfig|global\.json|nuget\.config|packages\.lock\.json)$/i,
   "dotnet-format":
-    /\.(?:cs|csx|csproj|sln|props|targets)$|(^|\/)(?:global\.json|nuget\.config|packages\.lock\.json)$/i,
+    /\.(?:cs|csx|csproj|sln|props|targets)$|(^|\/)(?:\.editorconfig|global\.json|nuget\.config|packages\.lock\.json)$/i,
 };
 
 const REPOSITORY_CHECKS = new Set<ScanTool>(["dotnet-ci", "dotnet-format"]);

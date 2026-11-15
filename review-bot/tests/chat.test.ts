@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 
 mock.module("cloudflare:workers", () => ({ DurableObject: class {} }));
 const { admit, answer, Hive, mentionFrom, parseAnswer, parseCommand } =
@@ -29,6 +30,8 @@ function github(
     const path = String(input).replace("https://api.github.com", "");
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : null;
+    if (path === "/app/installations/7/access_tokens")
+      return Response.json({ token: "t", expires_at: "2099-01-01T00:00:00Z" });
     const permission = path.match(
       /^\/repos\/team\/demo\/collaborators\/(\w+)\/permission$/,
     );
@@ -169,6 +172,7 @@ const threadReply = (body: string, extra: Partial<Mention> = {}): Mention =>
     body,
     where: "thread",
     rootId: 10,
+    commitSha: sha,
     path: "src/parse.ts",
     line: 2,
     diffHunk: "@@ -1 +1,2 @@\n+if (i < n) read(i)",
@@ -640,3 +644,92 @@ for (const mutationResult of [
     expect(replies(writes)[0].body.body).not.toContain("Thread resolved");
   });
 }
+
+test("marks an anchor stale after a push instead of reading or resolving at the old line", async () => {
+  const writes = github();
+  const { d, asked } = deps();
+  await answer(d, threadReply("Fixed.", { commitSha: "a".repeat(40) }));
+  expect(asked[0].prompt).toContain("stale");
+  expect(asked[0].prompt).not.toContain("2| if (i < n) read(i)");
+  expect(writes.some((w) => w.path === "/graphql")).toBe(false);
+  expect(replies(writes)[0].body.body).not.toContain("Thread resolved");
+});
+
+const { privateKey } = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  publicKeyEncoding: { type: "spki", format: "pem" },
+});
+
+function queuedHive() {
+  const s = storage();
+  const hive = Object.assign(new Hive(), {
+    ctx: { storage: s },
+    env: {
+      APP_ID: "1",
+      PRIVATE_KEY: privateKey,
+      REVIEW_BASE_URL: "https://review.example",
+    },
+  }) as InstanceType<typeof Hive>;
+  return { hive, s };
+}
+
+test("alarm preserves a failed job, rearms and deletes it after recovery", async () => {
+  github({ permissionStatus: 503 });
+  const log = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const { hive, s } = queuedHive();
+    await hive.enqueue(issueMention("@bumble-bot-review help"));
+    const before = Date.now();
+    await hive.alarm();
+    expect(await s.get("job:issue:20")).toMatchObject({ attempts: 1 });
+    expect(await s.getAlarm()).toBeGreaterThanOrEqual(before + 30_000);
+    expect(await s.get("dropped:unauthorized")).toBeUndefined();
+    globalThis.fetch.mockRestore();
+    const writes = github();
+    await hive.alarm();
+    expect(await s.get("job:issue:20")).toBeUndefined();
+    expect(replies(writes)).toHaveLength(1);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("alarm deletes an exhausted job before posting one apology", async () => {
+  const writes = github({ permissionStatus: 503 });
+  const log = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const { hive, s } = queuedHive();
+    await hive.enqueue(issueMention("@bumble-bot-review help"));
+    await hive.alarm();
+    expect(await s.get("job:issue:20")).toMatchObject({ attempts: 1 });
+    await hive.alarm();
+    expect(await s.get("job:issue:20")).toMatchObject({ attempts: 2 });
+    await hive.alarm();
+    expect(await s.get("job:issue:20")).toBeUndefined();
+    expect(replies(writes)).toHaveLength(1);
+    expect(replies(writes)[0].body.body).toContain("could not answer");
+    await hive.alarm();
+    expect(replies(writes)).toHaveLength(1);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("keeps the original commit and line together when parsing a review reply", () => {
+  expect(
+    mentionFrom(
+      "pull_request_review_comment",
+      payload({
+        comment: {
+          in_reply_to_id: 10,
+          path: "a.ts",
+          original_commit_id: "a".repeat(40),
+          original_line: 4,
+          commit_id: sha,
+          line: 9,
+        },
+      }),
+    ),
+  ).toMatchObject({ commitSha: "a".repeat(40), line: 4 });
+});

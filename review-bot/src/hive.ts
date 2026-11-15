@@ -119,10 +119,7 @@ export function findingComment(f: Shown, fp: string): string {
   if (f.reason) parts.push(`Why it matters: ${f.reason}`);
   if (f.evidence)
     parts.push(
-      details(
-        "🔬 Evidence",
-        `_${f.evidence.kind}_: ${f.evidence.detail}${f.evidence.verificationId ? ` (receipt \`${f.evidence.verificationId}\`)` : ""}`,
-      ),
+      details("🔬 Evidence", `_${f.evidence.kind}_: ${f.evidence.detail}`),
     );
   if (f.suggestedPatch)
     parts.push(details("🛠️ Suggested patch", fence(f.suggestedPatch, "diff")));

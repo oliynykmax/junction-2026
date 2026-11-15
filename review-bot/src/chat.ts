@@ -36,6 +36,7 @@ export type Mention = {
       where: "thread";
       /** The thread's first comment; equals commentId when this one starts it. */
       rootId: number;
+      commitSha?: string | null;
       path: string;
       line: number | null;
       diffHunk: string;
@@ -77,7 +78,8 @@ export function mentionFrom(event: string | null, p: any): Mention | null {
       where: "thread",
       rootId: c.in_reply_to_id ?? c.id,
       path: c.path,
-      line: c.line ?? c.original_line ?? null,
+      line: c.original_line ?? c.line ?? null,
+      commitSha: c.original_commit_id ?? c.commit_id ?? null,
       diffHunk: c.diff_hunk ?? "",
     };
   }
@@ -473,14 +475,20 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
     sections.push(
       `Hive notes (maintainer conventions for this repository):\n${notes.map((n) => `- ${n.text.replace(/\s+/g, " ")}`).join("\n")}`,
     );
+  const currentAnchor =
+    m.where === "thread" && m.commitSha === pr.head.sha && m.line !== null;
   if (m.where === "thread") {
-    const code = await excerpt(token, m, m.path, pr.head.sha, m.line);
+    const code = currentAnchor
+      ? await excerpt(token, m, m.path, pr.head.sha, m.line)
+      : null;
     sections.push(
       `Review thread${root?.user?.login === BOT_LOGIN ? ", which starts with your own finding" : ""}. File and line:\n${fence(`${m.path}${m.line ? `:${m.line}` : ""}`)}\nComments:\n${fence(transcript(thread.length ? thread : root ? [root] : []))}`,
       `Diff hunk the thread is anchored to:\n${fence(m.diffHunk, "diff")}`,
       code
         ? `The file at the current head, around that line:\n${fence(code)}`
-        : `The file could not be read at the current head (it may be deleted).`,
+        : currentAnchor
+          ? `The file could not be read at the current head (it may be deleted).`
+          : `The thread anchor is stale or its commit is unknown. Its line and diff hunk are historical, not evidence about the current head. Ask for a fresh review; this reply cannot resolve the thread.`,
     );
   } else {
     const recent = await ghJson<Comment[]>(
@@ -502,6 +510,7 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
   if (
     resolve &&
     writer &&
+    currentAnchor &&
     ownThread &&
     (await resolveThread(token, m, m.rootId).catch(() => false))
   )

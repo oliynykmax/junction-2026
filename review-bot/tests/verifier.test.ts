@@ -351,13 +351,19 @@ test("finish_review refuses until a verifier finishes, and a failed verifier can
   const finish = () =>
     w.reviewer("finish_review", { ...STAR, summary: "s", not_checked: [] });
   expect((await finish()).output[0].text).toContain("Call verify");
-  w.script(async () => "unanswered");
+  w.script(async (child) => {
+    await w.verify(child, "save_checks", { checks: [] });
+    await w.verify(child, "record_verification", receipt("passed"));
+    return "unanswered";
+  });
   const failed = await w.reviewer("verify");
   expect(failed.isError).toBe(true);
+  expect(w.state().verifications).toHaveLength(1);
   expect(w.state().verifier?.status).toBe("failed");
   expect((await finish()).isError).toBe(true);
   expect(w.state().verdict).toBeNull();
   w.script(async (child) => {
+    expect(w.state().verifications).toEqual([]);
     await w.verify(child, "save_checks", { checks: [] });
     await w.verify(child, "record_verification", receipt("not_run"));
     await w.verify(child, "finish_verification", {

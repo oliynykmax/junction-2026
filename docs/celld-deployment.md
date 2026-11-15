@@ -78,6 +78,7 @@ For a recovery test, start a fresh review, confirm its status is `running` or `s
 Set these GitHub repository secrets:
 
 - `CELLD_APP_SECRETS` contains the private JSON app bindings.
+- `CELLD_EXECUTOR_TOKEN` is the random executor token. The deploy job adds it to the app bindings as `EXECUTOR_TOKEN` unless `CELLD_APP_SECRETS` already holds one, so the token can be set without rewriting the whole JSON secret.
 - `CELLD_S3_ACCESS_KEY_ID` and `CELLD_S3_SECRET_ACCESS_KEY` contain the storage credentials.
 - `CELLD_SSH_KEY` contains a dedicated deployment SSH private key for the dedicated VM.
 - `CELLD_SSH_KNOWN_HOSTS` contains the verified SSH host key line.

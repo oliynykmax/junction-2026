@@ -576,3 +576,18 @@ test("counts replies dropped after checking thread ownership or author permissio
   expect(writes).toEqual([]);
   expect(asked).toEqual([]);
 });
+
+test("a PR author without write access gets an answer but cannot resolve a finding", async () => {
+  const writes = github();
+  const { d, asked } = deps();
+  await answer(d, threadReply("Fixed. Please resolve.", { author: "eve" }));
+  expect(asked).toHaveLength(1);
+  expect(replies(writes)).toHaveLength(1);
+  expect(replies(writes)[0].body.body).not.toContain("Thread resolved");
+  expect(writes.some((w) => w.path === "/graphql")).toBe(false);
+});
+
+test("ignores webhook comments from a deleted user", () => {
+  for (const event of ["issue_comment", "pull_request_review_comment"])
+    expect(mentionFrom(event, payload({ comment: { user: null } }))).toBeNull();
+});

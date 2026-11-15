@@ -457,3 +457,30 @@ test("finish_verification needs every changed file covered and a verdict per fin
     note: "1000 runs pass.",
   });
 });
+
+test("one receipt cannot back the verdicts of two findings", async () => {
+  const w = world({
+    findings: [
+      finding,
+      { ...finding, id: "f2", title: "Eviction drops entry" },
+    ],
+  });
+  w.script(async (child) => {
+    await w.verify(child, "save_checks", { checks: [check] });
+    await w.verify(child, "record_verification", receipt("passed"));
+    const passed = w.state().verifications!.at(-1)!.id;
+    const res = await w.verify(child, "finish_verification", {
+      summary: "s",
+      verdicts: ["f1", "f2"].map((id) => ({
+        finding_id: id,
+        verdict: "not_reproduced",
+        receipt_id: passed,
+        note: "n",
+      })),
+    });
+    expect(res.isError).toBe(true);
+    expect(res.output[0].text).toContain(`Receipt ${passed} already backs f1`);
+    return "unanswered";
+  });
+  await w.reviewer("verify");
+});

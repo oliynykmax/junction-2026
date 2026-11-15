@@ -50,13 +50,8 @@ import {
   type ScanState,
   type ScanTool,
 } from "./scanners";
-import {
-  compileReadingPlan,
-  keptLine,
-  numberedPatch,
-  type ReadingPlan,
-  readingText,
-} from "./reading";
+import { numberedPatch, type ReadingPlan } from "./reading";
+import { readingGateRefusal, recordReadingPlan } from "./reading-gate";
 import { assessRisk, renderRisk, type Risk, type RiskTier } from "./signals";
 import { type Brief, collectBrief, renderBrief } from "./brief";
 import type {
@@ -180,6 +175,8 @@ export type ReviewState = {
   readings?: Record<string, ReadingPlan>;
   /** Times abridge_file refused a plan, per file. */
   readingRefusals?: Record<string, number>;
+  /** Times finish_review refused because files had no reading plan. */
+  readingGateRefusals?: number;
 };
 
 export type Lookup = { tool: string; args: string; at: number };
@@ -203,6 +200,7 @@ export const EMPTY_REVIEW: ReviewState = {
   reads: 0,
   readings: {},
   readingRefusals: {},
+  readingGateRefusals: 0,
 };
 
 export const ReviewDoc = defineDoc<ReviewState>({
@@ -220,9 +218,6 @@ const MAX_DOCS_REFUSALS = 2;
 const MAX_CHANGE_REFUSALS = 2;
 const MAX_STAR_REFUSALS = 2;
 const MAX_SUMMARY_REFUSALS = 2;
-const MAX_READING_REFUSALS = 2;
-// The preview abridge_file returns to the agent is capped, like any tool output.
-const MAX_READING_PREVIEW_CHARS = 8_000;
 // Patches are stored in the review document, so their size is capped.
 const MAX_PATCH_CHARS = 20_000;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
@@ -753,57 +748,12 @@ export function reviewerExtension({
       replace: arr(obj({ line: int(), old: str(), new: str() })),
     }),
     execute: async ({ path, remove, fold, replace }, api, context) => {
-      const plan: ReadingPlan = { remove, fold, replace };
-      let reply = "";
-      let refused = false;
+      let outcome = { reply: "", refused: false };
       await api.commit(async (tx) => {
         const state = await tx.doc(ReviewDoc, api.conversationId);
-        const file = (state.files ?? []).find((f) => f.path === path);
-        if (!file) {
-          refused = true;
-          reply = `Not recorded. ${path} is not a changed file in this review; use paths exactly as pr_overview lists them.`;
-          return;
-        }
-        if (!file.patch) {
-          refused = true;
-          reply = `Not recorded. ${path} has no stored diff (binary or over the size cap), so there is nothing to shorten.`;
-          return;
-        }
-        const refusals = state.readingRefusals ?? {};
-        const count = refusals[path] ?? 0;
-        // What the owner sees once no more plans are taken for this file.
-        const fallback = state.readings?.[path]
-          ? "the owner sees the last plan you recorded for it"
-          : "the owner sees its full diff";
-        if (count >= MAX_READING_REFUSALS) {
-          refused = true;
-          reply = `Not recorded: no more attempts for ${path}; ${fallback}. Move on.`;
-          return;
-        }
-        const cited = state.findings
-          .filter((f) => f.path === path && f.line !== null)
-          .map((f) => f.line!);
-        const result = compileReadingPlan(file.patch, plan, {
-          path,
-          protectedLines: cited,
-        });
-        if (!result.ok) {
-          refused = true;
-          state.readingRefusals = { ...refusals, [path]: count + 1 };
-          reply =
-            count + 1 < MAX_READING_REFUSALS
-              ? `Not recorded. Fix every problem and call abridge_file again with the complete plan:\n- ${result.problems.join("\n- ")}`
-              : `Not recorded, and no more attempts for ${path}; ${fallback}. Move on. Problems:\n- ${result.problems.join("\n- ")}`;
-          return;
-        }
-        state.readings = { ...state.readings, [path]: plan };
-        const preview = readingText(result.rows);
-        reply = `recorded: ${keptLine(result.stats)}\n\n${
-          preview.length > MAX_READING_PREVIEW_CHARS
-            ? `${preview.slice(0, MAX_READING_PREVIEW_CHARS)}\n... (preview truncated)`
-            : preview
-        }`;
+        outcome = recordReadingPlan(state, path, { remove, fold, replace });
       }, context);
+      const { reply, refused } = outcome;
       return refused ? { ...text(reply), isError: true } : text(reply);
     },
   });
@@ -865,6 +815,8 @@ export function reviewerExtension({
           refused = `Not finished: no described change covers ${uncovered.join(", ")}. Call describe_change for the change each of these files belongs to (or add them to an existing change by calling it again with the same title), then call finish_review again.`;
           return;
         }
+        refused = readingGateRefusal(state);
+        if (refused) return;
         decision = decisionFor(state.findings.map(fromStored));
         state.verdict = {
           decision,

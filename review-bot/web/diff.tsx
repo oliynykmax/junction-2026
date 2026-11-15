@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   compileReadingPlan,
   keptLine,
+  own,
   type PatchLine,
   patchLines,
   type ReadingPlan,
@@ -77,7 +78,7 @@ export function FileDiffs({
           dimmed={focus !== null && focus.path !== file.path}
           onFocus={onFocus}
           lineUrl={lineUrl}
-          plan={readings?.plans[file.path]}
+          plan={own(readings?.plans, file.path)}
           cited={(readings?.findings ?? findings).flatMap((f) =>
             f.path === file.path && f.line ? [f.line] : [],
           )}

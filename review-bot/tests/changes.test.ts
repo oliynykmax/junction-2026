@@ -9,6 +9,7 @@ import {
   summaryProblems,
   uncoveredFiles,
 } from "../src/reviewer";
+import { unabridgedFiles } from "../src/reading-gate";
 import { changeSentence } from "../web/shared";
 
 const file = (filename: string, patch?: string) => ({
@@ -77,6 +78,10 @@ function reviewWith(paths: string[]): ReviewState {
     },
     lookups: [{ tool: "docs", args: "{}", at: 1 }],
     files: capturedFiles(paths.map((p) => file(p, "@@ -1 +1 @@\n-a\n+b"))),
+    // Every file already shortened, so tests of other gates reach them.
+    readings: Object.fromEntries(
+      paths.map((p) => [p, { remove: [], fold: [], replace: [] }]),
+    ),
   };
 }
 
@@ -290,4 +295,46 @@ test("reviews stored before changes existed finish without the gate", async () =
   expect(state.verdict?.notChecked).toEqual([
     "No CI or team standard evidence snapshot was captured for this review.",
   ]);
+});
+
+test("finish_review refuses once while files have no reading plan, then finishes", async () => {
+  const state = reviewWith(["src/TypeCollector.cs", "tests/T.cs"]);
+  state.readings = {};
+  const { run } = harness(state);
+  await run("describe_change", {
+    ...change,
+    files: ["src/TypeCollector.cs", "tests/T.cs"],
+  });
+  const refused = await run("finish_review", finish());
+  expect(refused.isError).toBe(true);
+  expect(refused.output[0].text).toContain(
+    "no reading view for the owner: src/TypeCollector.cs, tests/T.cs",
+  );
+  expect(state.verdict).toBeNull();
+  // The second call finishes; a missing reading view is not a review gap.
+  await run("finish_review", finish());
+  expect(state.verdict?.notChecked).toEqual([
+    "No CI or team standard evidence snapshot was captured for this review.",
+  ]);
+});
+
+test("the reading gate skips files without a diff and files out of attempts", () => {
+  const state = reviewWith(["a.cs", "b.cs", "c.cs", "d.cs"]);
+  state.files = capturedFiles([
+    file("a.cs", "@@ -1 +1 @@\n-a\n+b"),
+    file("b.cs", undefined),
+    file("c.cs", "@@ -1 +1 @@\n-a\n+b"),
+    file("d.cs", "@@ -1 +1 @@\n-a\n+b"),
+  ]);
+  state.readings = { "d.cs": { remove: [], fold: [], replace: [] } };
+  state.readingRefusals = { "c.cs": 2 };
+  // b.cs has no diff, c.cs used its two attempts, d.cs has a plan.
+  expect(unabridgedFiles(state)).toEqual(["a.cs"]);
+});
+
+test("a file named like an Object.prototype member still needs its own plan", () => {
+  const state = reviewWith(["constructor", "toString"]);
+  state.readings = {};
+  state.readingRefusals = {};
+  expect(unabridgedFiles(state)).toEqual(["constructor", "toString"]);
 });

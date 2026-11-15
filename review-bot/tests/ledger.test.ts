@@ -42,6 +42,7 @@ const snapshot = (over: Partial<RunSnapshot> = {}): RunSnapshot => ({
   findings: 0,
   failure: null,
   usage: [],
+  verifications: { passed: 0, counterexample: 0, not_run: 0 },
   ...over,
 });
 
@@ -111,12 +112,20 @@ test("an identical snapshot is written once; a terminal one upserts usage and a 
     },
   ];
   l.record(async () =>
-    snapshot({ status: "done", decision: "no_blockers_found", usage }),
+    snapshot({
+      status: "done",
+      decision: "no_blockers_found",
+      usage,
+      verifications: { passed: 2, counterexample: 1, not_run: 0 },
+    }),
   );
   await settled();
   const [event, run, models] = batches[1];
   expect(event.sql).toContain("WHERE NOT EXISTS");
   expect(event.values).toContain("review.done");
+  expect(event.values).toContain(
+    JSON.stringify({ passed: 2, counterexample: 1, not_run: 0 }),
+  );
   expect(run.sql).toStartWith("INSERT INTO runs");
   expect(models.sql).toStartWith("INSERT INTO run_models");
   expect(models.sql).toContain("ON CONFLICT (object_id, model)");

@@ -1,3 +1,5 @@
+import type { LedgerEvent } from "./ledger";
+
 // Client for the dedicated, ephemeral free-shell container on the CellD VM.
 // The review Worker cannot start OS processes itself; this service is its
 // deliberately unrestricted execution boundary.
@@ -114,5 +116,48 @@ export function executor(env: ExecutorEnv): Executor {
         input,
         signal,
       ),
+  };
+}
+
+/** Records executor outcomes without storing command text, output or errors. */
+export function recordExecutor(
+  executor: () => Executor,
+  event: (event: LedgerEvent) => void,
+): Executor {
+  async function timed<T>(
+    name: "checkout" | "command",
+    call: () => Promise<T>,
+    judge: (result: T) => Pick<LedgerEvent, "ok" | "detail"> = () => ({
+      ok: true,
+    }),
+  ): Promise<T> {
+    const started = Date.now();
+    try {
+      const result = await call();
+      event({
+        kind: "shell",
+        name,
+        ms: Date.now() - started,
+        ...judge(result),
+      });
+      return result;
+    } catch (error) {
+      event({ kind: "shell", name, ok: false, ms: Date.now() - started });
+      throw error;
+    }
+  }
+  return {
+    checkout: (input, signal) =>
+      timed("checkout", () => executor().checkout(input, signal)),
+    shell: (input, signal) =>
+      timed(
+        "command",
+        () => executor().shell(input, signal),
+        (r) => ({
+          ok: !r.timedOut,
+          detail: { exit: r.exitCode, timedOut: r.timedOut },
+        }),
+      ),
+    release: (session) => executor().release(session),
   };
 }

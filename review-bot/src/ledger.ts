@@ -5,6 +5,7 @@
 import type { LifecycleEvent } from "./lifecycle";
 import type { FailureClass, RunStatus } from "./status";
 import type { Target, Verdict } from "./reviewer";
+import type { VerificationOutcome } from "./formal";
 
 export type ModelUsage = {
   model: string;
@@ -26,12 +27,15 @@ export type RunSnapshot = {
   findings: number;
   failure: FailureClass | null;
   usage: ModelUsage[];
+  /** Receipts recorded so far, by outcome. */
+  verifications: Record<VerificationOutcome, number>;
 };
 
 type Detail = Record<string, string | number | boolean>;
 
 export type LedgerEvent = {
-  kind: "modal" | "mcp" | "mcp_connect" | "github_token" | "lifecycle";
+  kind:
+    "modal" | "mcp" | "mcp_connect" | "github_token" | "shell" | "lifecycle";
   name: string;
   ok: boolean;
   ms: number | null;
@@ -170,7 +174,7 @@ export class Ledger {
           this.#ids.bootId,
           `review.${status}`,
           status === "failed" ? 0 : 1,
-          detailJson(s.failure ? { failure: s.failure } : undefined),
+          detailJson(statusDetail(s, terminal)),
           status,
         ),
         this.#runRow(s, status, terminal),
@@ -358,6 +362,15 @@ export class Ledger {
       await this.#db!.batch(statements);
     });
   }
+}
+
+/** A terminal status event carries the run's verification receipts by outcome. */
+function statusDetail(s: RunSnapshot, terminal: boolean): Detail | undefined {
+  const detail: Detail = {
+    ...(s.failure ? { failure: s.failure } : {}),
+    ...(terminal ? s.verifications : {}),
+  };
+  return Object.keys(detail).length ? detail : undefined;
 }
 
 function detailJson(detail: Detail | undefined): string | null {

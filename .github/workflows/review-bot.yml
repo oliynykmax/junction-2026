@@ -79,7 +79,7 @@ jobs:
           bun-version: canary
       - run: bun install --frozen-lockfile
       - run: uv sync --locked
-      - run: PATH="./node_modules/.bin:$PATH" uv run pytest -q
+      - run: PATH="$GITHUB_WORKSPACE/scanner/node_modules/.bin:$PATH" uv run pytest -q
 
   deploy:
     needs: check

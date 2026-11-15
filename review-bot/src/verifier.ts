@@ -166,6 +166,7 @@ function verdictProblems(
 ): string[] {
   const problems: string[] = [];
   const given = new Set<string>();
+  const backs = new Map<string, string>();
   for (const v of verdicts) {
     const finding = findings.find((f) => f.id === v.finding_id);
     if (!finding) {
@@ -203,6 +204,12 @@ function verdictProblems(
         problems.push(
           `Receipt ${receipt.id} does not cover ${finding.path}, the path of ${v.finding_id}.`,
         );
+      const other = backs.get(receipt.id);
+      if (other && other !== v.finding_id)
+        problems.push(
+          `Receipt ${receipt.id} already backs ${other}. Record a receipt that runs ${v.finding_id}'s own scenario.`,
+        );
+      backs.set(receipt.id, v.finding_id);
     }
   }
   const missing = findings.filter((f) => !given.has(f.id));
@@ -492,7 +499,7 @@ export function verifierExtension({
   const finishVerification = defineTool({
     name: "finish_verification",
     description:
-      "End the verification. Call once, after receipts cover every changed file. Give every reviewer finding one verdict: reproduced with the counterexample receipt that shows it, not_reproduced with the passed receipt whose check would have caught it, or not_checked with no receipt. Each receipt must cover the finding's path. The note says in one sentence what you ran or why you could not. The summary says what your blind checks found at the head.",
+      "End the verification. Call once, after receipts cover every changed file. Give every reviewer finding one verdict: reproduced with the counterexample receipt that shows it, not_reproduced with the passed receipt whose check would have caught it, or not_checked with no receipt. Each receipt must cover the finding's path and back only that finding, so record one reproducer per finding. The note says in one sentence what you ran or why you could not. The summary says what your blind checks found at the head.",
     parameters: obj({
       summary: str(),
       verdicts: arr(

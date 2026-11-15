@@ -189,7 +189,7 @@ test("a turn limit does not send the review to Kimi", async () => {
   expect(r.calls()).toEqual({ anthropic: 1, verda: 0 });
 });
 
-test("simultaneous recovery attempts start only one Kimi continuation", async () => {
+test("queued recovery attempts start only one Kimi continuation", async () => {
   const r = await review({
     anthropic: [failed()],
     verda: [fauxAssistantMessage("No blockers found.")],

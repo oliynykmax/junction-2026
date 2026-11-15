@@ -56,7 +56,7 @@ The bot and GitHub App are named **Bumble Bot** (`bumble-bot-review`). The bee l
 
 `landing/` is a hackathon concept landing page for engineers deciding whether to accept agent-written pull requests. It turns a public GitHub PR URL into a read-only evidence report (a manual review, served at `/m/...`). Manual starts must never write comments or approvals to GitHub.
 
-Its visual direction is orange on a warm paper ground, confident and trustworthy: readable typography, clear focus states, reduced-motion support, a responsive layout. It has a light and a dark theme: it follows the OS by default (as the review page does) and a switch in the header pins one. No fabricated metrics, findings, endorsements or approval claims.
+Its visual direction is a bold hive: honey yellow with black outlines and hard shadows (a dark hive with honey outlines in dark mode), Archivo and Space Mono, and a honeycomb of the six evidence sources around one cell for the owner. It keeps readable typography, clear focus states, reduced-motion support, a responsive layout. It has a light and a dark theme: it follows the OS by default (as the review page does) and a switch in the header pins one. No fabricated metrics, findings, endorsements or approval claims.
 
 ## Evidence on Hand
 

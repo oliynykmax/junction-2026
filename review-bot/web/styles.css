@@ -1631,7 +1631,7 @@ pre {
 .ci-chevron {
   transform: rotate(-90deg);
 }
-.ci-block[open] > .ci-heading .ci-chevron {
+.ci-block > details[open] > .ci-heading .ci-chevron {
   transform: none;
 }
 .ci-demo-label {

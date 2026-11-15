@@ -182,6 +182,40 @@ class DotnetChecksTest(unittest.TestCase):
             app.dotnet_packages(archive)
         urlopen.assert_not_called()
 
+    @patch.object(app.urllib.request, "urlopen")
+    def test_prefetch_enforces_total_package_byte_limit(self, urlopen) -> None:
+        urlopen.return_value.__enter__.return_value.read.return_value = b"1234567"
+        archive = self.archive(
+            {
+                "packages.lock.json": json.dumps(
+                    {
+                        "dependencies": {
+                            "net8.0": {
+                                name: {"type": "Direct", "resolved": "1.0.0"}
+                                for name in ("One", "Two")
+                            }
+                        }
+                    }
+                )
+            }
+        )
+        with (
+            patch.object(app, "DOTNET_MAX_TOTAL_PACKAGE_BYTES", 12),
+            self.assertRaisesRegex(ValueError, "64 MiB total"),
+        ):
+            app.dotnet_packages(archive)
+
+    @patch.object(app, "run")
+    def test_config_only_format_check_intentionally_covers_entire_target(
+        self, run
+    ) -> None:
+        with tempfile.TemporaryDirectory() as cwd:
+            Path(cwd, "App.csproj").touch()
+            app.dotnet_format(["global.json"], cwd)
+        command = run.call_args.args[0]
+        self.assertIn("--verify-no-changes", command)
+        self.assertNotIn("--include", command)
+
     @patch.object(app, "run")
     def test_offline_restore_precedes_build_test_and_format(self, run) -> None:
         archive = self.archive({"App.csproj": "", "App.cs": ""})

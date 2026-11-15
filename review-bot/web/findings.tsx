@@ -2,6 +2,7 @@
 // note used inside a change, and the finding body and suggested-fix renderers.
 
 import { Fragment } from "preact";
+import { VerificationReceiptCard } from "./formal";
 import { useMemo, useState } from "preact/hooks";
 import { heldBack } from "../src/findings";
 import {
@@ -168,7 +169,7 @@ function FindingRow({ f, href }: { f: Finding; href: string }) {
         )}
       </div>
       <div class="row-body">
-        <Body text={f.body} />
+        <FindingDetails f={f} />
         {open && f.suggestedPatch && <Fix patch={f.suggestedPatch} />}
       </div>
     </li>
@@ -221,9 +222,14 @@ export function FindingNote({
           {open ? "Hide details" : "Details"}
         </button>
       </div>
+      {f.evidence && (
+        <p class="body">
+          Evidence ({f.evidence.kind}): {f.evidence.detail}
+        </p>
+      )}
       {open && (
         <div class="note-body">
-          <Body text={f.body} />
+          <FindingDetails f={f} />
           {f.suggestedPatch && <Fix patch={f.suggestedPatch} />}
         </div>
       )}
@@ -273,6 +279,46 @@ function NoteFacts({ f }: { f: Finding }) {
         </Fragment>
       ))}
     </span>
+  );
+}
+
+export function FindingDetails({ f }: { f: Finding }) {
+  return (
+    <>
+      <Body text={f.body} />
+      {f.reason && (
+        <p class="body">
+          <strong>Why it matters. </strong>
+          {f.reason}
+        </p>
+      )}
+      {f.evidence && (
+        <p class="body">
+          <strong>Evidence ({f.evidence.kind}). </strong>
+          {f.evidence.detail}
+        </p>
+      )}
+      {f.evidence?.supporting?.map((item) => (
+        <p class="body" key={item}>
+          {item}
+        </p>
+      ))}
+      {f.fix && (
+        <p class="body">
+          <strong>
+            {f.verification?.fixCheck?.outcome === "passed"
+              ? "Fix tested on scratch copy. "
+              : f.verification?.fixCheck?.outcome === "failed"
+                ? "Proposed fix, scratch check failed. "
+                : "Proposed fix, not tested. "}
+          </strong>
+          {f.fix}
+        </p>
+      )}
+      {f.verification && (
+        <VerificationReceiptCard receipt={f.verification} embedded />
+      )}
+    </>
   );
 }
 

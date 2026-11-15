@@ -54,6 +54,7 @@ export function mentionFrom(event: string | null, p: any): Mention | null {
   )
     return null;
   const c = p.comment;
+  if (!c?.user?.login) return null;
   const base = {
     owner: p.repository.owner.login,
     repo: p.repository.name,
@@ -489,6 +490,7 @@ export async function answer(deps: ChatDeps, m: Mention): Promise<void> {
   const ownThread = m.where === "thread" && root?.user?.login === BOT_LOGIN;
   if (
     resolve &&
+    writer &&
     ownThread &&
     (await resolveThread(token, m, m.rootId).catch(() => false))
   )

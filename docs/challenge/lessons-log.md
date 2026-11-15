@@ -13,6 +13,10 @@ Recorded 15 November 2026. These are observed limitations and the resulting deci
 | Earlier bot approval semantics could be mistaken for human acceptance. | Current [publication code](../../review-bot/src/github.ts) includes withdrawal of historical bot approvals. | Treat the bot as advice and use a separate named-owner sign-off. |
 | Attractive synthetic examples can look like measured evidence. | [Demo fixture](../../review-bot/web/demo.ts). | Keep mock walkthroughs separate from the four real, commit-pinned sample reviews. |
 
+## Fresh rerun limitation, 15 November
+
+The #2297 verifier reported executor-capacity errors, recorded its checks as `not_run`, and left its candidate finding `not_checked`. The review completed with those gaps visible. This is a real abstention example, not evidence that the candidate defect was reproduced. The #2283 rerun also completed. Other run states are captured in the [live sample ledger](sample-reviews.md).
+
 ## Decisions for this reference
 
 Use the four original supplied commits on our own fork. Preserve failures and incomplete runs. Use issue #2283 for the detailed walkthrough because it exposes a fix that satisfies one property while breaking another. Keep risk routing separate from confidence. Keep per-area trust withdrawal a stated pilot policy until implemented and evaluated.

@@ -97,7 +97,7 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-          printf '%s' "$APP_SECRETS" | jq --arg t "$EXECUTOR_TOKEN" -f scripts/with-executor-token.jq > "$RUNNER_TEMP/celld-secrets.json"
+          jq --arg t "$EXECUTOR_TOKEN" -f scripts/with-executor-token.jq <<<"$APP_SECRETS" > "$RUNNER_TEMP/celld-secrets.json"
           export CELLD_SECRETS_FILE="$RUNNER_TEMP/celld-secrets.json"
           bash scripts/celld-deploy.sh
           bun -e 'const s=await Bun.file(process.env.CELLD_SECRETS_FILE).json(); await Bun.write(process.env.RUNNER_TEMP+"/origin-token",s.ORIGIN_TOKEN);'

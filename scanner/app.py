@@ -8,6 +8,7 @@ returns every diagnostic in one shape.
 import io
 import json
 import os
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -39,8 +40,13 @@ VERSIONS = {
 }
 TIMEOUT_S = 120
 DOTNET_TIMEOUT_S = 300
-DOTNET_FUNCTION_TIMEOUT_S = DOTNET_TIMEOUT_S * 2 + 60
-WEB_TIMEOUT_S = DOTNET_FUNCTION_TIMEOUT_S + 120
+DOTNET_MAX_TARGETS = 2
+DOTNET_MAX_PACKAGES = 100
+DOTNET_PACKAGE_TIMEOUT_S = 10
+DOTNET_FUNCTION_TIMEOUT_S = DOTNET_TIMEOUT_S * 4 * DOTNET_MAX_TARGETS + TIMEOUT_S + 60
+WEB_TIMEOUT_S = (
+    DOTNET_FUNCTION_TIMEOUT_S + DOTNET_MAX_PACKAGES * DOTNET_PACKAGE_TIMEOUT_S + 120
+)
 
 scanner_image = (
     modal.Image.debian_slim(python_version="3.13")
@@ -148,7 +154,7 @@ def zizmor(paths: list[str], cwd: str) -> list[Diagnostic]:
         cwd,
         ok={0, 10, 11, 12, 13, 14},
     )
-    severity = {"High": "error", "Medium": "warning"}
+    severity: dict[str, Severity] = {"High": "error", "Medium": "warning"}
     diagnostics = []
     for finding in json.loads(out or "[]"):
         loc = next(
@@ -173,7 +179,7 @@ def zizmor(paths: list[str], cwd: str) -> list[Diagnostic]:
 def ty(paths: list[str], cwd: str) -> list[Diagnostic]:
 
     out = run(["ty", "check", "--output-format", "gitlab", *paths], cwd, ok={0, 1})
-    severity = {
+    severity: dict[str, Severity] = {
         "blocker": "error",
         "critical": "error",
         "major": "error",
@@ -231,7 +237,12 @@ def dotnet_targets(cwd: str) -> list[str]:
             if not ignored.intersection(path.relative_to(root).parts)
         )
 
-    return paths("*.sln") or paths("*.csproj")
+    targets = paths("*.sln") or paths("*.csproj")
+    if len(targets) > DOTNET_MAX_TARGETS:
+        raise RuntimeError(
+            f"dotnet checks support at most {DOTNET_MAX_TARGETS} targets"
+        )
+    return targets
 
 
 def dotnet_ci(_: list[str], cwd: str) -> list[Diagnostic]:
@@ -247,6 +258,7 @@ def dotnet_ci(_: list[str], cwd: str) -> list[Diagnostic]:
                 "--configuration",
                 DOTNET_CONFIGURATION,
                 "--nologo",
+                "--no-restore",
             ],
             cwd,
             ok={0},
@@ -261,6 +273,7 @@ def dotnet_ci(_: list[str], cwd: str) -> list[Diagnostic]:
                 DOTNET_CONFIGURATION,
                 "--no-build",
                 "--nologo",
+                "--no-restore",
             ],
             cwd,
             ok={0},
@@ -344,15 +357,95 @@ def scan_one(check: Check, cwd: str) -> ScanResult:
     )
 
 
-def scan_archive(
-    archive: bytes, checks: list[dict[str, object]]
-) -> list[dict[str, object]]:
-    """Run executable .NET checks in a secret-free restricted function."""
+def dotnet_packages(archive: bytes) -> dict[str, bytes]:
+    """Fetch locked packages from a fixed feed without evaluating repository code."""
+    packages: set[tuple[str, str]] = set()
     with tempfile.TemporaryDirectory() as cwd:
         extract_archive(archive, cwd)
-        return [
-            scan_one(Check.model_validate(check), cwd).model_dump() for check in checks
-        ]
+        for lock in Path(cwd).rglob("packages.lock.json"):
+            for framework in json.loads(lock.read_text())["dependencies"].values():
+                for name, dependency in framework.items():
+                    if dependency.get("type", "").lower() == "project":
+                        continue
+                    version = dependency["resolved"].lower()
+                    name = name.lower()
+                    if not all(
+                        re.fullmatch(r"[a-z0-9][a-z0-9_.+-]*", value)
+                        for value in (name, version)
+                    ):
+                        raise ValueError("invalid locked NuGet package name or version")
+                    packages.add((name, version))
+    if len(packages) > DOTNET_MAX_PACKAGES:
+        raise ValueError(
+            f"dotnet checks support at most {DOTNET_MAX_PACKAGES} packages"
+        )
+    result = {}
+    for name, version in sorted(packages):
+        filename = f"{name}.{version}.nupkg"
+        url = f"https://api.nuget.org/v3-flatcontainer/{name}/{version}/{filename}"
+        with urllib.request.urlopen(url, timeout=DOTNET_PACKAGE_TIMEOUT_S) as response:
+            data = response.read(20 * 1024 * 1024 + 1)
+        if len(data) > 20 * 1024 * 1024:
+            raise ValueError("locked NuGet package exceeds 20 MiB")
+        result[filename] = data
+    return result
+
+
+def failed_checks(checks: list[Check], error: str) -> list[ScanResult]:
+    return [
+        ScanResult(
+            tool=check.tool,
+            version=VERSIONS[check.tool],
+            status="error",
+            durationMs=0,
+            paths=check.paths,
+            diagnostics=[],
+            error=error,
+        )
+        for check in checks
+    ]
+
+
+def scan_archive(
+    archive: bytes, checks: list[dict[str, object]], packages: dict[str, bytes]
+) -> list[dict[str, object]]:
+    """Restore and execute repository code only inside the network-blocked runner."""
+    validated = [Check.model_validate(check) for check in checks]
+    if len(validated) > len(DOTNET_TOOLS) or len({c.tool for c in validated}) != len(
+        validated
+    ):
+        raise ValueError("at most one request per dotnet check is supported")
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as feed:
+        extract_archive(archive, cwd)
+        for name, data in packages.items():
+            Path(feed, name).write_bytes(data)
+        try:
+            targets = dotnet_targets(cwd)
+            # Let the SDK resolver apply global.json, including rollForward.
+            try:
+                run(["dotnet", "--version"], cwd, ok={0})
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+                raise RuntimeError(
+                    f"SDK not available (installed {DOTNET_SDK}): {e}"
+                ) from e
+            for target in targets:
+                run(
+                    ["dotnet", "restore", target, "--source", feed, "--nologo"],
+                    cwd,
+                    ok={0},
+                    timeout=DOTNET_TIMEOUT_S,
+                )
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+            return [
+                result.model_dump()
+                for result in failed_checks(
+                    validated,
+                    f"Offline .NET preparation failed: {e}. "
+                    "Only packages in packages.lock.json from nuget.org are prefetched; "
+                    "all repository code runs with networking blocked.",
+                )
+            ]
+        return [scan_one(check, cwd).model_dump() for check in validated]
 
 
 @app.function(
@@ -360,13 +453,27 @@ def scan_archive(
     timeout=DOTNET_FUNCTION_TIMEOUT_S,
     restrict_modal_access=True,
     single_use_containers=True,
+    block_network=True,
 )
 def run_dotnet_checks(
-    archive: bytes, checks: list[dict[str, object]]
+    archive: bytes, checks: list[dict[str, object]], packages: dict[str, bytes]
 ) -> list[dict[str, object]]:
     if any(check.get("tool") not in DOTNET_TOOLS for check in checks):
         raise ValueError("restricted runner only accepts dotnet checks")
-    return scan_archive(archive, checks)
+    return scan_archive(archive, checks, packages)
+
+
+def scan_dotnet(archive: bytes, checks: list[Check]) -> list[ScanResult]:
+    if not checks:
+        return []
+    try:
+        packages = dotnet_packages(archive)
+        call = run_dotnet_checks.spawn(
+            archive, [check.model_dump() for check in checks], packages
+        )
+        return [ScanResult.model_validate(result) for result in call.get()]
+    except Exception as e:  # noqa: BLE001 - preserve static evidence on remote failures
+        return failed_checks(checks, f".NET runner failed: {e}")
 
 
 @app.function(
@@ -387,26 +494,18 @@ def web():
         ):
             raise HTTPException(401, "bad token")
         archive = download_archive(req)
-        dotnet_checks = [
-            check.model_dump() for check in req.checks if check.tool in DOTNET_TOOLS
-        ]
+        dotnet_checks = [check for check in req.checks if check.tool in DOTNET_TOOLS]
         static_checks = [
             check for check in req.checks if check.tool not in DOTNET_TOOLS
         ]
-        dotnet_call = (
-            run_dotnet_checks.spawn(archive, dotnet_checks) if dotnet_checks else None
-        )
         with tempfile.TemporaryDirectory() as cwd:
             extract_archive(archive, cwd)
             with ThreadPoolExecutor() as pool:
+                dotnet_call = pool.submit(scan_dotnet, archive, dotnet_checks)
                 static = list(
                     pool.map(lambda check: scan_one(check, cwd), static_checks)
                 )
-                dotnet = (
-                    [ScanResult.model_validate(result) for result in dotnet_call.get()]
-                    if dotnet_call
-                    else []
-                )
+                dotnet = dotnet_call.result()
         static_results = iter(static)
         dotnet_results = iter(dotnet)
         return [

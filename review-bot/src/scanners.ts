@@ -76,7 +76,8 @@ export function renderScan(scan: ScanState | null): string | undefined {
   return scan.results
     .map((r) => {
       const head = `${r.tool} ${r.version} on ${r.paths.join(", ")}`;
-      if (r.status === "error") return `${head}\nfailed: ${r.error}`;
+      if (r.status === "error")
+        return `${head}\nfailed: ${r.error}. List this under not_checked.`;
       if (!r.diagnostics.length)
         return `${head}\ncompleted successfully with no diagnostics`;
       const lines = r.diagnostics.map(

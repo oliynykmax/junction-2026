@@ -322,9 +322,6 @@ function Fix({ patch }: { patch: string }) {
     <div class="fix">
       <p class="fix-label">Suggested fix</p>
       <Patch text={patch} />
-      <button type="button" disabled title="Not wired up yet">
-        Open fix PR (coming soon)
-      </button>
     </div>
   );
 }

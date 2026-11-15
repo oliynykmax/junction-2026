@@ -6,3 +6,9 @@ dependencies = [
     "modal==1.6.4",
     "pydantic>=2.14.3",
 ]
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.115",
+    "pytest>=8.3",
+]

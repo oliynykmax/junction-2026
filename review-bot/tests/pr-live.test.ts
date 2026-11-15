@@ -118,3 +118,24 @@ test("a manual review reads anonymously even where the app is installed", async 
   );
   expect(auth.every((a) => a?.includes("app-token"))).toBe(true);
 });
+
+test("uses the owning review's cached installation token", async () => {
+  const repoToken = spyOn(github, "repoToken").mockResolvedValue("new-token");
+  const auth: (string | null)[] = [];
+  spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    auth.push(new Headers(init?.headers).get("authorization"));
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("/pulls/7")) return Response.json(pull);
+    if (path.endsWith("/check-runs")) return Response.json({ check_runs: [] });
+    return Response.json([]);
+  });
+
+  await prLive(
+    { APP_ID: "1", PRIVATE_KEY: "k" },
+    { owner: "team", repo: "demo", number: 7, headSha, mode: "webhook" },
+    "stored-token",
+  );
+
+  expect(repoToken).not.toHaveBeenCalled();
+  expect(auth.every((a) => a === "Bearer stored-token")).toBe(true);
+});

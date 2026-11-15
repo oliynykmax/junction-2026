@@ -271,6 +271,20 @@ export async function installationToken(
   return { token: body.token, expiresAt: Date.parse(body.expires_at) };
 }
 
+/** A token for the app's installation on owner/repo; throws when it is not installed there. */
+export async function repoToken(
+  app: AppSecrets,
+  owner: string,
+  repo: string,
+): Promise<string> {
+  const jwt = await appJwt(app.APP_ID, app.PRIVATE_KEY);
+  const { id } = await ghJson<{ id: number }>(
+    jwt,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/installation`,
+  );
+  return (await installationToken(app, id)).token;
+}
+
 async function appJwt(appId: string, pem: string): Promise<string> {
   const der = Uint8Array.from(
     atob(pem.replace(/-----[^-]+-----|\s/g, "")),

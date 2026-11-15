@@ -85,11 +85,6 @@ export async function resolveManual(
       typeof data.deletions !== "number"
     )
       throw new Error("invalid size");
-    if (data.changed_files > 60 || data.additions + data.deletions > 4000)
-      throw new ManualError(
-        "This demo supports PRs with at most 60 files and 4,000 changed lines.",
-        422,
-      );
     return { ...pr, headSha: head.sha, baseSha: base.sha, mode: "manual" };
   } catch (error) {
     if (error instanceof ManualError) throw error;

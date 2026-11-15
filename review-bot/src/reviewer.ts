@@ -826,6 +826,9 @@ export function reviewerExtension({
           });
           (await tx.doc(VerifierLink, created.id)).root = api.conversationId;
           state.verifier = { status: "blind", conversationId: created.id };
+          state.verifications = state.verifications?.filter(
+            (r) => r.author !== "verifier",
+          );
           return { child: created.id };
         },
         context,

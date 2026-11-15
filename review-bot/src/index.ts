@@ -144,6 +144,7 @@ export default {
 
     if (
       url.pathname === "/" ||
+      url.pathname === "/consolation" ||
       /^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname) ||
       /^\/review\/(assets\/)?[a-zA-Z0-9_.-]+$/.test(url.pathname)
     )

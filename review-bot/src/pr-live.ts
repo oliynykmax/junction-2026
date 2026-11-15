@@ -63,13 +63,15 @@ export async function prLive(
     headSha: string;
     mode: "manual" | "webhook";
   },
+  cachedToken?: string,
 ): Promise<PrLive> {
   // Manual reviews never use app credentials. Public repos the app is not
   // installed on are read anonymously too.
   const token =
-    t.mode === "manual"
+    cachedToken ??
+    (t.mode === "manual"
       ? ""
-      : await repoToken(app, t.owner, t.repo).catch(() => "");
+      : await repoToken(app, t.owner, t.repo).catch(() => ""));
   const [pr, ci] = await Promise.all([
     gh(
       token,
